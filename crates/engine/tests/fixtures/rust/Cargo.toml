@@ -1,0 +1,7 @@
+# A fixture: what a small Rust project keeps. Not a member of any workspace.
+[package]
+name = "ledger"
+version = "0.3.0"
+edition = "2021"
+
+[dependencies]

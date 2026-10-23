@@ -1,0 +1,15 @@
+{
+  "name": "storefront",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "test": "vitest",
+    "test:e2e": "playwright test",
+    "lint": "eslint ."
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.0",
+    "eslint": "^9.38.0",
+    "vitest": "^4.0.0"
+  }
+}

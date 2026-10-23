@@ -1,0 +1,11 @@
+{
+    "name": "acme/invoices",
+    "type": "project",
+    "require": {
+        "php": "^8.3"
+    },
+    "require-dev": {
+        "phpstan/phpstan": "^2.1",
+        "phpunit/phpunit": "^11.5"
+    }
+}

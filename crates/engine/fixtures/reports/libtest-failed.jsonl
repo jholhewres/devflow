@@ -1,0 +1,8 @@
+{ "type": "suite", "event": "started", "test_count": 3 }
+{ "type": "test", "event": "started", "name": "tests::adds" }
+{ "type": "test", "event": "started", "name": "tests::later" }
+{ "type": "test", "event": "started", "name": "tests::the_answer_is_wrong" }
+{ "type": "test", "name": "tests::later", "event": "ignored" }
+{ "type": "test", "name": "tests::adds", "event": "ok" }
+{ "type": "test", "name": "tests::the_answer_is_wrong", "event": "failed", "stdout": "\nthread 'tests::the_answer_is_wrong' (3382374) panicked at src/lib.rs:6:40:\nassertion `left == right` failed: off by one\n  left: 41\n right: 42\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n" }
+{ "type": "suite", "event": "failed", "passed": 1, "failed": 1, "ignored": 1, "measured": 0, "filtered_out": 0, "exec_time": 0.000714356 }

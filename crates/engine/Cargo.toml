@@ -10,6 +10,20 @@ homepage.workspace = true
 authors.workspace = true
 
 [dependencies]
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json.workspace = true
+# The digest a skill is listed with, and a team layer's cache name.
+sha2 = "0.10"
+# The event parser, for the line each key and value sits on: an invalid
+# devflow.yaml is answered with its line and field.
+yaml-rust2 = { version = "0.13.0", default-features = false }
+
+# JUnit reports.
+quick-xml = "0.41"
+
+[target.'cfg(unix)'.dependencies]
+# A check's shell leads a process group of its own, ended together.
+libc = "0.2"
 
 [dev-dependencies]
 tempfile.workspace = true

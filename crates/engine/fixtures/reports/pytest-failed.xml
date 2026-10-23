@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="1" tests="4" time="0.034" timestamp="2026-10-03T10:10:39.602208-03:00" hostname="builder"><testcase classname="test_sample" name="test_adds" time="0.001" /><testcase classname="test_sample" name="test_the_answer_is_wrong" time="0.001"><failure message="AssertionError: off by one&#10;assert (40 + 1) == 42">&gt;   def test_the_answer_is_wrong(): assert 40 + 1 == 42, "off by one"
+                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   AssertionError: off by one
+E   assert (40 + 1) == 42
+
+test_sample.py:3: AssertionError</failure></testcase><testcase classname="test_sample" name="test_later" time="0.000"><skipped type="pytest.skip" message="later">/work/app/test_sample.py:4: later</skipped></testcase><testcase classname="test_sample" name="test_errors" time="0.000"><failure message="RuntimeError: boom">&gt;   def test_errors(): raise RuntimeError("boom")
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   RuntimeError: boom
+
+test_sample.py:6: RuntimeError</failure></testcase></testsuite></testsuites>
