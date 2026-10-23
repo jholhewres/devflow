@@ -1,4 +1,4 @@
-//! `devpit_devflow_review`: a card's change reviewed by the reviewers
+//! `review`: a card's change reviewed by the reviewers
 //! devflow.yaml lists, each headless on the person's own agent CLI and
 //! subscription, all at once and from one packet — the diff from BASE to
 //! HEAD, the card, its criteria and the persona — never the session that
@@ -161,9 +161,9 @@ pub(crate) fn handed_back(run: Option<&str>, reports: &[Value]) -> Result<(), St
             "pass `reports` with `run`: the findings objects of the personas you reviewed"
                 .to_owned(),
         ),
-        (None, false) => Err(
-            "`reports` go to the run devpit_devflow_review answered: pass it as `run`".to_owned(),
-        ),
+        (None, false) => {
+            Err("`reports` go to the run `review` answered: pass it as `run`".to_owned())
+        }
         _ => Ok(()),
     }
 }
@@ -636,7 +636,7 @@ impl Ran {
             agent: text("agent")?,
             persona: text("persona")?,
             model: text("model"),
-            by: text("by").unwrap_or_else(|| "devpit".to_owned()),
+            by: text("by").unwrap_or_else(|| "devflow".to_owned()),
             duration_ms: value.get("duration_ms").and_then(Value::as_u64),
             cost_usd: value.get("cost_usd").and_then(Value::as_f64),
             file: text("file").filter(|file| file.starts_with("findings-")),
@@ -991,7 +991,7 @@ fn reviewed_anew(given: &Given) -> Result<(String, PathBuf, Record), String> {
             agent: reviewer.agent.word().to_owned(),
             persona: reviewer.persona.clone(),
             model: reviewer.model.clone(),
-            by: "devpit".to_owned(),
+            by: "devflow".to_owned(),
             duration_ms: None,
             cost_usd: None,
             file: None,
@@ -1042,7 +1042,7 @@ fn reviewed_again(given: &Given, run: &str) -> Result<(String, PathBuf, Record),
         .map(Path::to_path_buf)
         .ok_or_else(|| format!("{} has no folder", record_at.display()))?;
     let kept = read_json(&path, RECORD).ok_or_else(|| {
-        format!("run {run} is not a review of this card: call devpit_devflow_review with only the card first")
+        format!("run {run} is not a review of this card: call `review` with only the card first")
     })?;
     let ran: Vec<Ran> = kept["ran"]
         .as_array()
@@ -1266,7 +1266,7 @@ fn without_jev(
         .iter()
         .find(|reviewer| {
             record.ran.iter().any(|ran| {
-                ran.file.is_some() && ran.agent == reviewer.agent.word() && ran.by == "devpit"
+                ran.file.is_some() && ran.agent == reviewer.agent.word() && ran.by == "devflow"
             })
         })
         .or(given.config.review.reviewers.first());
@@ -1382,7 +1382,7 @@ pub fn reviewed(given: &Given) -> Result<Done, String> {
             let (done_well, verification) = findings::said_together(&record.answers);
             json!({
                 "version": 1,
-                "devpit": crate::skills::made_by(&["devflow-review"]),
+                "devflow": crate::skills::made_by(&["devflow-review"]),
                 "card": given.card.id,
                 "base": record.base,
                 "head": record.head,
@@ -1701,13 +1701,13 @@ pub fn summary(done: &Done) -> Value {
     let verdict = findings.and_then(|findings| findings["verdict"].as_str());
     let next = if !done.pending.is_empty() {
         format!(
-            "Review {} yourself: one fresh subagent per persona, each given only the packet at {packet} and its persona at {persona}, each answering one findings object. Then call devpit_devflow_review again with this card, run \"{}\" and reports: those objects.",
+            "Review {} yourself: one fresh subagent per persona, each given only the packet at {packet} and its persona at {persona}, each answering one findings object. Then call `review` again with this card, run \"{}\" and reports: those objects.",
             done.pending.join(", "),
             done.stamp
         )
     } else if let Some(places) = unverified(done.verify, list) {
         format!(
-            "Verify (devflow-review): run the PoC of findings {places} of {}/{FINDINGS} where there is an environment, then call devpit_devflow_review with this card, run \"{}\" and verified: one {{ finding, result, evidence }} each.",
+            "Verify (devflow-review): run the PoC of findings {places} of {}/{FINDINGS} where there is an environment, then call `review` with this card, run \"{}\" and verified: one {{ finding, result, evidence }} each.",
             done.folder, done.stamp
         )
     } else if verdict == Some("request_changes") {

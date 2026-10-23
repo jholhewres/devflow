@@ -123,7 +123,7 @@
           "evidence": "asks for yes"
         },
         {
-          "text": "Turn 2 creates the brief with devpit_devflow_brief, with a goal, a success check and at least one out-of-scope item",
+          "text": "Turn 2 creates the brief with `brief`, with a goal, a success check and at least one out-of-scope item",
           "passed": true,
           "evidence": "goal/success/out_of_scope: True/True/True"
         },
@@ -167,9 +167,9 @@
           "evidence": "asks for yes"
         },
         {
-          "text": "Turn 2 creates the brief with devpit_devflow_brief, with a goal, a success check and at least one out-of-scope item",
+          "text": "Turn 2 creates the brief with `brief`, with a goal, a success check and at least one out-of-scope item",
           "passed": false,
-          "evidence": "no devpit_devflow_brief in turn 2"
+          "evidence": "no `brief` in turn 2"
         },
         {
           "text": "Turn 2 starts no other stage: no plan, no other card, no file change, no repo reading after the brief",
@@ -237,7 +237,7 @@
         {
           "text": "Creates no brief, card or plan",
           "passed": false,
-          "evidence": "card tools called: ['devpit_devflow_brief']"
+          "evidence": "card tools called: ['`brief`']"
         },
         {
           "text": "Takes up the email change in the reply",
@@ -624,7 +624,7 @@
   ],
   "notes": [
     "One run per configuration per case, so any single case can move between iterations; iterations 1 to 3 are in history and the skill beat the baseline on every case in each.",
-    "devpit_devflow_brief is a mock shaped as this skill describes it; card [devflow] 05 implements the real tool.",
+    "`brief` is a mock shaped as this skill describes it; card [devflow] 05 implements the real tool.",
     "Case 2 is the sharpest: on 'go ahead' the baseline implemented the feature in all four iterations (edits to src/ and tests/), creating the brief and a plan first in iterations 1 and 3, then could not tell what the later 'yes' approved.",
     "Case 3: in every iteration the baseline created the brief with the email folded in, without asking again; the skill restated and asked for a yes.",
     "Case 1 discriminates least: the baseline also reads the repo and asks good questions, and loses only because its questions do not each carry a recommendation.",

@@ -2,7 +2,7 @@
 //! list in its body.
 //!
 //! In the body rather than in a table, so the card reads the same wherever
-//! its text goes — the board, an agent's `devpit_card`, a paste — and a tick
+//! its text goes — the board, an agent's `item`, a paste — and a tick
 //! is an edit of that text, which nothing else can disagree with.
 
 /// The heading the criteria live under.

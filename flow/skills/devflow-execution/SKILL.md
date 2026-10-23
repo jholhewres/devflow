@@ -28,11 +28,11 @@ and keeping the evidence; review and the finish are the next stages.
 
 ### 1. Read the card and its checks
 
-Read the card with `devpit_card`: criteria, likely files, verify command,
+Read the card with `item`: criteria, likely files, verify command,
 blocked by. Read the epic's context section for the seam and the commands, and
 `.devpit/devflow/devflow.yaml` for the checks under `stages.execution.checks`.
 When a card it depends on is not finished, name it and end the turn. Otherwise
-call `devpit_start_card`. When this card's work already landed in another, or
+call `start`. When this card's work already landed in another, or
 the work is no longer wanted, it is not built: the plan skill's step 7 merges
 or cuts it, after the person's yes.
 
@@ -107,7 +107,7 @@ no `e2e` check.
 
 ### 6. Record the evidence
 
-Call `devpit_devflow_evidence`. devpit runs the card's checks from
+Call `evidence`. devpit runs the card's checks from
 `devflow.yaml`, keeps the reports in devpit's own folder for the project (the
 answer's `run`; never the repository), attaches them to the card and answers with a short summary: each check passed
 or failed, the counts and the paths.
@@ -152,7 +152,7 @@ The card stays where it is; finishing belongs to the completion stage. End the
 turn.
 
 **One card per session.** The completion stage closes the card with
-`devpit_handoff`, and the next card of the plan starts in a **fresh session**,
+`handoff`, and the next card of the plan starts in a **fresh session**,
 not this one: it reads the card, the brief and the handoff note, never this
 conversation, so it pays for none of this card's history.
 

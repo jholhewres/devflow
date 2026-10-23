@@ -1,6 +1,6 @@
 {
   "skill_name": "personas",
-  "fixture": "tasks: a small Python to-do CLI with AGENTS.md, a CONTEXT.md glossary, ADR 0001 (one JSON file store), src/tasks/{cli,model,store}.py and pytest tests. devpit is a mock MCP server serving the board below, the card lifecycle tools and the Devflow tools; devpit_devflow_evidence runs the configured checks for real. Each case runs one reviewer persona, its prompt appended to the system prompt, against a review packet; the baseline gets the same packet and prompt.",
+  "fixture": "tasks: a small Python to-do CLI with AGENTS.md, a CONTEXT.md glossary, ADR 0001 (one JSON file store), src/tasks/{cli,model,store}.py and pytest tests. devpit is a mock MCP server serving the board below, the card lifecycle tools and the Devflow tools; `evidence` runs the configured checks for real. Each case runs one reviewer persona, its prompt appended to the system prompt, against a review packet; the baseline gets the same packet and prompt.",
   "mock": "full",
   "evals": [
     {

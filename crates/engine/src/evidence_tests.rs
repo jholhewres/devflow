@@ -53,7 +53,7 @@ fn anything_but_that_shape_is_refused_with_the_shape() {
         json!({ "card": "card_1", "red": [{ "test": "t", "failure": "x".repeat(LONGEST + 1) }] });
     assert!(asked(&long).is_err());
     // An orchestrator names the project, as on every board tool.
-    assert!(asked(&json!({ "card": "card_1", "project": "devpit" })).is_ok());
+    assert!(asked(&json!({ "card": "card_1", "project": "devflow" })).is_ok());
 }
 
 fn check(name: &str, run: &str) -> Check {
@@ -243,7 +243,7 @@ fn a_check_set_to_no_report_is_judged_by_its_exit_code() {
     assert!(evidence.green());
     let said = comment(&evidence, &[]);
     assert!(
-        said.contains("- lint: passed, exit 0, no report devpit reads\n"),
+        said.contains("- lint: passed, exit 0, no report devflow reads\n"),
         "{said}"
     );
 }
@@ -357,8 +357,8 @@ fn the_report_leads_to_a_short_summary_with_the_counts_the_failures_and_the_path
     )
     .expect("json");
     assert_eq!(kept["red"][0]["now"], "passed");
-    assert_eq!(kept["devpit"]["version"], env!("CARGO_PKG_VERSION"));
-    assert!(kept["devpit"]["skills"]["devflow-execution"]
+    assert_eq!(kept["devflow"]["version"], env!("CARGO_PKG_VERSION"));
+    assert!(kept["devflow"]["skills"]["devflow-execution"]
         .as_str()
         .is_some_and(|digest| digest.starts_with("sha256:")));
     assert_eq!(kept["criteria"][2]["tests"][0]["result"], "not found");

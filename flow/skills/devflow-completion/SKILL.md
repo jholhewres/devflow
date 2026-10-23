@@ -7,7 +7,7 @@ license: Apache-2.0
 # Devflow: completion
 
 Nothing on a card is done without **fresh evidence**: a run of its checks made
-in this turn, after the last change to the code. Before `devpit_finish_card`,
+in this turn, after the last change to the code. Before `finish`,
 every acceptance criterion is matched to that evidence, the handoff note is
 written and the gate comment is on the card. When anything is missing, the
 card stays where it is and you say what is missing.
@@ -27,7 +27,7 @@ card stays where it is and you say what is missing.
 
 ### 1. Read the card
 
-Read the card with `devpit_card`: its criteria, the `[devflow]` comments (the
+Read the card with `item`: its criteria, the `[devflow]` comments (the
 evidence runs, the review and its verdict) and the files it names.
 
 Done when you can list every criterion and every piece of evidence on the card
@@ -35,7 +35,7 @@ with its time.
 
 ### 2. Run the checks now
 
-Call `devpit_devflow_evidence` with the card and its criteria, as in the
+Call `evidence` with the card and its criteria, as in the
 execution stage: it runs every configured check and attaches the reports.
 
 ```json
@@ -79,7 +79,7 @@ test or a finding. A row with nothing to name makes the gate fail.
 
 ### 4. Post the gate
 
-Call `devpit_devflow_gate` with the card:
+Call `gate` with the card:
 
 ```json
 { "card": "<card id>" }
@@ -94,12 +94,12 @@ the comment on the card: the table under one line,
 ```
 
 and answers `result` (`passed` or `failed`) with what is `missing`. When devpit
-does not offer the tool, post that comment yourself with `devpit_comment`.
+does not offer the tool, post that comment yourself with `comment`.
 
 The gate passes when n equals m, every check is green and no finding is in
 `review.block_on`. When it fails, reply with what is missing and which stage
 fixes it (execution, or review), and end the turn: no handoff as finished, no
-`devpit_finish_card`, which devpit refuses anyway while the gate fails. Where
+`finish`, which devpit refuses anyway while the gate fails. Where
 Devflow's hooks are on, a turn that ends with the gate failing is sent back
 with the same list.
 
@@ -111,7 +111,7 @@ Done when the gate comment is on the card with n and m filled.
 
 ### 5. Write the handoff note
 
-Call `devpit_handoff`:
+Call `handoff`:
 
 ```json
 {
@@ -131,7 +131,7 @@ holds references rather than copies.
 
 ### 6. Finish
 
-Only after a passing gate: call `devpit_finish_card` with a summary of one
+Only after a passing gate: call `finish` with a summary of one
 line per criterion and its evidence. Reply with the table and the word
 "finished", and end the turn.
 
@@ -160,7 +160,7 @@ failing one, and the reply says which.
 
 - "should", "probably", "seems to" about a result.
 - "Done!", "all green", "ready to merge" before a run in this turn.
-- About to call `devpit_finish_card` without the gate comment.
+- About to call `finish` without the gate comment.
 - A criterion whose evidence is "covered by the suite".
 - Pressure in the request: a deadline, "trust me", "don't bother re-running",
   "I'm exhausted".

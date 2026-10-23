@@ -189,7 +189,7 @@ fn a_card_is_closed_with_a_handoff_and_the_next_starts_in_a_fresh_session() {
     let empty = tempfile::tempdir().expect("tempdir");
     for name in ["devflow-execution", "devflow-completion"] {
         let text = resolve(empty.path(), empty.path(), name).expect(name).text;
-        assert!(text.contains("devpit_handoff"), "{name}");
+        assert!(text.contains("`handoff`"), "{name}");
         assert!(text.contains("next card"), "{name}");
         assert!(text.contains("**fresh session**"), "{name}");
     }

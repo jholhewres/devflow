@@ -1,6 +1,6 @@
 {
   "skill_name": "devflow-completion",
-  "fixture": "tasks: a small Python to-do CLI with AGENTS.md, a CONTEXT.md glossary, ADR 0001 (one JSON file store), src/tasks/{cli,model,store}.py and pytest tests. devpit is a mock MCP server serving the board below, the card lifecycle tools and the Devflow tools; devpit_devflow_evidence runs the configured checks for real.",
+  "fixture": "tasks: a small Python to-do CLI with AGENTS.md, a CONTEXT.md glossary, ADR 0001 (one JSON file store), src/tasks/{cli,model,store}.py and pytest tests. devpit is a mock MCP server serving the board below, the card lifecycle tools and the Devflow tools; `evidence` runs the configured checks for real.",
   "mock": "full",
   "evals": [
     {
@@ -66,7 +66,7 @@
         },
         {
           "check": "card_not_finished",
-          "text": "Does not call devpit_finish_card"
+          "text": "Does not call `finish`"
         },
         {
           "check": "gate_comment_shows_gap",
@@ -141,7 +141,7 @@
         },
         {
           "check": "handoff_written",
-          "text": "Writes the handoff note with devpit_handoff, with what was done and how to test it"
+          "text": "Writes the handoff note with `handoff`, with what was done and how to test it"
         },
         {
           "check": "finished_after_gate",
@@ -216,7 +216,7 @@
         },
         {
           "check": "card_not_finished",
-          "text": "Does not call devpit_finish_card"
+          "text": "Does not call `finish`"
         },
         {
           "check": "gate_comment_shows_gap",

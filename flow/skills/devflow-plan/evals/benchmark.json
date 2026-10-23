@@ -30,14 +30,14 @@
       },
       "expectations": [
         {
-          "text": "Previews the plan with devpit_devflow_plan",
+          "text": "Previews the plan with `plan`",
           "passed": true,
           "evidence": "1 previews"
         },
         {
-          "text": "Creates no card before the person approves (no apply, no devpit_create_card)",
+          "text": "Creates no card before the person approves (no apply, no `item`)",
           "passed": true,
-          "evidence": "apply calls: 0, devpit_create_card: 0"
+          "evidence": "apply calls: 0, `item`: 0"
         },
         {
           "text": "Writes no plan file and changes no file",
@@ -84,14 +84,14 @@
       },
       "expectations": [
         {
-          "text": "Previews the plan with devpit_devflow_plan",
+          "text": "Previews the plan with `plan`",
           "passed": false,
           "evidence": "0 previews"
         },
         {
-          "text": "Creates no card before the person approves (no apply, no devpit_create_card)",
+          "text": "Creates no card before the person approves (no apply, no `item`)",
           "passed": false,
-          "evidence": "apply calls: 1, devpit_create_card: 0"
+          "evidence": "apply calls: 1, `item`: 0"
         },
         {
           "text": "Writes no plan file and changes no file",
@@ -138,14 +138,14 @@
       },
       "expectations": [
         {
-          "text": "Previews the plan with devpit_devflow_plan",
+          "text": "Previews the plan with `plan`",
           "passed": true,
           "evidence": "1 previews"
         },
         {
-          "text": "Creates no card before the person approves (no apply, no devpit_create_card)",
+          "text": "Creates no card before the person approves (no apply, no `item`)",
           "passed": true,
-          "evidence": "apply calls: 0, devpit_create_card: 0"
+          "evidence": "apply calls: 0, `item`: 0"
         },
         {
           "text": "One card adds the new names beside the old ones and other cards depend on it",
@@ -187,14 +187,14 @@
       },
       "expectations": [
         {
-          "text": "Previews the plan with devpit_devflow_plan",
+          "text": "Previews the plan with `plan`",
           "passed": false,
           "evidence": "0 previews"
         },
         {
-          "text": "Creates no card before the person approves (no apply, no devpit_create_card)",
+          "text": "Creates no card before the person approves (no apply, no `item`)",
           "passed": false,
-          "evidence": "apply calls: 1, devpit_create_card: 0"
+          "evidence": "apply calls: 1, `item`: 0"
         },
         {
           "text": "One card adds the new names beside the old ones and other cards depend on it",
@@ -236,14 +236,14 @@
       },
       "expectations": [
         {
-          "text": "Previews the plan with devpit_devflow_plan",
+          "text": "Previews the plan with `plan`",
           "passed": true,
           "evidence": "1 previews"
         },
         {
-          "text": "Creates no card before the person approves (no apply, no devpit_create_card)",
+          "text": "Creates no card before the person approves (no apply, no `item`)",
           "passed": true,
-          "evidence": "apply calls: 0, devpit_create_card: 0"
+          "evidence": "apply calls: 0, `item`: 0"
         },
         {
           "text": "One card with no blockers reshapes the option parsing with behaviour unchanged",
@@ -285,14 +285,14 @@
       },
       "expectations": [
         {
-          "text": "Previews the plan with devpit_devflow_plan",
+          "text": "Previews the plan with `plan`",
           "passed": false,
           "evidence": "0 previews"
         },
         {
-          "text": "Creates no card before the person approves (no apply, no devpit_create_card)",
+          "text": "Creates no card before the person approves (no apply, no `item`)",
           "passed": false,
-          "evidence": "apply calls: 1, devpit_create_card: 0"
+          "evidence": "apply calls: 1, `item`: 0"
         },
         {
           "text": "One card with no blockers reshapes the option parsing with behaviour unchanged",
@@ -684,7 +684,7 @@
   ],
   "notes": [
     "One run per configuration per case; iterations 1 to 3 are in history and the skill beat the baseline on every case in each.",
-    "devpit_devflow_plan is a mock shaped as this skill describes it (preview unless apply is true); card [devflow] 05 implements the real tool.",
+    "`plan` is a mock shaped as this skill describes it (preview unless apply is true); card [devflow] 05 implements the real tool.",
     "The baseline finds the prefactor and the expand-contract shape on its own when the context points at them; it loses by calling apply: true on its first call in every iteration, creating cards nobody approved, and by verifying behaviour cards with the whole suite.",
     "Iteration 1 led to one change in the skill: a card that adds behaviour verifies with its own tests, while a prefactor, docs or contract card runs the whole suite.",
     "The verify and contract checks were corrected after reading transcripts (they first knew only a few title words for prefactor, docs, tests-only and contract cards); every saved run of every iteration was graded again with the final code.",

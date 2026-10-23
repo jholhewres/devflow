@@ -14,7 +14,7 @@ Devflow **on** is the person's click in the devpit app, never yours.
 
 ## Ground rules
 
-- **Preview before write.** `devpit_devflow_setup` and `devpit_devflow_set`
+- **Preview before write.** `setup` and `set`
   preview by default and write only with `"apply": true`, which follows an
   explicit yes to the latest preview.
 - **Facts are devpit's, decisions are the person's.** Detection answers what is
@@ -35,7 +35,7 @@ Devflow **on** is the person's click in the devpit app, never yours.
 
 ### 1. Read the state
 
-Call `devpit_devflow_status`. It answers with the state (`no file`, `disabled`,
+Call `status`. It answers with the state (`no file`, `disabled`,
 `active`, `invalid`), what devpit detected with the file each fact came from,
 and the current `devflow.yaml`.
 
@@ -50,7 +50,7 @@ Done when you can say the state and list each detected fact with its source.
 
 ### 2. Preview the recommended setup
 
-Call `devpit_devflow_setup` with `{"preset": "recommended"}` and no `apply`.
+Call `setup` with `{"preset": "recommended"}` and no `apply`.
 The recommended setup is: briefing and plan approved by the person; the
 detected checks, each as a script under `.devpit/devflow/scripts/`; one
 reviewer, with the security persona; the `devflow-done` gate; Decisions in
@@ -130,7 +130,7 @@ activation waits for their click.
 
 ### 5. Change one field
 
-Call `devpit_devflow_set` with the field as a dotted path and its new value,
+Call `set` with the field as a dotted path and its new value,
 without `apply`:
 
 ```json

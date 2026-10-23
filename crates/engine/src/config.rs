@@ -668,7 +668,7 @@ fn read(root: &Node, from_file: bool) -> Result<Config, Invalid> {
                 return Err(Invalid::at(
                     node.line(),
                     &path,
-                    &format!("this devpit reads versions 1 and 2, not {other}"),
+                    &format!("this devflow reads versions 1 and 2, not {other}"),
                 ))
             }
         },

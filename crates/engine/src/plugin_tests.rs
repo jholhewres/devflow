@@ -50,7 +50,7 @@ fn the_codex_line_trusts_exactly_the_hooks_it_brings() {
             "{event}: {flags}"
         );
     }
-    assert!(flags.contains(r#"tool="devpit_devflow_gate""#));
+    assert!(flags.contains(r#"tool="`gate`""#));
     assert!(flags.contains(r#"command="\"/opt/devpit\" agent devflow-context --agent codex""#));
     assert_eq!(codex_flags("/opt/it's/devpit"), None);
 }
@@ -102,7 +102,7 @@ fn claude_codes_plugin_is_named_devflow_with_a_skill_per_stage() {
             skill.starts_with(&format!("---\nname: {stage}\ndescription: \"")),
             "{skill}"
         );
-        assert!(skill.contains("devpit_devflow_skill"), "{skill}");
+        assert!(skill.contains("`skill`"), "{skill}");
     }
     assert!(file(&files, "skills/completion/SKILL.md").contains("\"devflow-completion\""));
 }

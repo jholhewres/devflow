@@ -1,4 +1,4 @@
-//! `devpit_devflow_gate`: whether a card's work may be called done. Its
+//! `gate`: whether a card's work may be called done. Its
 //! checks ran after the last change and passed, every criterion it lists has
 //! a test that passed or a proof file, the evidence it asked for is there,
 //! and the review blocks nothing (an evidence or doc card with no code needs
@@ -265,7 +265,7 @@ pub fn checked(looked: &Looked) -> Checked {
     let configured = &config.stages.execution.checks;
     if configured.is_empty() {
         missing.push(
-            "devflow.yaml configures no checks, so nothing can prove the card: add one with devpit_devflow_set (stages.execution.checks)"
+            "devflow.yaml configures no checks, so nothing can prove the card: add one with `set` (stages.execution.checks)"
                 .to_owned(),
         );
     }
@@ -273,13 +273,13 @@ pub fn checked(looked: &Looked) -> Checked {
     let mut rows = Vec::new();
     match &looked.run {
         None => missing.push(format!(
-            "no run of the card's checks yet: call devpit_devflow_evidence with card {} and each criterion's tests (devflow-execution)",
+            "no run of the card's checks yet: call `evidence` with card {} and each criterion's tests (devflow-execution)",
             looked.card
         )),
         Some(run) => {
             if let Some(changed) = looked.changed.filter(|changed| after(changed, run.name)) {
                 missing.push(format!(
-                    "the code changed after run {} (last change {changed}): run devpit_devflow_evidence again",
+                    "the code changed after run {} (last change {changed}): run `evidence` again",
                     run.name
                 ));
             }
@@ -289,13 +289,13 @@ pub fn checked(looked: &Looked) -> Checked {
             for wanted in configured {
                 match checks.iter().find(|(name, _)| *name == wanted.name) {
                     None => missing.push(format!(
-                        "check `{}` did not run in {}: leave `checks` out of devpit_devflow_evidence to run them all",
+                        "check `{}` did not run in {}: leave `checks` out of `evidence` to run them all",
                         wanted.name, run.name
                     )),
                     // Only a check set to write a report is ever inconclusive: one
                     // set to `report: none` is judged by its exit code.
                     Some((_, result)) if result == "inconclusive" => missing.push(format!(
-                        "check `{}` left no {} report devpit reads: write it to $DEVFLOW_REPORT_DIR, or set its report to none so its exit code decides (devflow-setup)",
+                        "check `{}` left no {} report devflow reads: write it to $DEVFLOW_REPORT_DIR, or set its report to none so its exit code decides (devflow-setup)",
                         wanted.name,
                         wanted.report.word()
                     )),
@@ -343,7 +343,7 @@ pub fn checked(looked: &Looked) -> Checked {
 }
 
 const NO_TEST: &str =
-    "names no test: map it to its tests, or a proof file, in devpit_devflow_evidence's criteria";
+    "names no test: map it to its tests, or a proof file, in `evidence`'s criteria";
 
 /// One criterion against the run: green when evidence.json maps it, on the
 /// card, to tests that all passed and a proof file that is there.
@@ -437,18 +437,18 @@ fn own_stages(looked: &Looked, missing: &mut Vec<String>) {
             .and_then(|(_, seen)| seen.as_ref());
         match seen {
             None => missing.push(format!(
-                "the stage `{name}` ({}) has not passed its gate: follow its skill, then call devpit_devflow_stage with the card",
+                "the stage `{name}` ({}) has not passed its gate: follow its skill, then call `stage` with the card",
                 step.uses
             )),
             Some((run, record)) if record.get("passed").and_then(Value::as_bool) != Some(true) => {
                 missing.push(format!(
-                    "the stage `{name}`'s gate failed in {run}: fix what it says and call devpit_devflow_stage again"
+                    "the stage `{name}`'s gate failed in {run}: fix what it says and call `stage` again"
                 ))
             }
             Some((run, _)) => {
                 if let Some(changed) = looked.changed.filter(|changed| after(changed, run)) {
                     missing.push(format!(
-                        "the stage `{name}`'s gate passed before the last change ({changed}): call devpit_devflow_stage again"
+                        "the stage `{name}`'s gate passed before the last change ({changed}): call `stage` again"
                     ));
                 }
             }
@@ -490,7 +490,7 @@ fn reviewed(looked: &Looked, missing: &mut Vec<String>) -> Option<String> {
         .collect();
     if !pending.is_empty() {
         missing.push(format!(
-            "the review has not covered {} yet: review them from its packet and call devpit_devflow_review with its run and your reports (devflow-review)",
+            "the review has not covered {} yet: review them from its packet and call `review` with its run and your reports (devflow-review)",
             pending.join(", ")
         ));
     }
@@ -598,7 +598,7 @@ impl Gate {
             ));
         }
         said.push_str(
-            "Fix what is listed, run devpit_devflow_evidence and call devpit_devflow_gate before \
+            "Fix what is listed, run `evidence` and call `gate` before \
              saying it is done. If you are stopping for the person's answer instead, ask it and stop.",
         );
         said
@@ -650,7 +650,7 @@ pub fn answer(gate: &Gate, file: Option<&str>) -> Value {
         "gate": file,
         "decisions": decisions_json(gate),
         "next": if gate.passed() {
-            "Write the handoff note with devpit_handoff, then devpit_finish_card."
+            "Write the handoff note with `handoff`, then `finish`."
         } else {
             "Leave the card where it is: fix what is missing in the stage named, then call the gate again."
         },

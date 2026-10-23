@@ -16,10 +16,10 @@
       "turns": [
         "Context for card_01DUE is in. Plan it."
       ],
-      "expected_output": "A preview from devpit_devflow_plan with tracer-bullet cards, each with criteria, at most five likely files, a verify command narrowed to its tests and valid blocking edges; nothing applied, no plan file, the turn ends asking for approval.",
+      "expected_output": "A preview from `plan` with tracer-bullet cards, each with criteria, at most five likely files, a verify command narrowed to its tests and valid blocking edges; nothing applied, no plan file, the turn ends asking for approval.",
       "expectations": [
-        {"check": "plan_previewed", "text": "Previews the plan with devpit_devflow_plan"},
-        {"check": "plan_not_applied", "text": "Creates no card before the person approves (no apply, no devpit_create_card)"},
+        {"check": "plan_previewed", "text": "Previews the plan with `plan`"},
+        {"check": "plan_not_applied", "text": "Creates no card before the person approves (no apply, no `item`)"},
         {"check": "no_file_changed", "text": "Writes no plan file and changes no file"},
         {"check": "cards_have_criteria", "text": "Every card has at least two acceptance criteria"},
         {"check": "cards_have_few_files", "text": "Every card lists between one and five likely files"},
@@ -43,8 +43,8 @@
       ],
       "expected_output": "An expand-contract sequence: a card that adds the new names beside the old, migrate cards blocked by it, and a contract card that removes the old names, blocked by every other card; previewed, not applied.",
       "expectations": [
-        {"check": "plan_previewed", "text": "Previews the plan with devpit_devflow_plan"},
-        {"check": "plan_not_applied", "text": "Creates no card before the person approves (no apply, no devpit_create_card)"},
+        {"check": "plan_previewed", "text": "Previews the plan with `plan`"},
+        {"check": "plan_not_applied", "text": "Creates no card before the person approves (no apply, no `item`)"},
         {"check": "has_expand_card", "text": "One card adds the new names beside the old ones and other cards depend on it"},
         {"check": "has_contract_card", "text": "One card removes the old names and depends, directly or not, on every other card"},
         {"check": "cards_have_few_files", "text": "Every card lists between one and five likely files"},
@@ -67,8 +67,8 @@
       ],
       "expected_output": "A prefactor card first (option parsing reshaped, behaviour unchanged, tests green) with no blockers, and the tag slices blocked by it; previewed, not applied.",
       "expectations": [
-        {"check": "plan_previewed", "text": "Previews the plan with devpit_devflow_plan"},
-        {"check": "plan_not_applied", "text": "Creates no card before the person approves (no apply, no devpit_create_card)"},
+        {"check": "plan_previewed", "text": "Previews the plan with `plan`"},
+        {"check": "plan_not_applied", "text": "Creates no card before the person approves (no apply, no `item`)"},
         {"check": "has_prefactor_card", "text": "One card with no blockers reshapes the option parsing with behaviour unchanged"},
         {"check": "features_after_prefactor", "text": "Every other card depends, directly or not, on the prefactor"},
         {"check": "cards_have_few_files", "text": "Every card lists between one and five likely files"},

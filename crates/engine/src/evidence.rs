@@ -1,4 +1,4 @@
-//! `devpit_devflow_evidence`: a card's checks run through devpit's steps
+//! `evidence`: a card's checks run through devpit's steps
 //! runner, the card's context in their environment and never in their
 //! command; their reports read; and what they prove kept in the run's folder
 //! (`runs.rs`), summed up for the agent and for the card.
@@ -139,7 +139,7 @@ pub fn asked(params: &Value) -> Result<Asked, String> {
 pub fn chosen<'a>(checks: &'a [Check], named: Option<&[String]>) -> Result<Vec<&'a Check>, String> {
     if checks.is_empty() {
         return Err(
-            "devflow.yaml configures no checks under stages.execution.checks: devpit_devflow_set adds one"
+            "devflow.yaml configures no checks under stages.execution.checks: `set` adds one"
                 .to_owned(),
         );
     }
@@ -712,7 +712,7 @@ fn counts(ran: &Ran) -> Value {
 /// `evidence.json`: everything the run showed, for the gate and the review.
 pub fn recorded(evidence: &Evidence) -> Value {
     json!({
-        "devpit": crate::skills::made_by(&["devflow-execution", "devflow-completion"]),
+        "devflow": crate::skills::made_by(&["devflow-execution", "devflow-completion"]),
         "card": evidence.card,
         "at": evidence.stamp,
         "green": evidence.green(),
@@ -817,8 +817,8 @@ fn tests_said(ran: &Ran) -> String {
     }
     let Some(read) = &ran.reported else {
         return match ran.exit_code {
-            Some(code) => format!("exit {code}, no report devpit reads"),
-            None => "no report devpit reads".to_owned(),
+            Some(code) => format!("exit {code}, no report devflow reads"),
+            None => "no report devflow reads".to_owned(),
         };
     };
     let tested = &read.tested;

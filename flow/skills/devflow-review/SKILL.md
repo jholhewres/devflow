@@ -42,7 +42,7 @@ says `scale: true` or sets either field.
 
 ### 1. Have devpit run the reviewers
 
-Call `devpit_devflow_review` with the card:
+Call `review` with the card:
 
 ```json
 { "card": "<card id>" }
@@ -63,7 +63,7 @@ review with "nothing to review".
 
 Done when the answer names the run, the packet and `pending`.
 
-When `devpit_devflow_review` is not listed, do its work yourself: pin BASE
+When `review` is not listed, do its work yourself: pin BASE
 (`git merge-base HEAD <base branch>`) and HEAD (`git rev-parse HEAD`), write
 the packet with the headings above (each filled or "none"), run all three
 personas as in step 2, and write `findings.json` beside the packet as step
@@ -268,13 +268,13 @@ answer whose defect has none.
 Once the review is done, for each defect, ask the person before running its
 `impact`, then run it **read-only**: a `SELECT`, a log search, a metrics
 query, never a write, a migration or a script left on a server. Tell the
-person what each showed. The draft from `devpit_devflow_publish` carries one
+person what each showed. The draft from `publish` carries one
 follow-up ticket per medium or worse finding, each defect with its `impact`,
 for the person to file.
 
 ### Publish on the pull request
 
-Once a review without a card is done, `devpit_devflow_publish` drafts it for
+Once a review without a card is done, `publish` drafts it for
 its pull request, never posting by itself:
 
 ```json

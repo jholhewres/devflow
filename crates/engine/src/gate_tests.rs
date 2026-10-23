@@ -21,7 +21,7 @@ fn criteria() -> Vec<String> {
     ]
 }
 
-/// evidence.json as `devpit_devflow_evidence` writes it: both checks passed,
+/// evidence.json as `evidence` writes it: both checks passed,
 /// both criteria green, the e2e check with one screenshot.
 fn green_run() -> Value {
     json!({
@@ -66,10 +66,7 @@ fn a_card_whose_checks_never_ran_is_not_done() {
     let config = config_with(false);
     let found = look(&config, None, None);
     assert!(!found.missing.is_empty());
-    assert!(
-        found.missing[0].contains("devpit_devflow_evidence"),
-        "{found:?}"
-    );
+    assert!(found.missing[0].contains("`evidence`"), "{found:?}");
     let gate = Gate::new(found, None, RUN);
     assert!(!gate.passed());
     assert_eq!(gate.counted(), (0, 2));
@@ -286,7 +283,7 @@ fn a_failing_rubric_holds_the_card_only_in_enforce_and_a_skip_never_does() {
 #[test]
 fn the_comment_starts_with_the_line_the_completion_skill_names() {
     assert!(COMPLETION.contains("[devflow] gate: <n> of <m> criteria with evidence"));
-    assert!(COMPLETION.contains("devpit_devflow_gate"));
+    assert!(COMPLETION.contains("`gate`"));
     let config = config_with(false);
     let run = green_run();
     let gate = Gate::new(look(&config, Some(&run), None), None, RUN);

@@ -1,6 +1,6 @@
 {
   "skill_name": "devflow-setup",
-  "fixture": "tasks: a small Python to-do CLI with AGENTS.md, a CONTEXT.md glossary, ADR 0001 (one JSON file store), src/tasks/{cli,model,store}.py and pytest tests. devpit is a mock MCP server answering devpit_devflow_status with the detection given per case; setup and set preview unless apply is true, and apply writes .devpit/devflow/.",
+  "fixture": "tasks: a small Python to-do CLI with AGENTS.md, a CONTEXT.md glossary, ADR 0001 (one JSON file store), src/tasks/{cli,model,store}.py and pytest tests. devpit is a mock MCP server answering `status` with the detection given per case; setup and set preview unless apply is true, and apply writes .devpit/devflow/.",
   "mock": "full",
   "evals": [
     {
@@ -54,11 +54,11 @@
       "expectations": [
         {
           "check": "status_first",
-          "text": "Reads devpit_devflow_status before any other Devflow tool"
+          "text": "Reads `status` before any other Devflow tool"
         },
         {
           "check": "setup_previewed",
-          "text": "Previews with devpit_devflow_setup, without apply"
+          "text": "Previews with `setup`, without apply"
         },
         {
           "check": "setup_not_applied",
@@ -130,7 +130,7 @@
         },
         {
           "check": "turn2_applied",
-          "text": "Turn 2 applies the setup with devpit_devflow_setup and apply: true"
+          "text": "Turn 2 applies the setup with `setup` and apply: true"
         },
         {
           "check": "says_click_activates",
@@ -138,7 +138,7 @@
         },
         {
           "check": "no_self_activation",
-          "text": "Never tries to switch Devflow on or Decisions to enforce through devpit_devflow_set"
+          "text": "Never tries to switch Devflow on or Decisions to enforce through `set`"
         }
       ]
     },
@@ -210,7 +210,7 @@
       "expectations": [
         {
           "check": "setup_previewed",
-          "text": "Previews with devpit_devflow_setup, without apply"
+          "text": "Previews with `setup`, without apply"
         },
         {
           "check": "setup_not_applied",

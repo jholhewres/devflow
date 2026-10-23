@@ -21,14 +21,14 @@ marked. This stage reads; the only files it writes are the glossary and ADRs.
   without one is an assumption and goes in that list.
 - **Decisions in the glossary's words.** Paths appear only as the source of a
   fact; describe modules and behaviour in domain terms, with no code snippets.
-- **The summary lives on the epic,** written with `devpit_devflow_brief`. Any
+- **The summary lives on the epic,** written with `brief`. Any
   scratch notes stay in this conversation.
 
 ## Steps
 
 ### 1. Read the brief
 
-Read the epic with `devpit_card`: goal, who it is for, out of scope, success,
+Read the epic with `item`: goal, who it is for, out of scope, success,
 decisions.
 
 Done when you can restate the goal and the success check in one line each.
@@ -63,8 +63,8 @@ seam with the test file that already exercises it.
 ### 5. Read history and memory
 
 Run `git log` on the touched paths for recent changes and their reasons. Read
-devpit's memory: `devpit_context`, then the comments and handoff notes of
-related cards on the board (`devpit_board`, `devpit_card`), including finished
+devpit's memory: `status`, then the comments and handoff notes of
+related cards on the board (`items`, `item`), including finished
 ones.
 
 Done when each touched path has its last relevant commit or "no history", and
@@ -86,7 +86,7 @@ the three tests it fails.
 
 ### 7. Write the summary onto the epic
 
-Call `devpit_devflow_brief` with `"card": "<epic id>"` and `"context"` set to:
+Call `brief` with `"card": "<epic id>"` and `"context"` set to:
 
 ```markdown
 ## Context

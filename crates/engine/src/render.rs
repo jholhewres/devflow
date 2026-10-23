@@ -11,11 +11,13 @@ pub fn render(config: &Config) -> String {
     let mut out = String::new();
     out.push_str(
         "# Devflow: briefing → context → plan → execution → review → completion,\n\
-         # served by devpit's MCP. This file is the source of truth: devpit edits\n\
+         # served by devflow's MCP. This file is the source of truth: devflow edits\n\
          # it and never commits it.\n",
     );
     let _ = writeln!(out, "version: {}", config.version);
-    out.push_str("\n# Switched on by the person's click in the devpit app, never by an agent.\n");
+    out.push_str(
+        "\n# Switched on by the person's click with `devflow config set`, never by an agent.\n",
+    );
     let _ = writeln!(out, "enabled: {}", config.enabled);
     if config.version == V1 {
         stages_v1(&mut out, config);
@@ -40,7 +42,7 @@ fn checks(out: &mut String, indent: &str, checks: &[Check]) {
     }
     let _ = writeln!(
         out,
-        "{indent}# Run by devpit from the project's root for the evidence on the card.\n\
+        "{indent}# Run by devflow from the project's root for the evidence on the work item.\n\
          {indent}# report: junit | vitest | jest | cargo | none\n\
          {indent}checks:"
     );
@@ -105,8 +107,8 @@ fn extends(out: &mut String, config: &Config) {
 
 fn stages_v2(out: &mut String, config: &Config) {
     out.push_str(
-        "\n# The stages, in order. uses: builtin/<stage> is devpit's own; an own\n\
-         # stage uses project/<skill> (.devpit/devflow/skills/), personal/<skill>,\n\
+        "\n# The stages, in order. uses: builtin/<stage> is devflow's own; an own\n\
+         # stage uses project/<skill> (.devflow/skills/), personal/<skill>,\n\
          # skills/<name> (a skill already installed for the agent CLIs) or\n\
          # <team>/<skill>, with a gate: { command: … } or { rubric: … }.\n\
          # approve: person stops for the person's yes; none goes on.\n\
@@ -221,7 +223,7 @@ fn review(out: &mut String, config: &Config) {
          # It is sent findings, criteria with their evidence, the brief and the\n\
          # plan — never the diff — through the provider in Settings → Decisions\n\
          # (OpenRouter unless changed), with no retention and no training.\n\
-         # rubrics: a stage's own rubric, from .devpit/devflow/rubrics/.\n\
+         # rubrics: a stage's own rubric, from .devflow/rubrics/.\n\
          decisions:\n",
     );
     let decisions = &config.decisions;

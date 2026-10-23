@@ -30,9 +30,9 @@
       },
       "expectations": [
         {
-          "text": "Starts card_01RNM with devpit_start_card",
+          "text": "Starts card_01RNM with `start`",
           "passed": true,
-          "evidence": "devpit_start_card on card_01RNM: True"
+          "evidence": "`start` on card_01RNM: True"
         },
         {
           "text": "Writes a test before the first change to src/",
@@ -50,7 +50,7 @@
           "evidence": "8 passed in 1.13s; 3 rename tests"
         },
         {
-          "text": "Records the evidence with devpit_devflow_evidence for card_01RNM, mapping the criteria to tests",
+          "text": "Records the evidence with `evidence` for card_01RNM, mapping the criteria to tests",
           "passed": true,
           "evidence": "1 calls; criteria mapped 3/3; last run all green: True"
         },
@@ -62,7 +62,7 @@
         {
           "text": "Does not finish the card; finishing belongs to the completion stage",
           "passed": true,
-          "evidence": "devpit_finish_card called 0 times"
+          "evidence": "`finish` called 0 times"
         }
       ]
     },
@@ -84,9 +84,9 @@
       },
       "expectations": [
         {
-          "text": "Starts card_01RNM with devpit_start_card",
+          "text": "Starts card_01RNM with `start`",
           "passed": true,
-          "evidence": "devpit_start_card on card_01RNM: True"
+          "evidence": "`start` on card_01RNM: True"
         },
         {
           "text": "Writes a test before the first change to src/",
@@ -104,9 +104,9 @@
           "evidence": "8 passed in 1.09s; 3 rename tests"
         },
         {
-          "text": "Records the evidence with devpit_devflow_evidence for card_01RNM, mapping the criteria to tests",
+          "text": "Records the evidence with `evidence` for card_01RNM, mapping the criteria to tests",
           "passed": false,
-          "evidence": "no devpit_devflow_evidence for card_01RNM"
+          "evidence": "no `evidence` for card_01RNM"
         },
         {
           "text": "Leaves card_01UND alone: no start, no finish, no undo code",
@@ -116,7 +116,7 @@
         {
           "text": "Does not finish the card; finishing belongs to the completion stage",
           "passed": false,
-          "evidence": "devpit_finish_card called 1 times"
+          "evidence": "`finish` called 1 times"
         }
       ]
     },
@@ -163,7 +163,7 @@
           "evidence": "none left"
         },
         {
-          "text": "Records the evidence with devpit_devflow_evidence for card_01BUG",
+          "text": "Records the evidence with `evidence` for card_01BUG",
           "passed": true,
           "evidence": "1 calls; criteria mapped 2/2; last run all green: True"
         }
@@ -212,9 +212,9 @@
           "evidence": "none left"
         },
         {
-          "text": "Records the evidence with devpit_devflow_evidence for card_01BUG",
+          "text": "Records the evidence with `evidence` for card_01BUG",
           "passed": false,
-          "evidence": "no devpit_devflow_evidence for card_01BUG"
+          "evidence": "no `evidence` for card_01BUG"
         }
       ]
     },
@@ -261,7 +261,7 @@
           "evidence": "8 passed in 1.31s"
         },
         {
-          "text": "Records the evidence with devpit_devflow_evidence for card_01CNT",
+          "text": "Records the evidence with `evidence` for card_01CNT",
           "passed": true,
           "evidence": "1 calls; criteria mapped 3/3; last run all green: True"
         }
@@ -310,9 +310,9 @@
           "evidence": "7 passed in 0.60s"
         },
         {
-          "text": "Records the evidence with devpit_devflow_evidence for card_01CNT",
+          "text": "Records the evidence with `evidence` for card_01CNT",
           "passed": false,
-          "evidence": "no devpit_devflow_evidence for card_01CNT"
+          "evidence": "no `evidence` for card_01CNT"
         }
       ]
     }
@@ -644,7 +644,7 @@
   ],
   "notes": [
     "One run per configuration per case; iteration 1 is in history and the skill beat the baseline on every case in both.",
-    "devpit_devflow_evidence is a mock shaped as this skill describes it: it runs the checks from devflow.yaml for real in the repo copy and answers with each check's result. Card [devflow] 06 implements the real tool.",
+    "`evidence` is a mock shaped as this skill describes it: it runs the checks from devflow.yaml for real in the repo copy and answers with each check's result. Card [devflow] 06 implements the real tool.",
     "Case 1: the baseline also writes the test first and sees it red (the fixture's AGENTS.md pushes it that way); it loses by finishing the card itself and by recording no evidence.",
     "Case 2: the baseline fixed the id bug straight in src/ in both iterations, with no red run before the fix and no hypotheses, then added a regression test after.",
     "Case 3: neither configuration obeyed the release note inside the card (no version bump, no commit), and both raised it with the person. The baseline wrote no E2E spec in either iteration; the skill wrote .devpit/devflow/e2e/card_01CNT-<slug>.spec.ts, run by node --test.",

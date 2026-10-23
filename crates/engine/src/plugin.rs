@@ -17,9 +17,9 @@ use crate::skills;
 /// The plugin's name: Claude Code's skills are `/devflow:<stage>`.
 pub const NAME: &str = "devflow";
 /// The server devpit's launch line names, whose tool the stop hooks call.
-pub const SERVER: &str = "devpit";
+pub const SERVER: &str = "devflow";
 /// The gate's tool.
-pub const GATE_TOOL: &str = "devpit_devflow_gate";
+pub const GATE_TOOL: &str = "`gate`";
 /// A stop may wait on Decisions; the gate answers well inside this.
 pub const GATE_WAITS: u64 = 30;
 /// The card's context is a question to the app on loopback.
@@ -105,7 +105,7 @@ pub fn hooks(exe: &str, cli: Cli) -> Value {
     for (event, handler) in handlers(exe, cli) {
         events.insert(event.to_owned(), json!([{ "hooks": [handler] }]));
     }
-    json!({ "description": "Devflow's gate and card context, from devpit", "hooks": events })
+    json!({ "description": "Devflow's gate and card context, from devflow", "hooks": events })
 }
 
 /// A skill that sends the agent to the project's own: devpit resolves the
@@ -114,9 +114,9 @@ pub fn hooks(exe: &str, cli: Cli) -> Value {
 fn pointer(name: &str, skill: &str, description: &str) -> String {
     format!(
         "---\nname: {name}\ndescription: {description}\n---\n\n\
-         Call devpit's `devpit_devflow_skill` tool with `{{ \"name\": \"{skill}\" }}` and follow the \
-         skill it returns: it is this project's own when the project has one. When devpit does not \
-         offer that tool, read the resource `{}` from the devpit server instead.\n",
+         Call devflow's `skill` tool with `{{ \"name\": \"{skill}\" }}` and follow the \
+         skill it returns: it is this project's own when the project has one. When devflow does not \
+         offer that tool, read the resource `{}` from the devflow server instead.\n",
         skills::uri(skill)
     )
 }
@@ -133,8 +133,8 @@ pub fn claude(exe: &str) -> Vec<(String, String)> {
     let manifest = json!({
         "name": NAME,
         "version": env!("CARGO_PKG_VERSION"),
-        "description": "Devflow's gate, card context and stage skills, from devpit",
-        "author": { "name": "devpit" },
+        "description": "Devflow's gate, card context and stage skills, from devflow",
+        "author": { "name": "devflow" },
     });
     let mut files = vec![
         (".claude-plugin/plugin.json".to_owned(), pretty(&manifest)),
@@ -154,7 +154,7 @@ pub fn claude(exe: &str) -> Vec<(String, String)> {
 }
 
 /// The marketplace Codex adds the plugin from.
-pub const MARKETPLACE: &str = "devpit";
+pub const MARKETPLACE: &str = "devflow";
 
 /// Codex's plugin, as a local marketplace folder holding it: the skills as
 /// `$devflow-<stage>`, since Codex reads no MCP prompts. Codex installs a
@@ -165,8 +165,8 @@ pub fn codex(_exe: &str) -> Vec<(String, String)> {
     let manifest = json!({
         "name": NAME,
         "version": env!("CARGO_PKG_VERSION"),
-        "description": "Devflow's stage skills, from devpit",
-        "author": { "name": "devpit" },
+        "description": "Devflow's stage skills, from devflow",
+        "author": { "name": "devflow" },
     });
     let market = json!({
         "name": MARKETPLACE,

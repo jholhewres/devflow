@@ -57,7 +57,7 @@ fn the_card_is_not_done_until_each_own_stage_passed_its_gate() {
         1,
         "a stage without a gate holds nothing: {none:?}"
     );
-    assert!(none[0].contains("devpit_devflow_stage"), "{none:?}");
+    assert!(none[0].contains("`stage`"), "{none:?}");
 
     let run = "20261011T120000Z".to_owned();
     let failed = recorded("pr", gate, false, &run, &["exit 1".into()]);

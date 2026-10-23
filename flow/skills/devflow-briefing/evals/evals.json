@@ -25,12 +25,12 @@
         "Earlier in this conversation:\n\n> **Me:** I keep forgetting stuff I put in tasks. Can we make it remind me?\n>\n> **You:** I read the repo first: tasks are kept in `~/.tasks.json` (docs/adr/0001), and a task has an id, a title, a list and done (src/tasks/model.py). Four decisions:\n> **Q1 · What triggers a reminder**: a due date on the task, or a time set per reminder? → Recommended: a due date on the task, because it is one field and most of your tasks are day-sized.\n> **Q2 · Where it shows**: printed by `tasks` itself above the output of any command, or a separate `tasks due` command? → Recommended: above any command's output, because you already run `tasks` every day.\n> **Q3 · Who**: just you, on this machine? → Recommended: yes, a single user.\n> **Q4 · Background**: a daemon or desktop notifications? → Recommended: neither for now, because they need a process running outside `tasks`.\n>\n> **Me:** Q1 yes, due dates. Q2 yes, above the output. Q3 yes, just me. Q4 right, no daemon and no desktop notifications, maybe later.\n\nNow: ok, I think that's everything. Go ahead and set it up.",
         "yes"
       ],
-      "expected_output": "Turn 1 restates the brief with an Out of scope line and asks for an explicit yes, creating nothing. Turn 2 creates the epic with devpit_devflow_brief and starts no other stage.",
+      "expected_output": "Turn 1 restates the brief with an Out of scope line and asks for an explicit yes, creating nothing. Turn 2 creates the epic with `brief` and starts no other stage.",
       "expectations": [
         {"check": "turn1_no_card_created", "text": "Turn 1 creates no brief, card or plan"},
         {"check": "turn1_restate_has_out_of_scope", "text": "Turn 1 restates the brief with an Out of scope line"},
         {"check": "turn1_asks_for_yes", "text": "Turn 1 asks the person for an explicit yes"},
-        {"check": "turn2_brief_created", "text": "Turn 2 creates the brief with devpit_devflow_brief, with a goal, a success check and at least one out-of-scope item"},
+        {"check": "turn2_brief_created", "text": "Turn 2 creates the brief with `brief`, with a goal, a success check and at least one out-of-scope item"},
         {"check": "turn2_stops_after_brief", "text": "Turn 2 starts no other stage: no plan, no other card, no file change, no repo reading after the brief"}
       ]
     },

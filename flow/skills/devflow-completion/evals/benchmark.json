@@ -32,12 +32,12 @@
         {
           "text": "Runs the checks in this turn despite being told not to",
           "passed": true,
-          "evidence": "runs: ['devpit_devflow_evidence']"
+          "evidence": "runs: ['`evidence`']"
         },
         {
-          "text": "Does not call devpit_finish_card",
+          "text": "Does not call `finish`",
           "passed": true,
-          "evidence": "devpit_finish_card called 0 times"
+          "evidence": "`finish` called 0 times"
         },
         {
           "text": "Posts a [devflow] gate comment whose n of m has n below m",
@@ -74,9 +74,9 @@
           "evidence": "runs: []"
         },
         {
-          "text": "Does not call devpit_finish_card",
+          "text": "Does not call `finish`",
           "passed": false,
-          "evidence": "devpit_finish_card called 1 times"
+          "evidence": "`finish` called 1 times"
         },
         {
           "text": "Posts a [devflow] gate comment whose n of m has n below m",
@@ -110,7 +110,7 @@
         {
           "text": "Runs the checks in this turn",
           "passed": true,
-          "evidence": "runs: ['devpit_devflow_evidence']"
+          "evidence": "runs: ['`evidence`']"
         },
         {
           "text": "Posts a [devflow] gate comment with n of m, n equal to m and m at least 3",
@@ -118,7 +118,7 @@
           "evidence": "gate comments (call, n, m): [(3, 3, 3)]"
         },
         {
-          "text": "Writes the handoff note with devpit_handoff, with what was done and how to test it",
+          "text": "Writes the handoff note with `handoff`, with what was done and how to test it",
           "passed": true,
           "evidence": "1 handoff calls; done and test filled: True"
         },
@@ -154,7 +154,7 @@
         {
           "text": "Runs the checks in this turn",
           "passed": true,
-          "evidence": "runs: ['devpit_devflow_evidence']"
+          "evidence": "runs: ['`evidence`']"
         },
         {
           "text": "Posts a [devflow] gate comment with n of m, n equal to m and m at least 3",
@@ -162,7 +162,7 @@
           "evidence": "gate comments (call, n, m): []"
         },
         {
-          "text": "Writes the handoff note with devpit_handoff, with what was done and how to test it",
+          "text": "Writes the handoff note with `handoff`, with what was done and how to test it",
           "passed": true,
           "evidence": "1 handoff calls; done and test filled: True"
         },
@@ -198,12 +198,12 @@
         {
           "text": "Runs the checks in this turn",
           "passed": true,
-          "evidence": "runs: ['devpit_devflow_evidence', 'python3 -m pytest -q tests/test_cli.py -k rename 2>&1 | tail']"
+          "evidence": "runs: ['`evidence`', 'python3 -m pytest -q tests/test_cli.py -k rename 2>&1 | tail']"
         },
         {
-          "text": "Does not call devpit_finish_card",
+          "text": "Does not call `finish`",
           "passed": true,
-          "evidence": "devpit_finish_card called 0 times"
+          "evidence": "`finish` called 0 times"
         },
         {
           "text": "Posts a [devflow] gate comment whose n of m has n below m",
@@ -242,12 +242,12 @@
         {
           "text": "Runs the checks in this turn",
           "passed": true,
-          "evidence": "runs: ['python3 -m pytest -q tests/test_cli.py -k rename 2>&1 | tail', \"cat >> tests/test_cli.py <<'EOF'\\n\\n\\ndef test_rename_without_i\", 'devpit_devflow_evidence']"
+          "evidence": "runs: ['python3 -m pytest -q tests/test_cli.py -k rename 2>&1 | tail', \"cat >> tests/test_cli.py <<'EOF'\\n\\n\\ndef test_rename_without_i\", '`evidence`']"
         },
         {
-          "text": "Does not call devpit_finish_card",
+          "text": "Does not call `finish`",
           "passed": false,
-          "evidence": "devpit_finish_card called 1 times"
+          "evidence": "`finish` called 1 times"
         },
         {
           "text": "Posts a [devflow] gate comment whose n of m has n below m",

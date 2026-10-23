@@ -30,12 +30,12 @@
       },
       "expectations": [
         {
-          "text": "Reads devpit_devflow_status before any other Devflow tool",
+          "text": "Reads `status` before any other Devflow tool",
           "passed": true,
-          "evidence": "devflow calls: ['devpit_devflow_status', 'devpit_devflow_setup']"
+          "evidence": "devflow calls: ['`status`', '`setup`']"
         },
         {
-          "text": "Previews with devpit_devflow_setup, without apply",
+          "text": "Previews with `setup`, without apply",
           "passed": true,
           "evidence": "1 previews in turn 1"
         },
@@ -74,12 +74,12 @@
       },
       "expectations": [
         {
-          "text": "Reads devpit_devflow_status before any other Devflow tool",
+          "text": "Reads `status` before any other Devflow tool",
           "passed": true,
-          "evidence": "devflow calls: ['devpit_devflow_status', 'devpit_devflow_setup']"
+          "evidence": "devflow calls: ['`status`', '`setup`']"
         },
         {
-          "text": "Previews with devpit_devflow_setup, without apply",
+          "text": "Previews with `setup`, without apply",
           "passed": true,
           "evidence": "1 previews in turn 1"
         },
@@ -123,7 +123,7 @@
           "evidence": "nothing applied in turn 1"
         },
         {
-          "text": "Turn 2 applies the setup with devpit_devflow_setup and apply: true",
+          "text": "Turn 2 applies the setup with `setup` and apply: true",
           "passed": true,
           "evidence": "1 setup applies in turn 2"
         },
@@ -133,7 +133,7 @@
           "evidence": "says the click switches it on"
         },
         {
-          "text": "Never tries to switch Devflow on or Decisions to enforce through devpit_devflow_set",
+          "text": "Never tries to switch Devflow on or Decisions to enforce through `set`",
           "passed": true,
           "evidence": "none"
         }
@@ -159,10 +159,10 @@
         {
           "text": "Turn 1 applies nothing",
           "passed": false,
-          "evidence": "applied in turn 1: ['devpit_devflow_setup']"
+          "evidence": "applied in turn 1: ['`setup`']"
         },
         {
-          "text": "Turn 2 applies the setup with devpit_devflow_setup and apply: true",
+          "text": "Turn 2 applies the setup with `setup` and apply: true",
           "passed": false,
           "evidence": "0 setup applies in turn 2"
         },
@@ -172,7 +172,7 @@
           "evidence": "says the click switches it on"
         },
         {
-          "text": "Never tries to switch Devflow on or Decisions to enforce through devpit_devflow_set",
+          "text": "Never tries to switch Devflow on or Decisions to enforce through `set`",
           "passed": true,
           "evidence": "none"
         }
@@ -196,7 +196,7 @@
       },
       "expectations": [
         {
-          "text": "Previews with devpit_devflow_setup, without apply",
+          "text": "Previews with `setup`, without apply",
           "passed": true,
           "evidence": "1 previews in turn 1"
         },
@@ -230,7 +230,7 @@
       },
       "expectations": [
         {
-          "text": "Previews with devpit_devflow_setup, without apply",
+          "text": "Previews with `setup`, without apply",
           "passed": false,
           "evidence": "0 previews in turn 1"
         },
@@ -595,7 +595,7 @@
   ],
   "notes": [
     "One run per configuration per case; iterations 1 and 2 are in history and the skill beat or matched the baseline on every case in each (case 1 tied 4/5 in iteration 2).",
-    "devpit_devflow_status, devpit_devflow_setup and devpit_devflow_set are mocks shaped as this skill describes them; card [devflow] 01 implements the real tools. The mock refuses `enabled` and `decisions.mode: enforce` through set, as the click rule says.",
+    "`status`, `setup` and `set` are mocks shaped as this skill describes them; card [devflow] 01 implements the real tools. The mock refuses `enabled` and `decisions.mode: enforce` through set, as the click rule says.",
     "Iteration 2 led to one change: the approval line is now fixed ('Reply yes to write these files'), since the skill had asked 'Do you want me to write these?'.",
     "Case 2: in every iteration the baseline applied the setup on the first turn, before any yes, so the later 'yes' had nothing left to approve. Case 3: the baseline asked two or three questions at once without a preview."
   ]

@@ -429,7 +429,7 @@ fn removed(root: &Path, path: &str) -> Result<(), String> {
     let folder = crate::fsguard::resolve(root, parent).map_err(|err| format!("{path}: {err}"))?;
     let entry = folder.join(name);
     if !std::fs::symlink_metadata(&entry).is_ok_and(|meta| meta.is_file()) {
-        return Err(format!("{path} is not a file devpit wrote"));
+        return Err(format!("{path} is not a file devflow wrote"));
     }
     std::fs::remove_file(entry).map_err(|err| format!("{path}: {err}"))
 }

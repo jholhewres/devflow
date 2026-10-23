@@ -386,7 +386,7 @@ fn a_rereview_carries_what_did_not_block_and_names_the_run_it_was_found_in() {
     let signed = signed(report, "claude", "devflow-spec");
     assert!(
         signed["findings"][1].get("carried_from").is_none(),
-        "devpit's to say, never a reviewer's"
+        "devflow's to say, never a reviewer's"
     );
 }
 

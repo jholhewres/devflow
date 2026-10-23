@@ -1,4 +1,4 @@
-//! `devpit_devflow_publish`: a review drafted for its pull request, and
+//! `publish`: a review drafted for its pull request, and
 //! published there only after the person's yes to that draft.
 //!
 //! `publish.json`, beside `findings.json`, holds what goes inline — each
@@ -153,7 +153,7 @@ pub fn asked(params: &Value) -> Result<Asked, String> {
     let (label, run) = review
         .split_once('/')
         .filter(|(label, run)| runs::plain_card(label) && runs::seconds_of(run).is_some())
-        .ok_or("`review` is a review's folder and run, as devpit_devflow_review answered them: \"pr-42/20261016T120000Z\"")?;
+        .ok_or("`review` is a review's folder and run, as `review` answered them: \"pr-42/20261016T120000Z\"")?;
     let word = |key: &str| fields.get(key).filter(|said| !said.is_null());
     let destination = match word("destination") {
         None => Destination::GitHub,
@@ -380,7 +380,7 @@ fn sections(
     let plural =
         |count: usize, one: &str| format!("{count} {one}{}", if count == 1 { "" } else { "s" });
     let summary = format!(
-        "**devpit review** of {}: {} on the lines, {}, {} outside the diff.",
+        "**devflow review** of {}: {} on the lines, {}, {} outside the diff.",
         text(kept, "head").get(..12).unwrap_or(text(kept, "head")),
         plural(inline_count, "comment"),
         plural(nits.len(), "nit"),
@@ -540,7 +540,7 @@ pub fn draft(kept: &Value, asked: &Asked, template: &str, verify: Verify) -> Val
         }
     }
     let review_body = format!(
-        "devpit review: {} on the lines; the rest is in the comment below.",
+        "devflow review: {} on the lines; the rest is in the comment below.",
         match inline.len() {
             1 => "1 comment".to_owned(),
             count => format!("{count} comments"),
@@ -707,7 +707,7 @@ pub fn respond(
 ) -> Result<Value, String> {
     let kept = read_json(folder, review::FINDINGS).ok_or_else(|| {
         format!(
-            "review {} has no findings.json yet: finish it with devpit_devflow_review first",
+            "review {} has no findings.json yet: finish it with `review` first",
             asked.review()
         )
     })?;

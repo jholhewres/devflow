@@ -1,6 +1,6 @@
 {
   "skill_name": "devflow-review",
-  "fixture": "tasks: a small Python to-do CLI with AGENTS.md, a CONTEXT.md glossary, ADR 0001 (one JSON file store), src/tasks/{cli,model,store}.py and pytest tests. devpit is a mock MCP server serving the board below, the card lifecycle tools and the Devflow tools; devpit_devflow_evidence runs the configured checks for real.",
+  "fixture": "tasks: a small Python to-do CLI with AGENTS.md, a CONTEXT.md glossary, ADR 0001 (one JSON file store), src/tasks/{cli,model,store}.py and pytest tests. devpit is a mock MCP server serving the board below, the card lifecycle tools and the Devflow tools; `evidence` runs the configured checks for real.",
   "mock": "full",
   "evals": [
     {

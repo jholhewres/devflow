@@ -240,7 +240,7 @@ pub fn next(
             ""
         };
         return format!(
-            "Done: the findings are in findings.json; nothing is commented on any card.{impact} devpit_devflow_publish with review \"{label}/{stamp}\" {posted}."
+            "Done: the findings are in findings.json; nothing is commented on any card.{impact} `publish` with review \"{label}/{stamp}\" {posted}."
         );
     }
     let reading = detached.map_or_else(String::new, |head| {
@@ -252,7 +252,7 @@ pub fn next(
         ""
     };
     format!(
-        "Review {} yourself: one fresh subagent per persona, each given only the packet and its persona beside it, each answering one findings object.{reading}{impact} Then call devpit_devflow_review again with {}, run \"{stamp}\" and reports: those objects.",
+        "Review {} yourself: one fresh subagent per persona, each given only the packet and its persona beside it, each answering one findings object.{reading}{impact} Then call `review` again with {}, run \"{stamp}\" and reports: those objects.",
         pending.join(", "),
         subject.again()
     )

@@ -177,7 +177,7 @@ pub(crate) fn set_path(mut whole: Value, path: &str, value: &Value) -> Result<Va
         return Err(Invalid::at(None, path, "a path is fields joined by dots"));
     }
     if parts == ["version"] {
-        return Err(Invalid::at(None, path, "the version is devpit's to write"));
+        return Err(Invalid::at(None, path, "the version is devflow's to write"));
     }
     if !whole.is_object() {
         whole = Value::Object(Default::default());

@@ -29,7 +29,7 @@ pub fn published(config: &crate::Config) -> Result<(), String> {
     match config.publish() {
         Publish::Board => Ok(()),
         other => Err(format!(
-            "publish: {} is not yet — it needs O-08, the {} integration. Set stages.plan.publish to board, and the plan's cards are made on the devpit board.",
+            "publish: {} is not yet — it needs O-08, the {} integration. Set stages.plan.publish to board, and the plan's slices are made as work items in .devflow/work/.",
             other.word(),
             match other {
                 Publish::Jira => "Jira",

@@ -21,7 +21,7 @@ pub fn epic_title(title: &str) -> String {
     format!("{PREFIX}Brief: {bare}")
 }
 
-/// What `devpit_devflow_brief` is given. Every field is optional: the
+/// What `brief` is given. Every field is optional: the
 /// context stage passes only `context`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 pub struct Brief {

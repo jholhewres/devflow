@@ -1,6 +1,6 @@
 {
   "skill_name": "devflow-execution",
-  "fixture": "tasks: a small Python to-do CLI with AGENTS.md, a CONTEXT.md glossary, ADR 0001 (one JSON file store), src/tasks/{cli,model,store}.py and pytest tests. devpit is a mock MCP server serving the board below, the card lifecycle tools and the Devflow tools; devpit_devflow_evidence runs the configured checks for real.",
+  "fixture": "tasks: a small Python to-do CLI with AGENTS.md, a CONTEXT.md glossary, ADR 0001 (one JSON file store), src/tasks/{cli,model,store}.py and pytest tests. devpit is a mock MCP server serving the board below, the card lifecycle tools and the Devflow tools; `evidence` runs the configured checks for real.",
   "mock": "full",
   "evals": [
     {
@@ -27,11 +27,11 @@
       "turns": [
         "Implement card_01RNM."
       ],
-      "expected_output": "The agent starts the card, writes one test, watches it fail on the assertion, then writes the code; every criterion gets a test; it records the evidence with devpit_devflow_evidence, leaves card_01UND alone and does not finish the card.",
+      "expected_output": "The agent starts the card, writes one test, watches it fail on the assertion, then writes the code; every criterion gets a test; it records the evidence with `evidence`, leaves card_01UND alone and does not finish the card.",
       "expectations": [
         {
           "check": "started_card",
-          "text": "Starts card_01RNM with devpit_start_card"
+          "text": "Starts card_01RNM with `start`"
         },
         {
           "check": "test_before_code",
@@ -47,7 +47,7 @@
         },
         {
           "check": "evidence_recorded",
-          "text": "Records the evidence with devpit_devflow_evidence for card_01RNM, mapping the criteria to tests"
+          "text": "Records the evidence with `evidence` for card_01RNM, mapping the criteria to tests"
         },
         {
           "check": "one_card_only",
@@ -106,7 +106,7 @@
         },
         {
           "check": "evidence_recorded",
-          "text": "Records the evidence with devpit_devflow_evidence for card_01BUG"
+          "text": "Records the evidence with `evidence` for card_01BUG"
         }
       ]
     },
@@ -174,7 +174,7 @@
         },
         {
           "check": "evidence_recorded",
-          "text": "Records the evidence with devpit_devflow_evidence for card_01CNT"
+          "text": "Records the evidence with `evidence` for card_01CNT"
         }
       ]
     }

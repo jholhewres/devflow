@@ -97,7 +97,7 @@ fn a_project_is_read_where_it_keeps_devflow() {
     assert_eq!(dir(legacy.path()), LEGACY);
     assert_eq!(file(legacy.path()), ".devpit/devflow/devflow.yaml");
     let State::Valid(_, config) = read(legacy.path()) else {
-        panic!("devpit's file is read");
+        panic!("devflow's file is read");
     };
     assert_eq!(
         config.stages.execution.e2e_dir,
