@@ -12,7 +12,7 @@ use serde_json::{Map, Value};
 
 use crate::config::{self, Config, Invalid, Mode};
 use crate::detect::Detected;
-use crate::folder::{self, State};
+use crate::folder::{self, Layout, State};
 use crate::playwright;
 use crate::preset::{self, Change, Preset};
 use crate::setup::{self, Planned, Script};
@@ -80,6 +80,17 @@ pub fn setup(
     set: &Map<String, Value>,
     detected: &Detected,
 ) -> Result<Proposal, Invalid> {
+    setup_in(&Layout::default(), state, preset, set, detected)
+}
+
+/// [`setup`] for a project laid out as `layout`.
+pub fn setup_in(
+    layout: &Layout,
+    state: &State,
+    preset: Preset,
+    set: &Map<String, Value>,
+    detected: &Detected,
+) -> Result<Proposal, Invalid> {
     let before = said(state);
     let mut wanted = preset::starting(preset, detected).to_json();
     // A setup run again leaves the person's switches where they put them.
@@ -107,16 +118,18 @@ pub fn setup(
         .collect();
     let config = config::from_json(&wanted)?;
     // Before the commands move into scripts: a check the person chose names its tool there.
-    let playwright = playwright::wanted(&config, detected)
-        .then(|| playwright::text(&config.stages.execution.e2e_dir, playwright::base(detected)));
-    let (config, scripts) = setup::scripted(config, &sources);
+    let playwright = playwright::wanted(&config, detected).then(|| {
+        let e2e_dir = &config.stages.execution.e2e_dir;
+        playwright::text_in(layout.dir, e2e_dir, playwright::base(detected))
+    });
+    let (config, scripts) = setup::scripted_in(layout.dir, config, &sources);
     let changes = preset::diff(&before, &config.to_json());
     // A setup run again over the person's file keeps their comments, unless
     // what it changes is more than a word.
     let (yaml, laid_out) = folder::rewritten(text_of(state), &changes, &config);
     Ok(Proposal {
         changes,
-        files: setup::planned(&yaml, &scripts, playwright.as_deref()),
+        files: setup::planned_in(layout, &yaml, &scripts, playwright.as_deref()),
         config,
         yaml,
         laid_out,
@@ -128,6 +141,16 @@ pub fn setup(
 /// `state`'s file with the field at `path` set to `value`. Works on a file
 /// that is invalid but still YAML, which is how one is fixed.
 pub fn set(state: &State, path: &str, value: &Value) -> Result<Proposal, Invalid> {
+    set_in(&Layout::default(), state, path, value)
+}
+
+/// [`set`] for a project laid out as `layout`.
+pub fn set_in(
+    layout: &Layout,
+    state: &State,
+    path: &str,
+    value: &Value,
+) -> Result<Proposal, Invalid> {
     let text = match state {
         State::Missing => {
             return Err(Invalid::at(
@@ -147,11 +170,16 @@ pub fn set(state: &State, path: &str, value: &Value) -> Result<Proposal, Invalid
     }
     let mut wanted = preset::set_path(before.clone(), path, value)?;
     let asks = held_back(&before, &mut wanted)?;
-    written(text, &before, &wanted, asks)
+    written(layout, text, &before, &wanted, asks)
 }
 
 /// The person's click: Devflow switched on, or Decisions moved to enforce.
 pub fn switched(state: &State, ask: Ask) -> Result<Proposal, Invalid> {
+    switched_in(&Layout::default(), state, ask)
+}
+
+/// [`switched`] for a project laid out as `layout`.
+pub fn switched_in(layout: &Layout, state: &State, ask: Ask) -> Result<Proposal, Invalid> {
     let State::Valid(text, now) = state else {
         return Err(Invalid::at(
             None,
@@ -162,7 +190,7 @@ pub fn switched(state: &State, ask: Ask) -> Result<Proposal, Invalid> {
     let (path, value) = ask.field();
     let before = now.to_json();
     let wanted = preset::set_path(before.clone(), path, &value)?;
-    written(text, &before, &wanted, Vec::new())
+    written(layout, text, &before, &wanted, Vec::new())
 }
 
 /// The file's text, when there is one that reads as YAML.
@@ -184,6 +212,7 @@ fn said(state: &State) -> Value {
 }
 
 fn written(
+    layout: &Layout,
     text: &str,
     before: &Value,
     wanted: &Value,
@@ -200,7 +229,7 @@ fn written(
                 .into_iter()
                 .map(|check| check.name)
                 .collect();
-            setup::scripted_new(config, &had)
+            setup::scripted_new_in(layout.dir, config, &had)
         }
         Err(_) => (config, Vec::new()),
     };
@@ -211,7 +240,7 @@ fn written(
     };
     let (yaml, laid_out) = folder::rewritten(Some(text), &changes, &config);
     Ok(Proposal {
-        files: setup::config_only(&yaml, &scripts),
+        files: setup::config_only_in(layout, &yaml, &scripts),
         config,
         yaml,
         laid_out,

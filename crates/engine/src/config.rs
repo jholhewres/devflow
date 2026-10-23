@@ -36,7 +36,9 @@ pub const STAGES: [&str; 6] = [
 ];
 
 /// Where the E2E specs Devflow writes go, unless `stages.execution.e2e_dir` moves them.
-pub const E2E_DIR: &str = ".devpit/devflow/e2e";
+pub const E2E_DIR: &str = ".devflow/e2e";
+/// The same, in a project whose folder is devpit's.
+pub const LEGACY_E2E_DIR: &str = ".devpit/devflow/e2e";
 
 /// The rubric a card's completion is gated on.
 pub const GATE: &str = "devflow-done";

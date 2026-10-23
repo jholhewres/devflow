@@ -583,8 +583,10 @@ fn e2e_tools(files: &Files) -> Vec<E2eTool> {
         });
         if let Some(source) = source {
             tools.push(E2eTool {
-                run: (name == crate::playwright::TOOL)
-                    .then(|| crate::playwright::command(runner(files).0)),
+                run: (name == crate::playwright::TOOL).then(|| {
+                    let dir = crate::folder::dir(files.root);
+                    crate::playwright::command_in(dir, runner(files).0)
+                }),
                 name: name.to_owned(),
                 source,
             });

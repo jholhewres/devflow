@@ -30,11 +30,11 @@ fn each_command_moves_into_a_script_that_says_where_it_came_from() {
     let (config, scripts) = scripted(config, &sources);
     assert_eq!(
         config.stages.execution.checks[0].run,
-        "sh .devpit/devflow/scripts/check-unit.sh"
+        "sh .devflow/scripts/check-unit.sh"
     );
     // Already a script of its own: left as it is.
     assert_eq!(scripts.len(), 1);
-    let text = script_text(&scripts[0]);
+    let text = script_text(DIR, &scripts[0]);
     assert!(text.starts_with("#!/bin/sh\n"), "{text}");
     assert!(text.contains("found in Makefile:4"), "{text}");
     assert!(text.ends_with("\nmake test\n"), "{text}");
@@ -54,24 +54,24 @@ fn a_setup_writes_the_folder_and_nothing_before_it_is_asked() {
     assert_eq!(
         changes_of(&done),
         [
-            (".devpit/devflow/devflow.yaml", "create"),
-            (".devpit/devflow/.gitignore", "create"),
-            (".devpit/devflow/scripts/check-unit.sh", "create"),
+            (".devflow/devflow.yaml", "create"),
+            (".devflow/.gitignore", "create"),
+            (".devflow/scripts/check-unit.sh", "create"),
         ]
     );
     // The personas and the schema are devpit's: read from it, never copied.
-    assert!(!root.path().join(".devpit/devflow/reviewers").exists());
+    assert!(!root.path().join(".devflow/reviewers").exists());
     assert!(!root
         .path()
-        .join(".devpit/devflow/devflow-findings.schema.json")
+        .join(".devflow/devflow-findings.schema.json")
         .exists());
     let ignore =
-        std::fs::read_to_string(root.path().join(".devpit/devflow/.gitignore")).expect("gitignore");
+        std::fs::read_to_string(root.path().join(".devflow/.gitignore")).expect("gitignore");
     assert!(ignore.lines().any(|line| line == "runs/"), "{ignore}");
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mode = std::fs::metadata(root.path().join(".devpit/devflow/scripts/check-unit.sh"))
+        let mode = std::fs::metadata(root.path().join(".devflow/scripts/check-unit.sh"))
             .expect("script")
             .permissions()
             .mode();
@@ -79,13 +79,13 @@ fn a_setup_writes_the_folder_and_nothing_before_it_is_asked() {
     }
 
     // Again: nothing to do, and the person's own ignores stay.
-    std::fs::write(root.path().join(".devpit/devflow/.gitignore"), "*.log").expect("edit");
+    std::fs::write(root.path().join(".devflow/.gitignore"), "*.log").expect("edit");
     let again = write(root.path(), &files).expect("again");
     let said = changes_of(&again);
-    assert_eq!(said[0], (".devpit/devflow/devflow.yaml", "same"));
-    assert_eq!(said[1], (".devpit/devflow/.gitignore", "append"));
+    assert_eq!(said[0], (".devflow/devflow.yaml", "same"));
+    assert_eq!(said[1], (".devflow/.gitignore", "append"));
     assert_eq!(
-        std::fs::read_to_string(root.path().join(".devpit/devflow/.gitignore")).expect("read"),
+        std::fs::read_to_string(root.path().join(".devflow/.gitignore")).expect("read"),
         "*.log\nruns/\n"
     );
 }
@@ -93,14 +93,17 @@ fn a_setup_writes_the_folder_and_nothing_before_it_is_asked() {
 #[test]
 fn a_script_no_check_runs_is_listed_and_removed_only_when_devpit_wrote_it_as_it_is() {
     let root = tempfile::tempdir().expect("tempdir");
-    let scripts = root.path().join(".devpit/devflow/scripts");
+    let scripts = root.path().join(".devflow/scripts");
     std::fs::create_dir_all(&scripts).expect("scripts");
     let written = |name: &str, command: &str, source: Option<&str>| {
-        script_text(&Script {
-            name: name.into(),
-            command: command.into(),
-            source: source.map(str::to_owned),
-        })
+        script_text(
+            DIR,
+            &Script {
+                name: name.into(),
+                command: command.into(),
+                source: source.map(str::to_owned),
+            },
+        )
     };
     std::fs::write(
         scripts.join("check-old.sh"),
@@ -126,9 +129,9 @@ fn a_script_no_check_runs_is_listed_and_removed_only_when_devpit_wrote_it_as_it_
     assert_eq!(
         unused,
         [
-            (".devpit/devflow/scripts/check-bare.sh", "remove"),
-            (".devpit/devflow/scripts/check-mine.sh", "unused"),
-            (".devpit/devflow/scripts/check-old.sh", "remove"),
+            (".devflow/scripts/check-bare.sh", "remove"),
+            (".devflow/scripts/check-mine.sh", "unused"),
+            (".devflow/scripts/check-old.sh", "remove"),
         ]
     );
     assert!(
@@ -167,11 +170,57 @@ fn every_persona_devpit_ships_is_known_as_shipped() {
 fn a_folder_that_leads_outside_the_project_is_refused() {
     let root = tempfile::tempdir().expect("root");
     let elsewhere = tempfile::tempdir().expect("elsewhere");
-    std::os::unix::fs::symlink(elsewhere.path(), root.path().join(".devpit")).expect("link");
+    std::os::unix::fs::symlink(elsewhere.path(), root.path().join(".devflow")).expect("link");
     let files = config_only("version: 1\n", &[]);
     assert!(write(root.path(), &files).is_err());
     assert!(std::fs::read_dir(elsewhere.path())
         .expect("read")
         .next()
         .is_none());
+}
+
+/// A setup in a project on devpit's folder writes there, and its scripts
+/// climb back to the root from there.
+#[test]
+fn a_setup_in_devpits_folder_writes_its_files_there() {
+    let layout = Layout {
+        dir: crate::folder::LEGACY,
+        file: crate::locate::DEVPIT.to_owned(),
+    };
+    let config = with_checks(&[("unit", "make test")]);
+    let (config, scripts) = scripted_in(layout.dir, config, &[]);
+    assert_eq!(
+        config.stages.execution.checks[0].run,
+        "sh .devpit/devflow/scripts/check-unit.sh"
+    );
+    let files = planned_in(&layout, "version: 2\n", &scripts, Some("// pw\n"));
+    let paths: Vec<&str> = files.iter().map(|one| one.path.as_str()).collect();
+    assert_eq!(
+        paths,
+        [
+            ".devpit/devflow/devflow.yaml",
+            ".devpit/devflow/.gitignore",
+            ".devpit/devflow/scripts/check-unit.sh",
+            ".devpit/devflow/playwright.config.ts",
+        ]
+    );
+    assert!(files[2]
+        .text
+        .contains("cd \"$(dirname \"$0\")/../../..\"\n"));
+    assert!(script_text(DIR, &scripts[0]).contains("cd \"$(dirname \"$0\")/../..\"\n"));
+
+    // The script runs from the root wherever it is started.
+    let root = tempfile::tempdir().expect("root");
+    let done = write(root.path(), &files).expect("written");
+    assert_eq!(done.len(), 4);
+    std::fs::write(root.path().join("marker"), "").expect("marker");
+    let script = root.path().join(".devpit/devflow/scripts/check-unit.sh");
+    let text = std::fs::read_to_string(&script).expect("script");
+    std::fs::write(&script, text.replace("make test", "test -f marker")).expect("edit");
+    let ran = std::process::Command::new("sh")
+        .arg(&script)
+        .current_dir(std::env::temp_dir())
+        .status()
+        .expect("sh");
+    assert!(ran.success());
 }

@@ -48,7 +48,7 @@ fn the_config_keeps_a_junit_report_screenshots_and_video_where_devpit_reads_them
 
 #[test]
 fn the_projects_own_config_is_the_base_and_its_server_starts_from_the_root() {
-    let text = text(".devpit/devflow/e2e", Some("playwright.config.ts"));
+    let text = text(".devflow/e2e", Some("playwright.config.ts"));
     assert!(
         text.contains("import base from '../../playwright.config'\n"),
         "{text}"
@@ -60,7 +60,7 @@ fn the_projects_own_config_is_the_base_and_its_server_starts_from_the_root() {
     );
     assert!(text.contains("({ cwd: root, ...server })"), "{text}");
     // A module JavaScript cannot import without its extension keeps it.
-    let mjs = super::text(".devpit/devflow/e2e", Some("playwright.config.mjs"));
+    let mjs = super::text(".devflow/e2e", Some("playwright.config.mjs"));
     assert!(mjs.contains("from '../../playwright.config.mjs'"), "{mjs}");
 }
 

@@ -244,7 +244,7 @@ pub fn persona_text(root: &Path, elsewhere: Personas, persona: &str) -> Result<S
     if !crate::config::is_name(persona) {
         return Err(format!("`{persona}` is not a persona's name"));
     }
-    let relative = format!("{}/reviewers/{persona}.md", crate::folder::DIR);
+    let relative = format!("{}/reviewers/{persona}.md", crate::folder::dir(root));
     if let Some(text) =
         persona_in(root, &relative)?.filter(|text| !crate::setup::shipped(persona, text))
     {

@@ -15,7 +15,12 @@ use crate::folder;
 use crate::layers::Team;
 
 /// A project's own skills, relative to its root.
-pub const DIR: &str = ".devpit/devflow/skills";
+pub const DIR: &str = ".devflow/skills";
+
+/// [`DIR`] in `root`'s own folder.
+pub fn dir(root: &Path) -> String {
+    format!("{}/skills", crate::folder::dir(root))
+}
 
 /// The most of a SKILL.md read, checked before reading: far past what a
 /// context should take whole.
@@ -191,7 +196,11 @@ pub fn resolve_with(
             frontmatter,
         }))
     };
-    if let Some(skill) = mine(Layer::Project, project, format!("{DIR}/{name}/SKILL.md"))? {
+    if let Some(skill) = mine(
+        Layer::Project,
+        project,
+        format!("{}/{name}/SKILL.md", dir(project)),
+    )? {
         return Ok(skill);
     }
     for team in teams {
@@ -256,7 +265,10 @@ pub fn own(uses: &str, places: &Places) -> Result<Found, String> {
     let found = match place {
         "project" => at(
             "project",
-            read_in(places.project, &format!("{DIR}/{name}/SKILL.md"))?,
+            read_in(
+                places.project,
+                &format!("{}/{name}/SKILL.md", dir(places.project)),
+            )?,
         ),
         "personal" => at(
             "personal",

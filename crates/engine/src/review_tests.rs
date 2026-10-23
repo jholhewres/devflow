@@ -82,9 +82,9 @@ fn the_persona_is_the_projects_own_before_devpits() {
     let dir = tempfile::tempdir().expect("tempdir");
     let builtin = persona_text(dir.path(), Personas::default(), "devflow-spec").expect("built in");
     assert!(builtin.contains("Devflow reviewer: Spec"));
-    std::fs::create_dir_all(dir.path().join(".devpit/devflow/reviewers")).expect("dir");
+    std::fs::create_dir_all(dir.path().join(".devflow/reviewers")).expect("dir");
     std::fs::write(
-        dir.path().join(".devpit/devflow/reviewers/devflow-spec.md"),
+        dir.path().join(".devflow/reviewers/devflow-spec.md"),
         "---\nname: devflow-spec\n---\nOurs.",
     )
     .expect("write");
@@ -113,7 +113,7 @@ fn a_persona_copy_an_older_setup_made_is_not_the_projects_own() {
         personal: Some(&mine),
         teams: &[],
     };
-    let copy = dir.path().join(".devpit/devflow/reviewers/devflow-spec.md");
+    let copy = dir.path().join(".devflow/reviewers/devflow-spec.md");
     std::fs::create_dir_all(copy.parent().expect("folder")).expect("folder");
     let (_, shipped) = crate::setup::PERSONAS[0];
     std::fs::write(&copy, shipped.replace('\n', "\r\n")).expect("copy");

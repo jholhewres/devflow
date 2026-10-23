@@ -109,7 +109,7 @@ fn a_node_project_runs_vitest_with_a_report_and_playwright_from_its_script() {
     assert_eq!(e2e.name, "e2e");
     assert_eq!(e2e.evidence, [Evidence::Screenshots, Evidence::Video]);
     assert_eq!(e2e.report, Report::Junit);
-    assert_eq!(e2e.run, "sh .devpit/devflow/scripts/check-e2e.sh");
+    assert_eq!(e2e.run, "sh .devflow/scripts/check-e2e.sh");
     let script = setup
         .scripts
         .iter()
@@ -117,7 +117,7 @@ fn a_node_project_runs_vitest_with_a_report_and_playwright_from_its_script() {
         .expect("the e2e script");
     assert_eq!(
         script.command,
-        "pnpm exec playwright test --config .devpit/devflow/playwright.config.ts"
+        "pnpm exec playwright test --config .devflow/playwright.config.ts"
     );
     assert_eq!(script.source.as_deref(), Some("playwright.config.ts"));
     // The project's own E2E suite stays where it is, and is still called.
@@ -136,12 +136,12 @@ fn a_playwright_project_gets_a_config_for_devflows_specs_with_their_evidence() {
     let done = devflow_engine::setup::write(root.path(), &setup.files).expect("written");
     assert!(done
         .iter()
-        .any(|one| one.path == ".devpit/devflow/playwright.config.ts" && one.change == "create"));
-    let written = std::fs::read_to_string(root.path().join(".devpit/devflow/playwright.config.ts"))
+        .any(|one| one.path == ".devflow/playwright.config.ts" && one.change == "create"));
+    let written = std::fs::read_to_string(root.path().join(".devflow/playwright.config.ts"))
         .expect("the config");
     for said in [
         "import base from '../../playwright.config'",
-        "testDir: `${root}/.devpit/devflow/e2e`",
+        "testDir: `${root}/.devflow/e2e`",
         "['junit', { outputFile: `${reports}/report.xml` }]",
         "process.env.DEVFLOW_REPORT_DIR",
         "screenshot: 'on', video: 'on'",
@@ -154,7 +154,7 @@ fn a_playwright_project_gets_a_config_for_devflows_specs_with_their_evidence() {
     assert!(php
         .files
         .iter()
-        .all(|file| file.path != ".devpit/devflow/playwright.config.ts"));
+        .all(|file| file.path != ".devflow/playwright.config.ts"));
 }
 
 #[test]

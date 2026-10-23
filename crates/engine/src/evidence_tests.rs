@@ -409,11 +409,11 @@ fn a_card_keeps_only_its_newest_runs() {
 fn the_e2e_spec_is_named_after_the_card() {
     assert_eq!(
         spec_path(
-            ".devpit/devflow/e2e",
+            ".devflow/e2e",
             "card_01",
             "[devflow] Rename changes the title!"
         ),
-        ".devpit/devflow/e2e/card_01-rename-changes-the-title.spec.ts"
+        ".devflow/e2e/card_01-rename-changes-the-title.spec.ts"
     );
     assert_eq!(spec_path("e2e", "card_01", "¿¿"), "e2e/card_01.spec.ts");
     let root = tempfile::tempdir().expect("root");

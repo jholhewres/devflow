@@ -11,7 +11,7 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 use crate::config::Config;
-use crate::folder::{DIR, FILE};
+use crate::folder::{Layout, DIR};
 
 /// The personas, as this build ships them.
 pub(crate) const PERSONAS: [(&str, &str); 4] = [
@@ -116,29 +116,49 @@ pub struct Script {
 /// How a check runs its script, from the project's root. Through `sh`, so a
 /// checkout that lost the executable bit still runs it.
 pub fn script_run(name: &str) -> String {
-    format!("sh {DIR}/scripts/check-{name}.sh")
+    script_run_in(DIR, name)
+}
+
+/// [`script_run`] for a script in the folder `dir`.
+pub fn script_run_in(dir: &str, name: &str) -> String {
+    format!("sh {dir}/scripts/check-{name}.sh")
 }
 
 /// `config` with every check that runs a command of its own running a script
 /// instead, and the scripts to write. `sources` says where a command was found.
 pub fn scripted(config: Config, sources: &[(String, String)]) -> (Config, Vec<Script>) {
-    scripted_but(config, sources, &[])
+    scripted_but(DIR, config, sources, &[])
+}
+
+/// [`scripted`] for scripts in the folder `dir`.
+pub fn scripted_in(
+    dir: &str,
+    config: Config,
+    sources: &[(String, String)],
+) -> (Config, Vec<Script>) {
+    scripted_but(dir, config, sources, &[])
 }
 
 /// [`scripted`] for a change: only the checks not among `had` move into a
 /// script, so a command the person wrote in devflow.yaml stays theirs.
 pub fn scripted_new(config: Config, had: &[String]) -> (Config, Vec<Script>) {
-    scripted_but(config, &[], had)
+    scripted_but(DIR, config, &[], had)
+}
+
+/// [`scripted_new`] for scripts in the folder `dir`.
+pub fn scripted_new_in(dir: &str, config: Config, had: &[String]) -> (Config, Vec<Script>) {
+    scripted_but(dir, config, &[], had)
 }
 
 fn scripted_but(
+    dir: &str,
     mut config: Config,
     sources: &[(String, String)],
     had: &[String],
 ) -> (Config, Vec<Script>) {
     let mut scripts = Vec::new();
     for check in &mut config.stages.execution.checks {
-        let run = script_run(&check.name);
+        let run = script_run_in(dir, &check.name);
         if check.run == run || had.contains(&check.name) {
             continue;
         }
@@ -154,7 +174,9 @@ fn scripted_but(
     (config, scripts)
 }
 
-fn script_text(script: &Script) -> String {
+fn script_text(dir: &str, script: &Script) -> String {
+    // From `<dir>/scripts/` back up to the root.
+    let up = vec![".."; dir.split('/').count() + 1].join("/");
     let from = script
         .source
         .as_deref()
@@ -166,8 +188,8 @@ fn script_text(script: &Script) -> String {
          # It runs from the project's root, wherever it is started; a report\n\
          # written to $DEVFLOW_REPORT_DIR is read as the check's evidence.\n\
          set -e\n\
-         cd \"$(dirname \"$0\")/../../..\"\n\
-         DEVFLOW_REPORT_DIR=\"${{DEVFLOW_REPORT_DIR:-{DIR}/runs/local}}\"\n\
+         cd \"$(dirname \"$0\")/{up}\"\n\
+         DEVFLOW_REPORT_DIR=\"${{DEVFLOW_REPORT_DIR:-{dir}/runs/local}}\"\n\
          export DEVFLOW_REPORT_DIR\n\
          mkdir -p \"$DEVFLOW_REPORT_DIR\"\n\
          {command}\n",
@@ -211,6 +233,17 @@ pub struct FileChange {
 /// Every file a setup of `yaml` with `scripts` writes, and the Playwright
 /// config when the project runs Playwright.
 pub fn planned(yaml: &str, scripts: &[Script], playwright: Option<&str>) -> Vec<Planned> {
+    planned_in(&Layout::default(), yaml, scripts, playwright)
+}
+
+/// [`planned`] in `layout`.
+pub fn planned_in(
+    layout: &Layout,
+    yaml: &str,
+    scripts: &[Script],
+    playwright: Option<&str>,
+) -> Vec<Planned> {
+    let dir = layout.dir;
     let at = |path: String, text: String, kind: Kind, executable: bool| Planned {
         path,
         text,
@@ -218,18 +251,18 @@ pub fn planned(yaml: &str, scripts: &[Script], playwright: Option<&str>) -> Vec<
         executable,
     };
     let mut files = vec![
-        at(FILE.to_owned(), yaml.to_owned(), Kind::Ours, false),
+        at(layout.file.clone(), yaml.to_owned(), Kind::Ours, false),
         at(
-            format!("{DIR}/.gitignore"),
+            format!("{dir}/.gitignore"),
             format!("# A check run by hand reports under runs/local.\n{IGNORED}\n"),
             Kind::Ignore,
             false,
         ),
     ];
-    files.extend(scripts_planned(scripts));
+    files.extend(scripts_planned(dir, scripts));
     files.extend(playwright.map(|text| {
         at(
-            crate::playwright::FILE.to_owned(),
+            crate::playwright::file_in(dir),
             text.to_owned(),
             Kind::Theirs,
             false,
@@ -240,15 +273,23 @@ pub fn planned(yaml: &str, scripts: &[Script], playwright: Option<&str>) -> Vec<
 
 /// devflow.yaml, and the scripts of the checks a change to one field added.
 pub fn config_only(yaml: &str, scripts: &[Script]) -> Vec<Planned> {
-    let mut files: Vec<Planned> = planned(yaml, &[], None).into_iter().take(1).collect();
-    files.extend(scripts_planned(scripts));
+    config_only_in(&Layout::default(), yaml, scripts)
+}
+
+/// [`config_only`] in `layout`.
+pub fn config_only_in(layout: &Layout, yaml: &str, scripts: &[Script]) -> Vec<Planned> {
+    let mut files: Vec<Planned> = planned_in(layout, yaml, &[], None)
+        .into_iter()
+        .take(1)
+        .collect();
+    files.extend(scripts_planned(layout.dir, scripts));
     files
 }
 
-fn scripts_planned(scripts: &[Script]) -> impl Iterator<Item = Planned> + '_ {
-    scripts.iter().map(|script| Planned {
-        path: format!("{DIR}/scripts/{}", script_file(&script.name)),
-        text: script_text(script),
+fn scripts_planned<'a>(dir: &'a str, scripts: &'a [Script]) -> impl Iterator<Item = Planned> + 'a {
+    scripts.iter().map(move |script| Planned {
+        path: format!("{dir}/scripts/{}", script_file(&script.name)),
+        text: script_text(dir, script),
         kind: Kind::Ours,
         executable: true,
     })
@@ -262,7 +303,8 @@ fn script_file(name: &str) -> String {
 /// runs: the setup says so, and removes the one devpit wrote as it was.
 pub fn with_unused(root: &Path, config: &Config, files: Vec<Planned>) -> Vec<Planned> {
     let mut files = files;
-    let Ok(folder) = crate::fsguard::resolve(root, &format!("{DIR}/scripts")) else {
+    let dir = crate::folder::dir(root);
+    let Ok(folder) = crate::fsguard::resolve(root, &format!("{dir}/scripts")) else {
         return files;
     };
     let Ok(entries) = std::fs::read_dir(folder) else {
@@ -275,7 +317,7 @@ pub fn with_unused(root: &Path, config: &Config, files: Vec<Planned>) -> Vec<Pla
         .filter_map(|entry| entry.file_name().into_string().ok())
         .filter_map(|file| {
             let name = file.strip_prefix("check-")?.strip_suffix(".sh")?.to_owned();
-            let path = format!("{DIR}/scripts/{file}");
+            let path = format!("{dir}/scripts/{file}");
             let run = config
                 .stages
                 .execution
@@ -299,7 +341,7 @@ pub fn with_unused(root: &Path, config: &Config, files: Vec<Planned>) -> Vec<Pla
 /// Whether `text` is the script devpit writes for check `name`, unchanged:
 /// written again from the command and source it names, it is the same. A
 /// command of more than one line was the person's to grow, so it is theirs.
-fn generated(name: &str, text: &str) -> bool {
+fn generated(dir: &str, name: &str, text: &str) -> bool {
     let Some((head, command)) = text.split_once("mkdir -p \"$DEVFLOW_REPORT_DIR\"\n") else {
         return false;
     };
@@ -316,7 +358,7 @@ fn generated(name: &str, text: &str) -> bool {
         command: command.strip_suffix('\n').unwrap_or(command).to_owned(),
         source: source.map(str::to_owned),
     };
-    script_text(&script) == text
+    script_text(dir, &script) == text
 }
 
 /// What writing `files` under `root` would do; nothing is written.
@@ -401,10 +443,17 @@ fn there(root: &Path, path: &str) -> Option<String> {
         .flatten()
 }
 
+/// The folder a script at `path`, `<dir>/scripts/<file>`, belongs to.
+fn script_dir(path: &str) -> &str {
+    path.rsplit_once("/scripts/").map_or(DIR, |(dir, _)| dir)
+}
+
 fn change_of(file: &Planned, existing: Option<&str>) -> &'static str {
     match (existing, file.kind) {
         // The text of an unused script's plan is its check's name.
-        (Some(text), Kind::Unused) if generated(&file.text, text) => "remove",
+        (Some(text), Kind::Unused) if generated(script_dir(&file.path), &file.text, text) => {
+            "remove"
+        }
         (_, Kind::Unused) => "unused",
         (None, _) => "create",
         (Some(text), Kind::Ignore) => {

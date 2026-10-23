@@ -24,7 +24,12 @@ pub const PLAN: &str = "devflow-plan";
 pub const DONE: &str = GATE;
 
 /// Where a project keeps rubrics of its own, one `<name>.json` each.
-pub const DIR: &str = ".devpit/devflow/rubrics";
+pub const DIR: &str = ".devflow/rubrics";
+
+/// [`DIR`] in `root`'s own folder.
+pub fn dir(root: &std::path::Path) -> String {
+    format!("{}/rubrics", crate::folder::dir(root))
+}
 
 /// The rubrics devpit ships with Devflow. `devflow-done` is the app's
 /// `done`, asked once per criterion.

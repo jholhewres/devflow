@@ -21,7 +21,12 @@ use crate::config::{self, Config, Extend, Invalid};
 use crate::folder;
 
 /// The lockfile, relative to the project's root. Committed with the project.
-pub const LOCK: &str = ".devpit/devflow/devflow.lock";
+pub const LOCK: &str = ".devflow/devflow.lock";
+
+/// [`LOCK`] in `root`'s own folder.
+pub fn lock(root: &Path) -> String {
+    format!("{}/devflow.lock", crate::folder::dir(root))
+}
 /// A layer's own settings, at the root of its repository.
 pub const LAYER_FILE: &str = "devflow.yaml";
 /// The most of a lockfile or a personal layer read, checked before reading.
@@ -105,10 +110,11 @@ pub fn name_of(git: &str) -> String {
 
 /// The lockfile, or an empty one when there is none.
 pub fn read_lock(root: &Path) -> Result<Lock, String> {
-    if root.join(LOCK).symlink_metadata().is_err() {
+    let lock = lock(root);
+    if root.join(&lock).symlink_metadata().is_err() {
         return Ok(Lock::default());
     }
-    let resolved = crate::fsguard::resolve(root, LOCK)
+    let resolved = crate::fsguard::resolve(root, &lock)
         .map_err(|_| "devflow.lock leads outside the project".to_owned())?;
     let file = std::fs::File::open(resolved).map_err(|err| format!("devflow.lock: {err}"))?;
     let raw = crate::fsguard::read_within(file, MOST_READ)
@@ -119,10 +125,11 @@ pub fn read_lock(root: &Path) -> Result<Lock, String> {
 
 /// Writes the lockfile, inside the project. devpit never commits it.
 pub fn write_lock(root: &Path, lock: &Lock) -> Result<(), String> {
-    crate::setup::folders(root, crate::folder::DIR)?;
-    let path = crate::fsguard::resolve_new(root, LOCK).map_err(|err| format!("{LOCK}: {err}"))?;
+    crate::setup::folders(root, crate::folder::dir(root))?;
+    let file = self::lock(root);
+    let path = crate::fsguard::resolve_new(root, &file).map_err(|err| format!("{file}: {err}"))?;
     let text = serde_json::to_string_pretty(lock).unwrap_or_default();
-    std::fs::write(path, format!("{text}\n")).map_err(|err| format!("{LOCK}: {err}"))
+    std::fs::write(path, format!("{text}\n")).map_err(|err| format!("{file}: {err}"))
 }
 
 /// How one layer the project extends stands.
@@ -391,7 +398,7 @@ pub fn layered(root: &Path, text: &str, home: &Home) -> Result<Layered, Invalid>
             fields.insert("locked".to_owned(), Value::from(own.locked.clone()));
         }
     }
-    let config = config::from_json(&merged)?;
+    let config = folder::relocated(root, config::from_json(&merged)?);
     Ok(Layered {
         config,
         teams,

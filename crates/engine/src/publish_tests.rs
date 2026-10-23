@@ -543,7 +543,7 @@ fn a_projects_template_replaces_devpits_and_says_nothing_it_was_not_given() {
         template(root.path(), Personas::default(), Destination::GitHub),
         Ok(github())
     );
-    let folder = root.path().join(".devpit/devflow/reviewers/publish");
+    let folder = root.path().join(".devflow/reviewers/publish");
     std::fs::create_dir_all(&folder).expect("folder");
     std::fs::write(
         folder.join("github.md"),

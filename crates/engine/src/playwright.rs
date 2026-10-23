@@ -8,7 +8,12 @@ use crate::config::Config;
 use crate::detect::Detected;
 
 /// Where it is written, relative to the project's root.
-pub const FILE: &str = ".devpit/devflow/playwright.config.ts";
+pub const FILE: &str = ".devflow/playwright.config.ts";
+
+/// [`FILE`] in the folder `dir`.
+pub fn file_in(dir: &str) -> String {
+    format!("{dir}/playwright.config.ts")
+}
 
 /// The tool's name, as detection reports it.
 pub const TOOL: &str = "playwright";
@@ -16,7 +21,12 @@ pub const TOOL: &str = "playwright";
 /// The command an `e2e` check runs Devflow's specs with, through the
 /// project's own runner (`npx`, `pnpm exec`, …).
 pub fn command(exec: &str) -> String {
-    format!("{exec} playwright test --config {FILE}")
+    command_in(crate::folder::DIR, exec)
+}
+
+/// [`command`] for the config in the folder `dir`.
+pub fn command_in(dir: &str, exec: &str) -> String {
+    format!("{exec} playwright test --config {}", file_in(dir))
 }
 
 /// Whether the setup writes the config: Playwright was detected in the
@@ -44,6 +54,11 @@ pub fn base(detected: &Detected) -> Option<&str> {
 /// The config's text, for specs in `e2e_dir` and, when given, on top of the
 /// project's `base` config at its root.
 pub fn text(e2e_dir: &str, base: Option<&str>) -> String {
+    text_in(crate::folder::DIR, e2e_dir, base)
+}
+
+/// [`text`] for a config in the folder `dir`.
+pub fn text_in(dir: &str, e2e_dir: &str, base: Option<&str>) -> String {
     // An import names a TypeScript or JavaScript module without its extension.
     let import = base.map(|file| {
         let module = file
@@ -68,14 +83,14 @@ pub fn text(e2e_dir: &str, base: Option<&str>) -> String {
         ),
     };
     format!(
-        "// Devflow's Playwright config, written by devpit's setup: the specs Devflow\n\
+        "// Devflow's Playwright config, written by devflow's setup: the specs Devflow\n\
          // writes in {e2e_dir}, with a JUnit report and every screenshot and video\n\
          // kept in $DEVFLOW_REPORT_DIR as the run's evidence. It is yours to change:\n\
          // a setup run again keeps your copy. Run it from the project's root.\n\
          import {{ defineConfig }} from '@playwright/test'\n\
          {import}\n\
          const root = process.cwd()\n\
-         const reports = process.env.DEVFLOW_REPORT_DIR ?? `${{root}}/.devpit/devflow/runs/local`\n\
+         const reports = process.env.DEVFLOW_REPORT_DIR ?? `${{root}}/{dir}/runs/local`\n\
          \n\
          export default defineConfig({{\n\
          {spread}  testDir: `${{root}}/{e2e_dir}`,\n  \

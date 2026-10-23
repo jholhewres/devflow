@@ -37,7 +37,7 @@ fn green_run() -> Value {
             { "criterion": "an  empty title is refused", "on_card": true, "green": true,
               "tests": [{ "test": "empty_title_is_refused", "result": "passed" }] },
         ],
-        "spec": { "path": ".devpit/devflow/e2e/card_1-rename.spec.ts", "exists": true },
+        "spec": { "path": ".devflow/e2e/card_1-rename.spec.ts", "exists": true },
     })
 }
 

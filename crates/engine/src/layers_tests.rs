@@ -309,7 +309,7 @@ fn a_persona_comes_from_the_project_then_its_team_then_the_person() {
     // The project's own file wins over both.
     write(
         &root,
-        ".devpit/devflow/reviewers/acme-style.md",
+        ".devflow/reviewers/acme-style.md",
         "---\nname: acme-style\n---\nThis repo's.",
     );
     assert!(persona_text(&root, everywhere, "acme-style")

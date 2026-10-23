@@ -5,15 +5,75 @@
 use std::path::Path;
 
 use crate::config::{self, Config, Invalid};
+use crate::locate::Origin;
 use crate::node::{self, Node, Value};
 use crate::preset::Change;
 use crate::render::{render, scalar};
 
-/// The folder Devflow keeps in a project, relative to its root.
-pub const DIR: &str = ".devpit/devflow";
+/// The folder devflow keeps in a project, relative to its root.
+pub const DIR: &str = ".devflow";
 
-/// The configuration, relative to the project's root.
-pub const FILE: &str = ".devpit/devflow/devflow.yaml";
+/// Where devpit's Devflow keeps the same folder: read and written where it
+/// is, so a project already on it needs no migration.
+pub const LEGACY: &str = ".devpit/devflow";
+
+/// The configuration a setup writes, relative to the project's root.
+pub const FILE: &str = ".devflow/devflow.yaml";
+
+/// The folder `root` keeps devflow in: devpit's when its configuration is
+/// the one that applies, else [`DIR`].
+pub fn dir(root: &Path) -> &'static str {
+    match crate::locate::config_in(root) {
+        Some(found) if found.origin == Origin::Devpit => LEGACY,
+        _ => DIR,
+    }
+}
+
+/// The configuration that applies to `root`, relative to it: `devflow.yaml`,
+/// `.devflow/devflow.yaml` or devpit's, else where a setup writes one.
+pub fn file(root: &Path) -> String {
+    match crate::locate::config_in(root).map(|found| found.origin) {
+        Some(Origin::Root) => crate::locate::FILE.to_owned(),
+        Some(Origin::Devpit) => crate::locate::DEVPIT.to_owned(),
+        Some(Origin::Folder) | None => FILE.to_owned(),
+    }
+}
+
+/// Where a project keeps devflow: its folder and its configuration.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Layout {
+    pub dir: &'static str,
+    pub file: String,
+}
+
+impl Layout {
+    /// `root`'s, as [`dir`] and [`file`] find it.
+    pub fn of(root: &Path) -> Layout {
+        Layout {
+            dir: dir(root),
+            file: file(root),
+        }
+    }
+}
+
+impl Default for Layout {
+    /// A new project's: `.devflow/` and `.devflow/devflow.yaml`.
+    fn default() -> Layout {
+        Layout {
+            dir: DIR,
+            file: FILE.to_owned(),
+        }
+    }
+}
+
+/// `config` as `root` keeps it: a project in devpit's folder that never
+/// moved its E2E specs keeps them in that folder.
+pub fn relocated(root: &Path, mut config: Config) -> Config {
+    if dir(root) == LEGACY && config.stages.execution.e2e_dir == config::E2E_DIR {
+        config.stages.execution.e2e_dir = config::LEGACY_E2E_DIR.to_owned();
+    }
+    config
+}
 
 /// The most of devflow.yaml read, checked before reading.
 pub const MOST_BYTES: u64 = 256 * 1024;
@@ -31,12 +91,13 @@ pub enum State {
 /// The state of `root`'s devflow.yaml, read through symlinks and only from
 /// inside the project.
 pub fn read(root: &Path) -> State {
-    let path = root.join(FILE);
+    let file = file(root);
+    let path = root.join(&file);
     if path.symlink_metadata().is_err() {
         return State::Missing;
     }
     let refused = |why: &str| State::Invalid(None, Invalid::at(None, "", why));
-    let Ok(resolved) = crate::fsguard::resolve(root, FILE) else {
+    let Ok(resolved) = crate::fsguard::resolve(root, &file) else {
         return refused("devflow.yaml leads outside the project");
     };
     match std::fs::metadata(&resolved) {
@@ -51,7 +112,7 @@ pub fn read(root: &Path) -> State {
         return refused("devflow.yaml is not UTF-8 text");
     };
     match config::parse(&text) {
-        Ok(config) => State::Valid(text, Box::new(config)),
+        Ok(config) => State::Valid(text, Box::new(relocated(root, config))),
         Err(invalid) => State::Invalid(Some(text), invalid),
     }
 }

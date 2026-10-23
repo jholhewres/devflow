@@ -64,7 +64,7 @@ fn the_recommended_setup_is_built_from_what_was_detected() {
             ("unit", "make test"),
             (
                 "e2e",
-                "pnpm exec playwright test --config .devpit/devflow/playwright.config.ts"
+                "pnpm exec playwright test --config .devflow/playwright.config.ts"
             ),
             ("e2e-suite", "pnpm run e2e"),
         ]

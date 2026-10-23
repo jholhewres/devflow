@@ -61,12 +61,12 @@ fn a_setup_folds_the_answers_in_and_scripts_every_check() {
     )
     .expect("setup");
     let check = &proposal.config.stages.execution.checks[0];
-    assert_eq!(check.run, "sh .devpit/devflow/scripts/check-unit.sh");
+    assert_eq!(check.run, "sh .devflow/scripts/check-unit.sh");
     assert_eq!(proposal.scripts[0].command, "tox -e py311");
     assert!(proposal
         .files
         .iter()
-        .any(|file| file.path == ".devpit/devflow/scripts/check-unit.sh"));
+        .any(|file| file.path == ".devflow/scripts/check-unit.sh"));
     assert_eq!(parse(&proposal.yaml), Ok(proposal.config.clone()));
 }
 
@@ -215,16 +215,10 @@ fn a_check_added_by_a_change_gets_a_script_and_one_already_there_keeps_its_comma
         .iter()
         .map(|check| check.run.as_str())
         .collect();
-    assert_eq!(
-        runs,
-        ["make test", "sh .devpit/devflow/scripts/check-lint.sh"]
-    );
+    assert_eq!(runs, ["make test", "sh .devflow/scripts/check-lint.sh"]);
     let paths: Vec<&str> = added.files.iter().map(|file| file.path.as_str()).collect();
     assert_eq!(
         paths,
-        [
-            ".devpit/devflow/devflow.yaml",
-            ".devpit/devflow/scripts/check-lint.sh"
-        ]
+        [".devflow/devflow.yaml", ".devflow/scripts/check-lint.sh"]
     );
 }

@@ -81,3 +81,44 @@ fn a_change_larger_than_a_word_lays_the_file_out_again() {
     assert!(laid_out);
     assert_eq!(crate::config::parse(&text), Ok(after));
 }
+
+/// A project on devpit's Devflow keeps its folder, its file and its specs
+/// where they are; a new one gets `.devflow/`, and `devflow.yaml` at the root
+/// keeps the folder `.devflow/`.
+#[test]
+fn a_project_is_read_where_it_keeps_devflow() {
+    let legacy = tempfile::tempdir().expect("legacy");
+    std::fs::create_dir_all(legacy.path().join(LEGACY)).expect("folder");
+    std::fs::write(
+        legacy.path().join(crate::locate::DEVPIT),
+        "version: 2\nenabled: true\n",
+    )
+    .expect("write");
+    assert_eq!(dir(legacy.path()), LEGACY);
+    assert_eq!(file(legacy.path()), ".devpit/devflow/devflow.yaml");
+    let State::Valid(_, config) = read(legacy.path()) else {
+        panic!("devpit's file is read");
+    };
+    assert_eq!(
+        config.stages.execution.e2e_dir,
+        crate::config::LEGACY_E2E_DIR
+    );
+
+    let fresh = tempfile::tempdir().expect("fresh");
+    assert_eq!(Layout::of(fresh.path()), Layout::default());
+    assert_eq!(read(fresh.path()), State::Missing);
+
+    let at_root = tempfile::tempdir().expect("root");
+    std::fs::write(at_root.path().join("devflow.yaml"), "version: 2\n").expect("write");
+    assert_eq!(dir(at_root.path()), DIR);
+    assert_eq!(file(at_root.path()), "devflow.yaml");
+    let State::Valid(_, config) = read(at_root.path()) else {
+        panic!("the root's file is read");
+    };
+    assert_eq!(config.stages.execution.e2e_dir, crate::config::E2E_DIR);
+
+    // Once `.devflow/` has a configuration it is the one that applies.
+    std::fs::create_dir_all(legacy.path().join(DIR)).expect("folder");
+    std::fs::write(legacy.path().join(FILE), "version: 2\n").expect("write");
+    assert_eq!(Layout::of(legacy.path()), Layout::default());
+}

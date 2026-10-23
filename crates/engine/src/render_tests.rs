@@ -79,7 +79,7 @@ fn the_file_says_who_switches_it_on() {
 #[test]
 fn a_string_that_would_read_as_something_else_is_quoted() {
     assert_eq!(scalar("make test"), "make test");
-    assert_eq!(scalar(".devpit/devflow/e2e"), ".devpit/devflow/e2e");
+    assert_eq!(scalar(".devflow/e2e"), ".devflow/e2e");
     for typed in ["true", "no", "1.5", "~", "a: b", "a #b", "-x", "", "\"q\""] {
         assert!(scalar(typed).starts_with('"'), "{typed}");
     }

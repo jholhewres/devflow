@@ -50,7 +50,7 @@ fn a_projects_skill_replaces_the_persons_which_replaces_the_built_in() {
 
     write(
         project.path(),
-        ".devpit/devflow/skills/devflow-plan/SKILL.md",
+        ".devflow/skills/devflow-plan/SKILL.md",
         OURS,
     );
     assert_eq!(resolved().layer, Layer::Project);
@@ -67,7 +67,7 @@ fn a_skill_is_listed_with_the_digest_and_size_of_its_file() {
     let project = tempfile::tempdir().expect("project");
     write(
         project.path(),
-        ".devpit/devflow/skills/devflow-plan/SKILL.md",
+        ".devflow/skills/devflow-plan/SKILL.md",
         OURS,
     );
     let skill = resolve(project.path(), project.path(), "devflow-plan").expect("plan");
@@ -89,7 +89,7 @@ fn a_skill_is_listed_with_the_digest_and_size_of_its_file() {
 #[test]
 fn a_skill_that_cannot_be_used_is_refused_rather_than_passed_over() {
     let project = tempfile::tempdir().expect("project");
-    let at = ".devpit/devflow/skills/devflow-plan/SKILL.md";
+    let at = ".devflow/skills/devflow-plan/SKILL.md";
     let refused = |project: &Path| resolve(project, project, "devflow-plan").expect_err("refused");
 
     write(
@@ -137,11 +137,7 @@ fn an_own_stage_reads_its_skill_where_it_already_is() {
     let project = tempfile::tempdir().expect("project");
     let installed = tempfile::tempdir().expect("installed");
     let skill = |name: &str| format!("---\nname: {name}\ndescription: Ours.\n---\nDo it.\n");
-    write(
-        project.path(),
-        ".devpit/devflow/skills/pr/SKILL.md",
-        &skill("pr"),
-    );
+    write(project.path(), ".devflow/skills/pr/SKILL.md", &skill("pr"));
     write(
         project.path(),
         ".claude/skills/ticket/SKILL.md",
@@ -179,7 +175,7 @@ fn an_own_stage_reads_its_skill_where_it_already_is() {
         .contains("acme"));
     write(
         project.path(),
-        ".devpit/devflow/skills/wrong/SKILL.md",
+        ".devflow/skills/wrong/SKILL.md",
         &skill("other"),
     );
     assert!(
@@ -208,4 +204,19 @@ fn a_record_names_this_devpit_and_the_text_of_each_skill_it_followed() {
         made["skills"],
         json!({ "devflow-review": format!("sha256:{:x}", Sha256::digest(shipped.as_bytes())) })
     );
+}
+
+#[test]
+fn a_project_on_devpits_folder_keeps_its_skills_there() {
+    let project = tempfile::tempdir().expect("project");
+    let personal = tempfile::tempdir().expect("personal");
+    write(project.path(), crate::locate::DEVPIT, "version: 2\n");
+    write(
+        project.path(),
+        ".devpit/devflow/skills/devflow-plan/SKILL.md",
+        OURS,
+    );
+    let skill = resolve(project.path(), personal.path(), "devflow-plan").expect("resolved");
+    assert_eq!(skill.layer, Layer::Project);
+    assert_eq!(skill.text, OURS);
 }

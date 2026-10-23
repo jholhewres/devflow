@@ -448,7 +448,7 @@ pub fn template(
     destination: Destination,
 ) -> Result<String, String> {
     let file = format!("publish/{}.md", destination.word());
-    let project = format!("{}/reviewers/{file}", crate::folder::DIR);
+    let project = format!("{}/reviewers/{file}", crate::folder::dir(root));
     if let Some(text) = review::text_in(root, &project, MOST_TEMPLATE, "template")? {
         return Ok(text);
     }
