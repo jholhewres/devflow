@@ -3,6 +3,9 @@
 use std::path::PathBuf;
 
 pub mod pinned;
+mod repo;
+
+pub use repo::*;
 
 #[derive(Debug)]
 pub enum GitError {
