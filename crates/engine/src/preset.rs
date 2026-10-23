@@ -15,7 +15,13 @@ use crate::detect::Detected;
 pub const SECURITY: &str = "devflow-security";
 
 /// The agent CLIs, in the order a reviewer is picked from them.
-const REVIEWERS: [Agent; 4] = [Agent::Claude, Agent::Codex, Agent::Cursor, Agent::Gemini];
+const REVIEWERS: [Agent; 5] = [
+    Agent::Claude,
+    Agent::Codex,
+    Agent::Cursor,
+    Agent::Gemini,
+    Agent::OpenCode,
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Preset {

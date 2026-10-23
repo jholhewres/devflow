@@ -83,7 +83,7 @@ words!(
 );
 words!(
     /// The agent CLIs a reviewer persona can run in.
-    Agent { Claude = "claude", Codex = "codex", Cursor = "cursor", Gemini = "gemini" }
+    Agent { Claude = "claude", Codex = "codex", Cursor = "cursor", Gemini = "gemini", OpenCode = "opencode" }
 );
 words!(
     /// A finding's severity, as the findings schema names them.

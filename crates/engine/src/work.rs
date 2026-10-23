@@ -99,6 +99,33 @@ impl State {
     }
 }
 
+/// How an item closed without its own evidence.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Closed {
+    /// Dropped from the plan.
+    Cut,
+    /// Its work went into another item, whose evidence it finishes on.
+    Into(String),
+}
+
+impl Closed {
+    pub fn word(&self) -> String {
+        match self {
+            Closed::Cut => "cut".to_owned(),
+            Closed::Into(id) => format!("into {id}"),
+        }
+    }
+
+    pub fn of(word: &str) -> Option<Closed> {
+        match word.split_once(' ') {
+            None if word == "cut" => Some(Closed::Cut),
+            Some(("into", id)) if plain_id(id) => Some(Closed::Into(id.to_owned())),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct WorkItem {
     pub id: String,
@@ -111,6 +138,8 @@ pub struct WorkItem {
     pub depends_on: Vec<String>,
     /// When it was made, as a run's name is written.
     pub created: String,
+    /// Cut from its plan, or merged into another item.
+    pub closed: Option<Closed>,
     pub body: String,
 }
 
@@ -125,6 +154,7 @@ impl WorkItem {
             "parent": self.parent,
             "depends_on": self.depends_on,
             "created": self.created,
+            "closed": self.closed.as_ref().map(Closed::word),
             "body": self.body,
         })
     }
@@ -155,9 +185,12 @@ pub trait WorkItems {
     fn list(&self) -> Result<Vec<WorkItem>, String>;
     fn create(&self, new: &New, at: SystemTime) -> Result<WorkItem, String>;
     fn update_body(&self, id: &str, body: &str) -> Result<WorkItem, String>;
+    fn retitle(&self, id: &str, title: &str) -> Result<WorkItem, String>;
     fn set_state(&self, id: &str, state: State) -> Result<WorkItem, String>;
     fn comment(&self, id: &str, by: &str, text: &str, at: SystemTime) -> Result<(), String>;
     fn comments(&self, id: &str) -> Result<Vec<Comment>, String>;
+    /// Closes an item without its own evidence: cut, or merged into another.
+    fn close(&self, id: &str, closed: Closed) -> Result<WorkItem, String>;
 }
 
 /// Work items as files under `<root>/<folder>/work/`.
@@ -318,6 +351,7 @@ impl WorkItems for Files {
                 parent: new.parent.clone(),
                 depends_on: new.depends_on.clone(),
                 created: crate::runs::stamp(at),
+                closed: None,
                 body: new.body.trim_end_matches('\n').to_owned(),
             };
             let path = crate::fsguard::resolve_new(&folder, &format!("{id}.md"))
@@ -347,6 +381,16 @@ impl WorkItems for Files {
         self.changed(id, |item, _| {
             item.body = body.trim_end_matches('\n').to_owned()
         })
+    }
+
+    fn retitle(&self, id: &str, title: &str) -> Result<WorkItem, String> {
+        let title = one_line(title);
+        if title.is_empty() || title.chars().count() > LONGEST_TITLE {
+            return Err(format!(
+                "a work item's title is one line of 1 to {LONGEST_TITLE} characters"
+            ));
+        }
+        self.changed(id, |item, _| item.title = title)
     }
 
     fn set_state(&self, id: &str, state: State) -> Result<WorkItem, String> {
@@ -385,6 +429,63 @@ impl WorkItems for Files {
             .map(|(_, comments)| comments)
             .unwrap_or_default())
     }
+
+    fn close(&self, id: &str, closed: Closed) -> Result<WorkItem, String> {
+        if let Closed::Into(into) = &closed {
+            let target = self
+                .get(into)?
+                .ok_or_else(|| format!("there is no work item `{into}`"))?;
+            if into == id || target.closed.is_some() {
+                return Err(format!("`{into}` cannot take another item's work"));
+            }
+        }
+        self.changed(id, |item, _| {
+            item.state = State::Done;
+            item.closed = Some(closed);
+        })
+    }
+}
+
+/// A plan kept beside its epic before its items exist, as
+/// `<work>/<epic>.plan.json`: what the person's yes is to.
+impl Files {
+    fn plan_file(&self, epic: &str) -> Result<String, String> {
+        if !plain_id(epic) {
+            return Err(format!("`{epic}` is not a work item's id"));
+        }
+        Ok(format!("{epic}.plan.json"))
+    }
+
+    /// The plan kept for `epic`, if any.
+    pub fn plan(&self, epic: &str) -> Result<Option<Value>, String> {
+        let name = self.plan_file(epic)?;
+        let Some(folder) = self.folder()? else {
+            return Ok(None);
+        };
+        if folder.join(&name).symlink_metadata().is_err() {
+            return Ok(None);
+        }
+        let path =
+            crate::fsguard::resolve(&folder, &name).map_err(|err| format!("{name}: {err}"))?;
+        let file = std::fs::File::open(path).map_err(|err| format!("{name}: {err}"))?;
+        let raw = crate::fsguard::read_within(file, MOST_BYTES)
+            .map_err(|err| format!("{name}: {err}"))?
+            .ok_or_else(|| format!("{name} is too large"))?;
+        serde_json::from_slice(&raw)
+            .map(Some)
+            .map_err(|err| format!("{name} does not read: {err}"))
+    }
+
+    pub fn keep_plan(&self, epic: &str, plan: &Value) -> Result<(), String> {
+        let name = self.plan_file(epic)?;
+        let folder = self.made_folder()?;
+        let text = serde_json::to_string_pretty(plan).unwrap_or_default();
+        if text.len() as u64 > MOST_BYTES {
+            return Err("the plan is too large to keep; split the epic".to_owned());
+        }
+        crate::fsguard::replace(&folder, &name, text.as_bytes())
+            .map_err(|err| format!("{name}: {err}"))
+    }
 }
 
 /// An id the folder makes a file of: letters, digits, `-` and `_`.
@@ -417,6 +518,9 @@ pub fn written(item: &WorkItem, comments: &[Comment]) -> String {
         out.push_str(&format!("depends_on: [{}]\n", ids.join(", ")));
     }
     out.push_str(&format!("created: {}\n", quoted(&item.created)));
+    if let Some(closed) = &item.closed {
+        out.push_str(&format!("closed: {}\n", quoted(&closed.word())));
+    }
     out.push_str("---\n");
     out.push_str(item.body.trim_end_matches('\n'));
     out.push('\n');
@@ -493,6 +597,7 @@ pub fn parse(id: &str, text: &str) -> Result<(WorkItem, Vec<Comment>), String> {
             parent: word("parent"),
             depends_on,
             created: word("created").unwrap_or_default(),
+            closed: word("closed").and_then(|word| Closed::of(&word)),
             body: body.trim_end_matches('\n').to_owned(),
         },
         comments,

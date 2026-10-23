@@ -489,7 +489,7 @@ fn three_reviewers_run_at_once_and_the_problem_two_found_is_kept_once() {
         Agent::Claude => Ok(claude.clone()),
         Agent::Codex => Ok(codex.clone()),
         Agent::Cursor => Ok(cursor.clone()),
-        Agent::Gemini => Err("not installed".to_owned()),
+        Agent::Gemini | Agent::OpenCode => Err("not installed".to_owned()),
     };
     let config = config_with(
         vec![

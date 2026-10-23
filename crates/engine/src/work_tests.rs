@@ -150,3 +150,52 @@ fn a_hand_written_file_reads_with_its_defaults() {
     assert!(parse("12", "no frontmatter").is_err());
     assert!(parse("12", "---\ntitle: x\nstate: later\n---\n").is_err());
 }
+
+#[test]
+fn an_item_cut_or_merged_closes_and_says_how() {
+    let root = tempfile::tempdir().expect("root");
+    let items = Files::of(root.path());
+    let one = items.create(&new("One"), at(0)).expect("one");
+    let two = items.create(&new("Two"), at(1)).expect("two");
+    let three = items.create(&new("Three"), at(2)).expect("three");
+    let merged = items
+        .close(&one.id, Closed::Into(two.id.clone()))
+        .expect("merged");
+    assert_eq!(merged.state, State::Done);
+    assert_eq!(
+        items.get(&one.id).expect("read").expect("there").closed,
+        Some(Closed::Into(two.id.clone()))
+    );
+    assert!(
+        items
+            .close(&three.id, Closed::Into(one.id.clone()))
+            .is_err(),
+        "closed already"
+    );
+    assert!(
+        items
+            .close(&three.id, Closed::Into(three.id.clone()))
+            .is_err(),
+        "itself"
+    );
+    items.close(&three.id, Closed::Cut).expect("cut");
+    assert_eq!(
+        items.get(&three.id).expect("read").expect("there").closed,
+        Some(Closed::Cut)
+    );
+}
+
+#[test]
+fn a_plan_waits_beside_its_epic() {
+    let root = tempfile::tempdir().expect("root");
+    let items = Files::of(root.path());
+    assert_eq!(items.plan("1").expect("read"), None);
+    let plan = serde_json::json!({ "cards": [{ "key": "s1", "title": "One" }], "edited": false });
+    items.keep_plan("1", &plan).expect("kept");
+    assert_eq!(items.plan("1").expect("read"), Some(plan));
+    assert!(
+        items.list().expect("list").is_empty(),
+        "a plan is not an item"
+    );
+    assert!(items.keep_plan("../x", &serde_json::json!({})).is_err());
+}
