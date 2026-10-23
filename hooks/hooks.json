@@ -1,0 +1,38 @@
+{
+  "description": "devflow's gate at each stop, and the session's work item at its start",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "devflow hook stop --agent claude",
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "devflow hook subagent-stop --agent claude",
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "devflow hook session-start --agent claude",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

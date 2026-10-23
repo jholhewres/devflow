@@ -47,5 +47,8 @@ jobs:
       - name: Manifests agree with VERSION
         run: cargo xtask version-sync --check
 
+      - name: The plugin's files are the flow's
+        run: cargo xtask plugin-sync --check
+
       - name: install.sh parses
         run: sh -n install.sh

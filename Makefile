@@ -1,5 +1,5 @@
 # CI calls these same targets: a command CI runs is a command anyone can run.
-.PHONY: help fmt lint test check build sync-version
+.PHONY: help fmt lint test check build sync-plugin sync-version
 
 help:
 	@echo "fmt           rustfmt over the workspace"
@@ -7,6 +7,7 @@ help:
 	@echo "test          the workspace's tests"
 	@echo "check         lint, test and the versions (what CI runs)"
 	@echo "build         the release binary"
+	@echo "sync-plugin   write the plugin's skills, commands, agents and hooks"
 	@echo "sync-version  write VERSION into every manifest"
 
 fmt:
@@ -21,10 +22,14 @@ test:
 
 check: lint test
 	cargo xtask version-sync --check
+	cargo xtask plugin-sync --check
 	sh -n install.sh
 
 build:
 	cargo build --release --locked -p devflow-mcp
+
+sync-plugin:
+	cargo xtask plugin-sync
 
 sync-version:
 	cargo xtask version-sync
