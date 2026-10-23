@@ -91,7 +91,8 @@ plugins.
 
 ## Phases
 
-Each phase is its own commits, pushed with CI green.
+Each phase is its own commits, pushed with CI green. Phases 1 to 8 shipped
+in 0.1.0; phase 9 waits on the maintainer.
 
 | # | Phase | Done when |
 |---|---|---|
@@ -104,6 +105,22 @@ Each phase is its own commits, pushed with CI green.
 | 7 | Setup CLI: `devflow setup` (detect the tools, register, write `devflow.yaml`), `config get/set`, `jev setup`, `doctor` | a clean machine set up by these alone |
 | 8 | Release: docs per tool, migration notes, 0.1.0 | `install.sh` installs a release and every tool finds it |
 | 9 | devpit switches to the engine (separate, on the maintainer's go) | devpit's `make test` green, same behaviour |
+
+## Coming from devpit's Devflow
+
+- A project's `.devpit/devflow/` is read and written where it is: its
+  `devflow.yaml`, scripts, skills, reviewers, rubrics, lockfile and E2E specs.
+  A project with `devflow.yaml` at its root or `.devflow/devflow.yaml` uses
+  `.devflow/` instead; once `.devflow/devflow.yaml` exists it is the one read.
+- Checks get `DEVFLOW_*` variables (`DEVFLOW_REPORT_DIR`, `DEVFLOW_ITEM`, …)
+  and still the `DEVPIT_*` names they had, so a check script runs unchanged.
+- Cards are work items, `<folder>/work/<id>.md`; the tools take `item` (and
+  `card`). Runs stay in the project's folder, `<folder>/runs/`.
+- Switching devflow on and Decisions' enforce were clicks in devpit; here
+  they are `devflow config set enabled true` and
+  `devflow config set decisions.mode enforce`, on a terminal.
+- Decisions' key moves from devpit's Settings to `OPENROUTER_API_KEY` or
+  `devflow jev setup`.
 
 ## Release
 

@@ -25,14 +25,13 @@ live in your repository.
 ## Install
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/jholhewres/devflow/main/install.sh | sh -s -- --version=0.0.1-rc.2
+curl -fsSL https://raw.githubusercontent.com/jholhewres/devflow/main/install.sh | sh
 devflow setup
 ```
 
 `install.sh` checks the release's checksum, puts `devflow` in `~/.local/bin`
 and registers it with the agent CLIs and IDEs it finds (`--tools=`,
-`--dry-run`, `--uninstall`). Only pre-releases exist so far, hence
-`--version`. `devflow setup` writes the project's `devflow.yaml` and switches
+`--dry-run`, `--uninstall`, `--version=`). `devflow setup` writes the project's `devflow.yaml` and switches
 devflow on, asking first.
 
 ## Use

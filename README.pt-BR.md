@@ -25,14 +25,13 @@ Configuração, work items e execuções ficam no seu repositório.
 ## Instalação
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/jholhewres/devflow/main/install.sh | sh -s -- --version=0.0.1-rc.2
+curl -fsSL https://raw.githubusercontent.com/jholhewres/devflow/main/install.sh | sh
 devflow setup
 ```
 
 O `install.sh` confere o checksum da release, coloca o `devflow` em
 `~/.local/bin` e o registra nas CLIs de agente e IDEs que encontrar
-(`--tools=`, `--dry-run`, `--uninstall`). Por enquanto só há pré-releases,
-por isso o `--version`. O `devflow setup` escreve o `devflow.yaml` do projeto
+(`--tools=`, `--dry-run`, `--uninstall`, `--version=`). O `devflow setup` escreve o `devflow.yaml` do projeto
 e liga o devflow, perguntando antes.
 
 ## Uso
