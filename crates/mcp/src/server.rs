@@ -6,9 +6,13 @@
 
 use std::io::{BufRead, Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
+use devflow_engine::Proposal;
 use serde_json::{json, Value};
 
+use crate::consent::Consent;
+use crate::project::Project;
 use crate::tools::{self, Tool};
 
 /// The revisions this server speaks, newest first. A client asking for one
@@ -18,16 +22,32 @@ pub const PROTOCOLS: [&str; 4] = ["2025-11-25", "2025-06-18", "2025-03-26", "202
 /// A line longer than this is refused unread: a request is a few kilobytes.
 const MOST_LINE_BYTES: usize = 8 * 1024 * 1024;
 
-/// What a call needs to know: the project it stands in.
+/// What a call needs to know: where it stands, the person's decisions, and
+/// the last setup this session showed them.
 pub struct Server {
-    pub root: PathBuf,
+    pub cwd: PathBuf,
+    pub consent: Consent,
+    pub preview: Mutex<Option<Proposal>>,
+}
+
+impl Server {
+    pub fn new(cwd: &Path) -> Server {
+        Server {
+            cwd: cwd.to_path_buf(),
+            consent: Consent::of_user(),
+            preview: Mutex::new(None),
+        }
+    }
+
+    /// The project the call stands in, read again on each call.
+    pub fn project(&self) -> Project {
+        Project::at(&self.cwd)
+    }
 }
 
 /// Serves MCP on stdin/stdout until the client hangs up.
 pub fn serve(root: &Path) -> i32 {
-    let server = Server {
-        root: root.to_path_buf(),
-    };
+    let server = Server::new(root);
     let mut stdin = std::io::stdin().lock();
     let mut line = String::new();
     loop {
@@ -88,13 +108,28 @@ pub fn handle(line: &str, server: &Server) -> Option<String> {
     let result = match method {
         "initialize" => json!({
             "protocolVersion": protocol(params.get("protocolVersion").and_then(Value::as_str)),
-            "capabilities": { "tools": {} },
+            "capabilities": { "tools": {}, "prompts": {}, "resources": {} },
             "serverInfo": { "name": "devflow", "version": env!("CARGO_PKG_VERSION") },
             "instructions": tools::INSTRUCTIONS,
         }),
         "ping" => json!({}),
         "tools/list" => json!({ "tools": tools::TOOLS.iter().map(listed).collect::<Vec<_>>() }),
         "tools/call" => call(&params, server),
+        "prompts/list" => crate::flow::skill::prompts(),
+        "resources/list" => crate::flow::skill::resources(),
+        "resources/templates/list" => json!({ "resourceTemplates": [] }),
+        "prompts/get" | "resources/read" => {
+            let project = server.project();
+            let answered = if method == "prompts/get" {
+                crate::flow::skill::prompt(&project, &params)
+            } else {
+                crate::flow::skill::resource(&project, &params)
+            };
+            match answered {
+                Ok(result) => result,
+                Err(why) => return Some(error(id, -32602, &why)),
+            }
+        }
         _ => {
             return Some(error(
                 id,

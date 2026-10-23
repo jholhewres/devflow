@@ -4,7 +4,9 @@ use super::*;
 
 fn server(root: &Path) -> Server {
     Server {
-        root: root.to_path_buf(),
+        cwd: root.to_path_buf(),
+        consent: Consent::at(&root.join(".consent")),
+        preview: Mutex::new(None),
     }
 }
 
@@ -73,8 +75,8 @@ fn status_names_the_projects_configuration() {
         dir.path(),
     );
     assert_eq!(said["result"]["isError"], false);
-    assert_eq!(said["result"]["structuredContent"]["state"], "found");
-    assert_eq!(said["result"]["structuredContent"]["layout"], "root");
+    assert_eq!(said["result"]["structuredContent"]["state"], "disabled");
+    assert_eq!(said["result"]["structuredContent"]["file"], "devflow.yaml");
 }
 
 #[test]
@@ -85,4 +87,28 @@ fn an_unknown_tool_is_the_tools_error_not_the_protocols() {
         dir.path(),
     );
     assert_eq!(said["result"]["isError"], true);
+}
+
+#[test]
+fn the_skills_are_prompts_and_resources_too() {
+    let dir = tempfile::tempdir().unwrap();
+    let prompts = answer(
+        r#"{"jsonrpc":"2.0","id":6,"method":"prompts/list"}"#,
+        dir.path(),
+    );
+    let listed = prompts["result"]["prompts"].as_array().unwrap();
+    assert!(listed.iter().any(|one| one["name"] == "devflow-plan"));
+    let read = answer(
+        r#"{"jsonrpc":"2.0","id":7,"method":"resources/read","params":{"uri":"skill://devflow/devflow-plan/SKILL.md"}}"#,
+        dir.path(),
+    );
+    assert!(read["result"]["contents"][0]["text"]
+        .as_str()
+        .unwrap()
+        .contains("name: devflow-plan"));
+    let missing = answer(
+        r#"{"jsonrpc":"2.0","id":8,"method":"prompts/get","params":{"name":"nope"}}"#,
+        dir.path(),
+    );
+    assert_eq!(missing["error"]["code"], -32602);
 }

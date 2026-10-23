@@ -163,7 +163,9 @@ version = "0.0.1-rc.1"
 dependencies = [
  "clap",
  "devflow-engine",
+ "serde",
  "serde_json",
+ "sha2",
  "tempfile",
 ]
 

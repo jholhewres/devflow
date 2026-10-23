@@ -6,6 +6,12 @@ use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
 
+mod cli;
+mod consent;
+mod credentials;
+mod flow;
+mod hook;
+mod project;
 mod register;
 mod server;
 mod tools;
@@ -35,6 +41,40 @@ enum Command {
     Register(Registering),
     /// Take devflow out of them again.
     Unregister(Registering),
+    /// Read or change the project's devflow.yaml. `config set enabled true`
+    /// switches devflow on, after your yes on a terminal.
+    Config {
+        #[command(subcommand)]
+        action: Configuring,
+    },
+    /// The project's own stages.
+    Stage {
+        #[command(subcommand)]
+        action: Staging,
+    },
+    /// What an agent CLI's hook runs: the gate at a Stop, the item's context
+    /// at a session's start. Reads the hook's payload on stdin.
+    Hook {
+        #[arg(value_enum)]
+        event: hook::Event,
+        /// The CLI the hook belongs to: claude, codex, gemini, cursor, opencode.
+        #[arg(long, default_value = "claude")]
+        agent: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum Configuring {
+    /// Print the configuration that applies, or one field by its dotted path.
+    Get { path: Option<String> },
+    /// Change one field by its dotted path, after your yes.
+    Set { path: String, value: String },
+}
+
+#[derive(Subcommand)]
+enum Staging {
+    /// Let a team layer's command for an own stage run here, at its commit.
+    Confirm { name: String },
 }
 
 #[derive(clap::Args)]
@@ -59,6 +99,16 @@ fn main() -> ExitCode {
         Command::Status => status(&root),
         Command::Register(how) => registering(&how, true),
         Command::Unregister(how) => registering(&how, false),
+        Command::Hook { event, agent } => hook::run(event, &agent, &root),
+        Command::Config { action } => match action {
+            Configuring::Get { path } => cli::get(&root, path.as_deref()),
+            Configuring::Set { path, value } => {
+                cli::set(&root, &path, &value, &consent::Consent::of_user())
+            }
+        },
+        Command::Stage {
+            action: Staging::Confirm { name },
+        } => cli::confirm_stage(&root, &name, &consent::Consent::of_user()),
     }
 }
 
@@ -109,24 +159,30 @@ fn registering(how: &Registering, on: bool) -> ExitCode {
 }
 
 fn status(root: &std::path::Path) -> ExitCode {
-    let said = tools::status_of(root);
-    if said["state"] == "found" {
-        let read_as = if said["layout"] == "devpit" {
-            " (devpit's Devflow layout, read where it is)"
-        } else {
-            ""
-        };
-        println!(
-            "Configuration: {}{read_as}",
-            said["path"].as_str().unwrap_or_default()
-        );
-        ExitCode::SUCCESS
-    } else {
+    let project = project::Project::at(root);
+    let server = server::Server::new(root);
+    let said = flow::setup::status_of(&project, &server);
+    let state = said["state"].as_str().unwrap_or_default();
+    if state == "no file" {
         println!(
             "No configuration in {}: none of {} is there.",
-            root.display(),
+            project.root.display(),
             devflow_engine::locate::CANDIDATES.join(", ")
         );
-        ExitCode::from(1)
+        return ExitCode::from(1);
     }
+    let legacy = if said["folder"] == devflow_engine::folder::LEGACY {
+        " (devpit's Devflow layout, read where it is)"
+    } else {
+        ""
+    };
+    println!(
+        "Configuration: {}{legacy}\nState: {state}\nNext: {}",
+        said["file"].as_str().unwrap_or_default(),
+        said["next"].as_str().unwrap_or_default()
+    );
+    if let Some(note) = said["note"].as_str() {
+        println!("Note: {note}");
+    }
+    ExitCode::SUCCESS
 }
