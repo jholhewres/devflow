@@ -28,3 +28,4 @@ build:
 
 sync-version:
 	cargo xtask version-sync
+	cargo update --workspace --offline

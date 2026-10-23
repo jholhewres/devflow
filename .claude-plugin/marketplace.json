@@ -6,17 +6,26 @@
   },
   "metadata": {
     "description": "An evidence-gated engineering flow for coding agents",
-    "version": "0.0.1"
+    "version": "0.0.1-rc.1"
   },
   "plugins": [
     {
       "name": "devflow",
       "source": "./",
       "description": "The devflow MCP server, its stage skills, reviewer agents and the gate's hook: work is done only when its checks, criteria and review say so.",
-      "version": "0.0.1",
+      "version": "0.0.1-rc.1",
       "category": "development",
-      "author": { "name": "jholhewres" },
-      "keywords": ["mcp", "workflow", "code-review", "tdd", "evidence", "quality-gate"]
+      "author": {
+        "name": "jholhewres"
+      },
+      "keywords": [
+        "mcp",
+        "workflow",
+        "code-review",
+        "tdd",
+        "evidence",
+        "quality-gate"
+      ]
     }
   ]
 }

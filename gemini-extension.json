@@ -1,12 +1,14 @@
 {
   "name": "devflow",
-  "version": "0.0.1",
+  "version": "0.0.1-rc.1",
   "description": "An evidence-gated engineering flow for coding agents, served as an MCP server.",
   "contextFileName": "GEMINI.md",
   "mcpServers": {
     "devflow": {
       "command": "devflow",
-      "args": ["mcp"]
+      "args": [
+        "mcp"
+      ]
     }
   }
 }

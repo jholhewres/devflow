@@ -1,6 +1,6 @@
 {
   "name": "devflow",
-  "version": "0.0.1",
+  "version": "0.0.1-rc.1",
   "description": "An evidence-gated engineering flow for coding agents: briefing, context, plan, execution, review and completion, served as an MCP server with its skills, reviewer agents and the gate's hook.",
   "author": {
     "name": "jholhewres",
@@ -9,11 +9,20 @@
   "homepage": "https://github.com/jholhewres/devflow",
   "repository": "https://github.com/jholhewres/devflow",
   "license": "Apache-2.0",
-  "keywords": ["mcp", "workflow", "code-review", "tdd", "evidence", "quality-gate"],
+  "keywords": [
+    "mcp",
+    "workflow",
+    "code-review",
+    "tdd",
+    "evidence",
+    "quality-gate"
+  ],
   "mcpServers": {
     "devflow": {
       "command": "devflow",
-      "args": ["mcp"]
+      "args": [
+        "mcp"
+      ]
     }
   }
 }
