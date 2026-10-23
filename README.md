@@ -1,78 +1,68 @@
-# devflow
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/devflow-logo-dark.png">
+    <img src="docs/assets/devflow-logo.png" alt="devflow, by devpit.app" width="420">
+  </picture>
+</p>
 
-An evidence-gated engineering flow for coding agents, served as an **MCP
-server and plugin**. Work goes through **briefing → context → plan →
-execution → review → completion**, and it is done only when its evidence says
-so: the checks ran after the last change and passed, every acceptance
-criterion has a test or a proof, and independent reviewers on your own agent
-CLIs found nothing that blocks it.
+<p align="center">
+  An evidence-gated engineering flow for coding agents, as an MCP server and plugin.
+</p>
 
-It works with Claude Code (as a plugin), Codex, Gemini CLI (as an extension),
-Cursor, OpenCode, VS Code and any other MCP client. The configuration and the
-evidence live in your repository.
+<p align="center">
+  <b>English</b> &middot; <a href="README.pt-BR.md">Português</a>
+</p>
 
-> **Status: early.** The MCP server, the installer and the release are in
-> place; the engine is being ported from
-> [devpit](https://github.com/jholhewres/devpit)'s Devflow, where it runs
-> today. [docs/plan.md](docs/plan.md) has the phases.
-> [Leia em português](README.pt-BR.md).
+<p align="center">
+  <img src="docs/assets/devflow-flow.svg" alt="briefing, context, plan, execution, review, completion; done only when checks are green after the last change, every acceptance criterion is proven and the review has no blocking findings" width="100%">
+</p>
+
+Work is done when the evidence says so, not when the agent says so: checks
+green after the last change, each acceptance criterion proven by a test or a
+proof file, a review that blocks nothing. Configuration, work items and runs
+live in your repository.
 
 ## Install
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/jholhewres/devflow/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/jholhewres/devflow/main/install.sh | sh -s -- --version=0.0.1-rc.2
+devflow setup
 ```
 
-It downloads the release for your machine, checks it against the release's
-`checksums.txt`, puts `devflow` in `~/.local/bin` and registers it with every
-agent CLI and IDE it finds. Options: `--tools=claude,codex`, `--dry-run`,
-`--uninstall`, `--version=X.Y.Z`; see [docs/integrations.md](docs/integrations.md).
+`install.sh` checks the release's checksum, puts `devflow` in `~/.local/bin`
+and registers it with the agent CLIs and IDEs it finds (`--tools=`,
+`--dry-run`, `--uninstall`). Only pre-releases exist so far, hence
+`--version`. `devflow setup` writes the project's `devflow.yaml` and switches
+devflow on, asking first.
 
-Claude Code only:
+## Use
 
-```text
-/plugin marketplace add jholhewres/devflow
-/plugin install devflow@devflow
-```
+| Tool | What it gets |
+|---|---|
+| Claude Code | plugin: MCP tools, `/devflow:<stage>` skills, `/devflow:status`, `/devflow:pr`, reviewer subagents, the gate's Stop hook |
+| Codex | MCP tools (`codex mcp add devflow -- devflow mcp`) |
+| Gemini CLI | extension: MCP tools and `GEMINI.md` |
+| Cursor, OpenCode, VS Code | MCP tools |
 
-The plugin starts `devflow mcp`, so the binary must be on `PATH`.
+Then ask your agent for the work. It briefs it, plans it into work items
+(`.devflow/work/`) after your yes, builds each test-first, runs the checks
+(`evidence`), has it reviewed headless on your own reviewer CLIs (`review`),
+and may call it done only when `gate` passes.
 
-## What it does
+| Command | Does |
+|---|---|
+| `devflow setup` · `doctor` | set up this machine and project · check them |
+| `devflow config get` · `set <path> <value>` | read or change `devflow.yaml` |
+| `devflow jev setup` · `test` | Decisions (Jev) through OpenRouter, opt-in |
 
-- **Stages with gates.** Each stage is a skill the agent follows; a stage of
-  your own can be gated by a command that exits 0 or by a rubric.
-- **Checks as evidence.** Your test, lint and E2E commands, detected from the
-  repository, run with the context in environment variables only. Their
-  reports (JUnit, Vitest, Jest, cargo, Go) are kept per run.
-- **Reviews that did not write the code.** Spec, standards and security
-  personas review the diff headless, each on the agent CLI you pick, held to
-  one findings schema; `block_on` decides what stops the work.
-- **A gate at the end of the turn**, through hooks where the CLI has them.
-- **Layers.** Your personal defaults, your team's (pinned to a commit you
-  approved, with fields it can lock), then the project's.
-- **Decisions (Jev)**, opt-in: typed rubrics judged by a model through
-  OpenRouter, in shadow or enforce.
-- **Pull request reviews**, drafted and posted only after your yes.
+The OpenRouter key is read from `OPENROUTER_API_KEY` or kept in
+`~/.config/devflow/credentials` (mode 0600): never in the repository, never
+printed. A project on devpit's Devflow works unchanged: its
+`.devpit/devflow/` is read where it is.
 
-## Today
-
-```sh
-devflow status               # which configuration applies here
-devflow register --dry-run   # what registering would change
-devflow mcp                  # the server; agent CLIs start it
-```
-
-The server answers `status`. The rest of the tools arrive with the port.
-
-## Develop
-
-```sh
-make check            # rustfmt --check, clippy -D warnings, tests, versions
-make sync-version     # after changing VERSION
-```
-
-See [CONTRIBUTING.md](CONTRIBUTING.md).
+More: [integrations](docs/integrations.md) · [plan](docs/plan.md) ·
+[contributing](CONTRIBUTING.md).
 
 ## License
 
-[Apache-2.0](LICENSE). See [NOTICE](NOTICE) for where the code comes from.
+[Apache-2.0](LICENSE). See [NOTICE](NOTICE).
