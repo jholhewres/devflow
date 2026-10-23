@@ -205,6 +205,18 @@ pub fn register(tool: Tool, bin: &str, machine: &Machine) -> Vec<Step> {
     }
 }
 
+/// Whether devflow is registered with `tool` as `bin`: every step already
+/// done, and every config already holding devflow's entry.
+pub fn registered(tool: Tool, bin: &str, machine: &Machine) -> bool {
+    register(tool, bin, machine).iter().all(|step| match step {
+        Step::Done(_) => true,
+        Step::Put { file, under, value } => std::fs::read_to_string(file)
+            .ok()
+            .is_some_and(|text| put(Some(&text), under, value) == Ok(None)),
+        Step::Run(_) | Step::Drop { .. } | Step::Manual(_) => false,
+    })
+}
+
 /// What taking devflow out of `tool` takes.
 pub fn unregister(tool: Tool, machine: &Machine) -> Vec<Step> {
     match tool {

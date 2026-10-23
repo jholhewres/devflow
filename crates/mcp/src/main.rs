@@ -10,12 +10,14 @@ mod cli;
 mod consent;
 mod credentials;
 mod decisions;
+mod doctor;
 mod flow;
 mod hook;
 mod jev_cli;
 mod project;
 mod register;
 mod server;
+mod setup_cli;
 mod tools;
 
 /// An evidence-gated engineering flow for coding agents: briefing, context,
@@ -39,6 +41,12 @@ enum Command {
     Mcp,
     /// Say which configuration applies to the project, if any.
     Status,
+    /// Set devflow up: register it with the agent CLIs found here, write the
+    /// project's devflow.yaml and switch it on, and offer Decisions. Asks
+    /// before each step.
+    Setup(setup_cli::Wizard),
+    /// Check this machine and this project for what devflow needs.
+    Doctor,
     /// Register devflow with the agent CLIs and IDEs installed here.
     Register(Registering),
     /// Take devflow out of them again.
@@ -120,6 +128,8 @@ fn main() -> ExitCode {
     match cli.command {
         Command::Mcp => ExitCode::from(server::serve(&root) as u8),
         Command::Status => status(&root),
+        Command::Setup(how) => setup_cli::run(&root, &how),
+        Command::Doctor => doctor::run(&root),
         Command::Register(how) => registering(&how, true),
         Command::Unregister(how) => registering(&how, false),
         Command::Hook { event, agent } => hook::run(event, &agent, &root),

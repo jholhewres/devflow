@@ -22,7 +22,10 @@ fn decisions_are_kept_newest_first_with_their_labels() {
     let folder = tempfile::tempdir().unwrap();
     let log = Log::at(&folder.path().join(FILE));
     assert!(log.rows().is_empty());
-    assert!(log.spend_since(0).is_sign_positive(), "nothing spent is 0, not -0");
+    assert!(
+        log.spend_since(0).is_sign_positive(),
+        "nothing spent is 0, not -0"
+    );
     let first = log.write(row("/a", 0.25, 100, None)).unwrap();
     log.write(row("/a", 0.5, 200, Some("unreachable"))).unwrap();
     log.write(row("/b", 1.0, 50, None)).unwrap();

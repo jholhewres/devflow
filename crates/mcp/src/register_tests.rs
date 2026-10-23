@@ -125,3 +125,25 @@ fn tools_are_named_or_found() {
     assert!(chosen(Some("emacs"), &here).is_err());
     assert_eq!(chosen(None, &here).unwrap().len(), ALL.len());
 }
+
+#[test]
+fn a_tool_is_registered_once_every_step_is_done() {
+    let home = tempfile::tempdir().unwrap();
+    let machine = machine(home.path(), None);
+    assert!(!registered(Tool::Cursor, "/bin/devflow", &machine));
+    fs::create_dir_all(home.path().join(".cursor")).unwrap();
+    let value = json!({ "command": "/bin/devflow", "args": ["mcp"] });
+    fs::write(
+        home.path().join(".cursor/mcp.json"),
+        json!({ "mcpServers": { "devflow": value } }).to_string(),
+    )
+    .unwrap();
+    assert!(registered(Tool::Cursor, "/bin/devflow", &machine));
+    assert!(!registered(Tool::Cursor, "/other/devflow", &machine));
+    let said = machine_saying(home.path(), "devflow devflow@devflow");
+    assert!(registered(Tool::Claude, "/bin/devflow", &said));
+}
+
+fn machine_saying(home: &Path, said: &'static str) -> Machine {
+    machine(home, Some(said))
+}

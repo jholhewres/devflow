@@ -15,7 +15,7 @@ use crate::decisions::log::Log;
 use crate::decisions::rubric::{Rubric, Threshold};
 use crate::decisions::settings::Settings;
 
-#[derive(clap::Args)]
+#[derive(clap::Args, Default)]
 pub struct Setup {
     /// The model to ask. typesafe/jev-1.13 when left out.
     #[arg(long)]
@@ -75,8 +75,16 @@ pub fn plain_key(key: &str) -> bool {
 }
 
 pub fn setup(how: &Setup) -> ExitCode {
+    match set_up(how) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(why) => failed(&why),
+    }
+}
+
+/// [`setup`], answering why it could not.
+pub fn set_up(how: &Setup) -> Result<(), String> {
     let Some(file) = Settings::file() else {
-        return failed("no home folder to keep the settings in");
+        return Err("no home folder to keep the settings in".to_owned());
     };
     let mut settings = Settings::read_at(&file);
     if let Some(model) = &how.model {
@@ -88,9 +96,7 @@ pub fn setup(how: &Setup) -> ExitCode {
     if let Some(cap) = how.daily_cap {
         settings.daily_cap_usd = cap;
     }
-    if let Err(why) = settings.checked() {
-        return failed(&why);
-    }
+    settings.checked()?;
     let key = if how.key_stdin {
         let mut said = String::new();
         if std::io::stdin()
@@ -98,32 +104,22 @@ pub fn setup(how: &Setup) -> ExitCode {
             .read_to_string(&mut said)
             .is_err()
         {
-            return failed("the key could not be read from stdin");
+            return Err("the key could not be read from stdin".to_owned());
         }
         Some(said.trim().to_owned())
     } else if std::io::stdin().is_terminal() && credentials::source() != Some(credentials::ENV) {
-        match asked_key() {
-            Ok(key) if key.is_empty() => None,
-            Ok(key) => Some(key),
-            Err(why) => return failed(&why),
-        }
+        Some(asked_key()?).filter(|key| !key.is_empty())
     } else {
         None
     };
     if let Some(key) = &key {
         if !plain_key(key) {
-            return failed("that is not a key");
+            return Err("that is not a key".to_owned());
         }
-        let Some(kept) = credentials::file() else {
-            return failed("no home folder to keep the key in");
-        };
-        if let Err(why) = credentials::write_key(&kept, key) {
-            return failed(&why);
-        }
+        let kept = credentials::file().ok_or("no home folder to keep the key in")?;
+        credentials::write_key(&kept, key)?;
     }
-    if let Err(why) = settings.write_at(&file) {
-        return failed(&why);
-    }
+    settings.write_at(&file)?;
     println!(
         "Decisions: {} at {}, model {}, up to ${:.2} a day.",
         settings.provider,
@@ -148,7 +144,7 @@ pub fn setup(how: &Setup) -> ExitCode {
         "A project asks Decisions once its devflow.yaml says `decisions: {{ use: true }}`; \
          `devflow jev test` checks the key."
     );
-    ExitCode::SUCCESS
+    Ok(())
 }
 
 pub fn status() -> ExitCode {
