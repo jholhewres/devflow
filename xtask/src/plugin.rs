@@ -22,6 +22,30 @@ pub fn drift(root: &Path, files: &[(String, String)]) -> Vec<String> {
     drifted
 }
 
+/// What differs of files that live beside others of the root's.
+pub fn drift_of(root: &Path, files: &[(String, String)]) -> Vec<String> {
+    files
+        .iter()
+        .filter(|(path, text)| std::fs::read_to_string(root.join(path)).ok().as_ref() != Some(text))
+        .map(|(path, _)| format!("{path} is not as the flow makes it"))
+        .collect()
+}
+
+/// Writes files that live beside others of the root's.
+pub fn write_each(root: &Path, files: &[(String, String)]) -> Result<(), String> {
+    for (path, text) in files {
+        let at = root.join(path);
+        if std::fs::read_to_string(&at).ok().as_ref() == Some(text) {
+            continue;
+        }
+        if let Some(parent) = at.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| format!("{path}: {e}"))?;
+        }
+        std::fs::write(&at, text).map_err(|e| format!("{path}: {e}"))?;
+    }
+    Ok(())
+}
+
 /// Every file now in the plugin's folders, relative to the root.
 fn present(root: &Path) -> Vec<String> {
     let mut found = Vec::new();

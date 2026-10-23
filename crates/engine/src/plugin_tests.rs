@@ -62,3 +62,14 @@ fn the_personas_are_subagents_and_the_commands_do_not_shadow_a_skill() {
         assert!(text.starts_with("---\ndescription: \""), "{name}");
     }
 }
+
+#[test]
+fn every_tool_without_a_plugin_reads_the_same_context() {
+    let files = contexts();
+    assert_eq!(file(&files, "GEMINI.md"), CONTEXT);
+    assert_eq!(file(&files, "integrations/codex/AGENTS.md"), CONTEXT);
+    let rule = file(&files, "integrations/cursor/rules/devflow.mdc");
+    assert!(rule.starts_with("---\ndescription: "));
+    assert!(rule.contains("alwaysApply: true"));
+    assert!(rule.contains("Call `status` first"));
+}

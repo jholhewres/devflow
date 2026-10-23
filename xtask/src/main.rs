@@ -57,8 +57,10 @@ fn main() -> ExitCode {
 
 fn plugin_sync(root: &Path, check: bool) -> ExitCode {
     let files = devflow_engine::plugin::claude();
+    let contexts = devflow_engine::plugin::contexts();
     if check {
-        let drifted = plugin::drift(root, &files);
+        let mut drifted = plugin::drift(root, &files);
+        drifted.extend(plugin::drift_of(root, &contexts));
         if drifted.is_empty() {
             println!("the plugin's {} files are the flow's", files.len());
             return ExitCode::SUCCESS;
@@ -67,6 +69,10 @@ fn plugin_sync(root: &Path, check: bool) -> ExitCode {
             eprintln!("plugin-sync: {one}");
         }
         eprintln!("plugin-sync: run `cargo xtask plugin-sync`");
+        return ExitCode::FAILURE;
+    }
+    if let Err(why) = plugin::write_each(root, &contexts) {
+        eprintln!("plugin-sync: {why}");
         return ExitCode::FAILURE;
     }
     match plugin::write(root, &files) {

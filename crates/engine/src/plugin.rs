@@ -177,6 +177,45 @@ pub fn claude() -> Vec<(String, String)> {
     files
 }
 
+/// What an agent reads where the tool takes no plugin: GEMINI.md, a
+/// project's AGENTS.md for Codex, a Cursor rule.
+pub const CONTEXT: &str = "\
+# devflow
+
+This project may use devflow: an engineering flow of briefing, context, plan,
+execution, review and completion, in which work is done only when its
+evidence says so — its checks green after the last change, each acceptance
+criterion proven by a test or a proof file, a review that blocks nothing.
+Its tools come from the `devflow` MCP server.
+
+- Call `status` first: the project's state and the step that comes next.
+- Before each stage, call `skill` with `devflow-<stage>` (briefing, context,
+  plan, execution, review, completion) and follow the skill it returns.
+- Work items are Markdown files in the project's devflow folder: `items`
+  lists them, `item` reads or makes one, `start` picks the one you work on.
+- An item is done when `gate` passes: run its checks with `evidence`, review
+  it with `review`, then `gate`, then `finish`.
+- What only the person decides — switching devflow on, Decisions in enforce,
+  a team layer's command — is a terminal command the tools name; a brief, a
+  plan or a published review waits for their explicit yes in the conversation.
+";
+
+/// The context files outside the plugin's folders, by path at the root.
+pub fn contexts() -> Vec<(String, String)> {
+    let rule = format!(
+        "---\ndescription: devflow, the evidence-gated engineering flow, through its MCP server\nalwaysApply: true\n---\n\n{}",
+        CONTEXT.trim_start_matches("# devflow\n\n")
+    );
+    vec![
+        ("GEMINI.md".to_owned(), CONTEXT.to_owned()),
+        (
+            "integrations/codex/AGENTS.md".to_owned(),
+            CONTEXT.to_owned(),
+        ),
+        ("integrations/cursor/rules/devflow.mdc".to_owned(), rule),
+    ]
+}
+
 fn pretty(value: &Value) -> String {
     format!(
         "{}\n",
