@@ -66,3 +66,7 @@ More: [integrations](docs/integrations.md) · [plan](docs/plan.md) ·
 ## License
 
 [Apache-2.0](LICENSE). See [NOTICE](NOTICE).
+
+---
+
+<p align="center">devflow is made by <a href="https://devpit.app">devpit.app</a>.</p>
