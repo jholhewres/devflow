@@ -48,6 +48,7 @@ pub mod skills;
 pub mod stage;
 pub mod started;
 pub mod verdict;
+pub mod work;
 
 pub use config::{Config, Invalid};
 pub use folder::State;

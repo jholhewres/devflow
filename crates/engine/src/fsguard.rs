@@ -2,7 +2,7 @@
 //! through symlinks and then checked for containment in the root, in that
 //! order, so a link pointing out of the project is refused.
 
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 #[derive(Debug)]
@@ -160,6 +160,40 @@ pub fn read_within(reader: impl Read, ceiling: u64) -> std::io::Result<Option<Ve
         .take(ceiling.saturating_add(1))
         .read_to_end(&mut raw)?;
     Ok((raw.len() as u64 <= ceiling).then_some(raw))
+}
+
+/// Where a write lands before it is renamed over the file: beside it, and
+/// hidden, so a listing never shows it.
+pub fn temp_for(dir: &Path, name: &str) -> PathBuf {
+    dir.join(format!(".{name}.tmp"))
+}
+
+/// Writes `bytes` beside `dir/name`, then renames over it, so a reader sees
+/// the old file or the new one and never half of either.
+///
+/// `create_new` refuses a link or a directory planted at the temp name, and
+/// `rename` replaces a link at the target instead of writing through it.
+pub fn replace(dir: &Path, name: &str, bytes: &[u8]) -> std::io::Result<()> {
+    let temp = temp_for(dir, name);
+    // A write that died leaves a file; `create_new` refuses whatever else is there.
+    if temp.symlink_metadata().is_ok_and(|meta| meta.is_file()) {
+        let _ = std::fs::remove_file(&temp);
+    }
+    let mut made_temp = false;
+    let written = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&temp)
+        .and_then(|mut file| {
+            made_temp = true;
+            file.write_all(bytes)?;
+            file.sync_all()
+        })
+        .and_then(|()| std::fs::rename(&temp, dir.join(name)));
+    if written.is_err() && made_temp {
+        let _ = std::fs::remove_file(&temp);
+    }
+    written
 }
 
 #[cfg(test)]
