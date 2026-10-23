@@ -52,9 +52,10 @@ pub struct Standalone {
 /// The review's input when it names no card; `None` when it does, which is
 /// [`review::asked`]'s to read.
 pub fn standalone(params: &Value) -> Result<Option<Standalone>, String> {
+    let params = &crate::work::as_card(params);
     let fields = params
         .as_object()
-        .ok_or("the review takes a card, a pr, a base and a head, or a path")?;
+        .ok_or("the review takes an item, a pr, a base and a head, or a path")?;
     if fields.get("card").is_some_and(|card| !card.is_null()) {
         return Ok(None);
     }
@@ -65,7 +66,7 @@ pub fn standalone(params: &Value) -> Result<Option<Standalone>, String> {
         return Err(format!("`{extra}` is not a field of the review"));
     }
     if fields.contains_key("previous") {
-        return Err("`previous` re-reviews a card's run: pass the card".to_owned());
+        return Err("`previous` re-reviews a work item's run: pass the item".to_owned());
     }
     let word = |key: &str| text(fields, key);
     let revision = |key: &str| -> Result<Option<String>, String> {
@@ -88,7 +89,7 @@ pub fn standalone(params: &Value) -> Result<Option<Standalone>, String> {
             return Err("a worktree is reviewed at its own HEAD: leave out `head`".to_owned())
         }
         (None, ..) => return Err(
-            "which change? pass `card`, or `pr`, or `base` and `head`, or `path` (a worktree of the project)"
+            "which change? pass `item`, or `pr`, or `base` and `head`, or `path` (a worktree of the project)"
                 .to_owned(),
         ),
     };
@@ -240,7 +241,7 @@ pub fn next(
             ""
         };
         return format!(
-            "Done: the findings are in findings.json; nothing is commented on any card.{impact} `publish` with review \"{label}/{stamp}\" {posted}."
+            "Done: the findings are in findings.json; nothing is commented on any work item.{impact} `publish` with review \"{label}/{stamp}\" {posted}."
         );
     }
     let reading = detached.map_or_else(String::new, |head| {

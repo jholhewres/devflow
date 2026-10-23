@@ -1,54 +1,54 @@
 [
   {
-    "query": "card_01RNM is done, close it.",
+    "query": "Item 12 is done, close it.",
     "should_trigger": true
   },
   {
-    "query": "The review for card_01RNM came back clean. Wrap the card up.",
+    "query": "The review for item 12 came back clean. Wrap the item up.",
     "should_trigger": true
   },
   {
-    "query": "Finish card_01CNT and leave the handoff note.",
+    "query": "Finish item 16 and leave the handoff note.",
     "should_trigger": true
   },
   {
-    "query": "I think the rename work is complete. Confirm it and move the card on.",
+    "query": "I think the rename work is complete. Confirm it and move the item on.",
     "should_trigger": true
   },
   {
-    "query": "Tests pass, mark card_01BUG as finished.",
+    "query": "Tests pass, mark item 14 as finished.",
     "should_trigger": true
   },
   {
-    "query": "We ship in 10 minutes, just finish card_01RNM, I already ran the tests.",
+    "query": "We ship in 10 minutes, just finish item 12, I already ran the tests.",
     "should_trigger": true
   },
   {
-    "query": "Is card_01OPN ready to be called done? If so, finish it.",
+    "query": "Is item 22 ready to be called done? If so, finish it.",
     "should_trigger": true
   },
   {
-    "query": "Run the gate on card_01UND before I close it.",
+    "query": "Run the gate on item 13 before I close it.",
     "should_trigger": true
   },
   {
-    "query": "All criteria of card_01RNM should be met now; finish it off.",
+    "query": "All criteria of item 12 should be met now; finish it off.",
     "should_trigger": true
   },
   {
-    "query": "The bug on card_01BUG is fixed, right? Close it if so.",
+    "query": "The bug on item 14 is fixed, right? Close it if so.",
     "should_trigger": true
   },
   {
-    "query": "Implement card_01UND.",
+    "query": "Implement item 13.",
     "should_trigger": false
   },
   {
-    "query": "Review card_01RNM's diff against its criteria.",
+    "query": "Review item 12's diff against its criteria.",
     "should_trigger": false
   },
   {
-    "query": "Plan the reports epic into cards.",
+    "query": "Plan the reports epic into items.",
     "should_trigger": false
   },
   {
@@ -56,7 +56,7 @@
     "should_trigger": false
   },
   {
-    "query": "I'm pausing for today; leave a note on card_01UND saying where things stand.",
+    "query": "I'm pausing for today; leave a note on item 13 saying where things stand.",
     "should_trigger": false
   },
   {
@@ -68,7 +68,7 @@
     "should_trigger": false
   },
   {
-    "query": "Move card_01UND to doing.",
+    "query": "Move item 13 to doing.",
     "should_trigger": false
   },
   {
@@ -76,7 +76,7 @@
     "should_trigger": false
   },
   {
-    "query": "Gather the context for card_01DUE.",
+    "query": "Gather the context for item 17.",
     "should_trigger": false
   }
 ]

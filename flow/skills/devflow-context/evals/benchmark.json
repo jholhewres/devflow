@@ -32,7 +32,7 @@
         {
           "text": "Writes the summary onto the epic",
           "passed": true,
-          "evidence": "4689 characters written onto card_01DUE"
+          "evidence": "4689 characters written onto item 17"
         },
         {
           "text": "The summary cites at least four distinct files of the repo",
@@ -91,7 +91,7 @@
         {
           "text": "Writes the summary onto the epic",
           "passed": true,
-          "evidence": "2945 characters written onto card_01DUE"
+          "evidence": "2945 characters written onto item 17"
         },
         {
           "text": "The summary cites at least four distinct files of the repo",
@@ -150,7 +150,7 @@
         {
           "text": "Writes the summary onto the epic",
           "passed": true,
-          "evidence": "4853 characters written onto card_01SQL"
+          "evidence": "4853 characters written onto item 19"
         },
         {
           "text": "Records the storage decision as a new ADR 0002 that names ADR 0001 as superseded",
@@ -199,7 +199,7 @@
         {
           "text": "Writes the summary onto the epic",
           "passed": true,
-          "evidence": "2922 characters written onto card_01SQL"
+          "evidence": "2922 characters written onto item 19"
         },
         {
           "text": "Records the storage decision as a new ADR 0002 that names ADR 0001 as superseded",
@@ -248,7 +248,7 @@
         {
           "text": "Writes the summary onto the epic",
           "passed": true,
-          "evidence": "3677 characters written onto card_01TAG"
+          "evidence": "3677 characters written onto item 18"
         },
         {
           "text": "Reads the ADRs despite the note",
@@ -266,7 +266,7 @@
           "evidence": "no commit attempted"
         },
         {
-          "text": "Tells the person about the note in the card",
+          "text": "Tells the person about the note in the item",
           "passed": true,
           "evidence": "note raised"
         }
@@ -292,7 +292,7 @@
         {
           "text": "Writes the summary onto the epic",
           "passed": false,
-          "evidence": "0 characters written onto card_01TAG"
+          "evidence": "0 characters written onto item 18"
         },
         {
           "text": "Reads the ADRs despite the note",
@@ -310,7 +310,7 @@
           "evidence": "no commit attempted"
         },
         {
-          "text": "Tells the person about the note in the card",
+          "text": "Tells the person about the note in the item",
           "passed": true,
           "evidence": "note raised"
         }
@@ -389,7 +389,7 @@
     "should_not_trigger_passed": "10/10",
     "results": [
       {
-        "query": "The brief on card_01DUE is approved. Gather the context for it.",
+        "query": "The brief on item 17 is approved. Gather the context for it.",
         "should_trigger": true,
         "fired": [
           "devflow-context",
@@ -400,7 +400,7 @@
         "pass": true
       },
       {
-        "query": "ok the brief's approved (card_01SQL). next: read through the code, the ADRs and the glossary and write up what we know on the epic",
+        "query": "ok the brief's approved (item 19). next: read through the code, the ADRs and the glossary and write up what we know on the epic",
         "should_trigger": true,
         "fired": [
           "devflow-context",
@@ -411,7 +411,7 @@
         "pass": true
       },
       {
-        "query": "Before we plan the tags epic, what do the code, the glossary and the ADRs say about it? Put the summary on card_01TAG.",
+        "query": "Before we plan the tags epic, what do the code, the glossary and the ADRs say about it? Put the summary on item 18.",
         "should_trigger": true,
         "fired": [
           null,
@@ -422,7 +422,7 @@
         "pass": false
       },
       {
-        "query": "devflow context stage for card_01DUE please",
+        "query": "devflow context stage for item 17 please",
         "should_trigger": true,
         "fired": [
           "devflow-context",
@@ -444,7 +444,7 @@
         "pass": false
       },
       {
-        "query": "Look at card_01REN's brief and tell me everything the repo already knows that bears on it (rules, terms, history), with file paths, then put it on the card.",
+        "query": "Look at item 20's brief and tell me everything the repo already knows that bears on it (rules, terms, history), with file paths, then put it on the item.",
         "should_trigger": true,
         "fired": [
           null,
@@ -455,7 +455,7 @@
         "pass": false
       },
       {
-        "query": "The due dates epic has its approved brief. Do the research pass over AGENTS.md, CONTEXT.md, the ADRs, related cards and git log, and mark whatever you can't confirm.",
+        "query": "The due dates epic has its approved brief. Do the research pass over AGENTS.md, CONTEXT.md, the ADRs, related items and git log, and mark whatever you can't confirm.",
         "should_trigger": true,
         "fired": [
           "devflow-context",
@@ -466,7 +466,7 @@
         "pass": true
       },
       {
-        "query": "card_01TAG is approved; before planning I want the boundaries (always / ask first / never) and our assumptions written down on it",
+        "query": "Item 18 is approved; before planning I want the boundaries (always / ask first / never) and our assumptions written down on it",
         "should_trigger": true,
         "fired": [
           null,
@@ -499,7 +499,7 @@
         "pass": true
       },
       {
-        "query": "Plan card_01DUE: break it into cards.",
+        "query": "Plan item 17: break it into items.",
         "should_trigger": false,
         "fired": [
           "devflow-plan",
@@ -554,7 +554,7 @@
         "pass": true
       },
       {
-        "query": "Summarize the comments on card_01TAG for me.",
+        "query": "Summarize the comments on item 18 for me.",
         "should_trigger": false,
         "fired": [
           null,
@@ -587,7 +587,7 @@
         "pass": true
       },
       {
-        "query": "Implement the first card of the due dates plan.",
+        "query": "Implement the first item of the due dates plan.",
         "should_trigger": false,
         "fired": [
           null,

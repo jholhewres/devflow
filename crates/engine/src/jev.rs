@@ -93,11 +93,13 @@ pub fn decisions_state(
         ),
         _ if opted_out => (
             DecisionsState::Off,
-            Some("this project's state is not sent to Decisions — see Settings → Decisions"),
+            Some(
+                "this project's state is not sent to Decisions — `devflow jev send` sends it again",
+            ),
         ),
         _ if !key => (
             DecisionsState::NoKey,
-            Some("no key — set one in Settings → Decisions"),
+            Some("no key — set one with `devflow jev setup`"),
         ),
         Some(why) => (DecisionsState::Failing, Some(why)),
         None => (DecisionsState::On, None),

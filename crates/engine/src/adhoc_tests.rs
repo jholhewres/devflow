@@ -32,7 +32,7 @@ fn a_review_without_a_card_names_a_pr_a_range_or_a_worktree() {
 fn a_card_call_is_left_to_the_cards_review_and_refuses_what_is_not_its() {
     assert_eq!(standalone(&json!({ "card": "card_1" })), Ok(None));
     let refused = review::asked(&json!({ "card": "card_1", "pr": 4 })).expect_err("refused");
-    assert!(refused.contains("leave out `card`"), "{refused}");
+    assert!(refused.contains("leave out `item`"), "{refused}");
 }
 
 #[test]
@@ -104,7 +104,7 @@ fn a_retro_review_reads_a_merged_range_and_nothing_else() {
     }
     let refused =
         review::asked(&json!({ "card": "card_1", "mode": "retro" })).expect_err("refused");
-    assert!(refused.contains("leave out `card`"), "{refused}");
+    assert!(refused.contains("leave out `item`"), "{refused}");
     let range = Subject::Range {
         base: "v1".into(),
         head: "v2".into(),

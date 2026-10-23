@@ -198,7 +198,7 @@ fn decisions_is_off_without_use_then_without_a_key_then_failing_on_the_last_call
     let no_key = decisions_state(true, false, false, None);
     assert_eq!(
         no_key.reason.as_deref(),
-        Some("no key — set one in Settings → Decisions")
+        Some("no key — set one with `devflow jev setup`")
     );
     let failing = decisions_state(true, false, true, Some("Decisions refused it (400): no"));
     assert_eq!(

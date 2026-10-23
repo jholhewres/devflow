@@ -62,7 +62,7 @@ pub struct Slice {
 /// The slices an agent or the board passed, trimmed and checked.
 pub fn read(cards: &Value) -> Result<Vec<Slice>, String> {
     let slices: Vec<Slice> = serde_json::from_value(cards.clone()).map_err(|why| {
-        format!("`cards` is a list of {{ key, title, build, criteria, files, verify, depends_on }}: {why}")
+        format!("`items` is a list of {{ key, title, build, criteria, files, verify, depends_on }}: {why}")
     })?;
     let slices: Vec<Slice> = slices.into_iter().map(trimmed).collect();
     checked(&slices)?;
@@ -95,10 +95,10 @@ fn trimmed(slice: Slice) -> Slice {
 /// Why a plan cannot become cards, or nothing.
 pub fn checked(slices: &[Slice]) -> Result<(), String> {
     if slices.is_empty() || slices.len() > MOST_CARDS {
-        return Err(format!("a plan has 1 to {MOST_CARDS} cards"));
+        return Err(format!("a plan has 1 to {MOST_CARDS} items"));
     }
     for (at, slice) in slices.iter().enumerate() {
-        let named = format!("card {} ({})", at + 1, slice.key);
+        let named = format!("item {} ({})", at + 1, slice.key);
         if slice.key.is_empty() || slice.key.len() > LONGEST_KEY {
             return Err(format!("{named}: a key of 1 to {LONGEST_KEY} characters"));
         }
@@ -125,15 +125,15 @@ pub fn checked(slices: &[Slice]) -> Result<(), String> {
         for key in &slice.depends_on {
             if key == &slice.key || (!is_key(slices, key) && !names_a_card(key)) {
                 return Err(format!(
-                    "{named}: depends_on `{key}` is not another card of this plan, nor a card \
-                     on the board (`card_…` or `#42`)"
+                    "{named}: depends_on `{key}` is not another item of this plan, nor a work \
+                     item that exists, named as `#42`"
                 ));
             }
         }
     }
     if ordered(slices).is_none() {
         return Err(
-            "the cards' depends_on go round in a circle, so none of them could start".to_owned(),
+            "the items' depends_on go round in a circle, so none of them could start".to_owned(),
         );
     }
     Ok(())
@@ -146,7 +146,9 @@ fn is_key(slices: &[Slice], key: &str) -> bool {
 /// Whether a `depends_on` that is no key of the plan names a card already on
 /// the board, by its id or its `#42`: how a plan waits on another epic.
 pub fn names_a_card(on: &str) -> bool {
+    let number = |text: &str| !text.is_empty() && text.bytes().all(|b| b.is_ascii_digit());
     on.starts_with("card_")
+        || number(on)
         || on
             .strip_prefix('#')
             .is_some_and(|number| !number.is_empty() && number.bytes().all(|b| b.is_ascii_digit()))

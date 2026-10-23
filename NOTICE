@@ -23,8 +23,8 @@ added here, verbatim from devpit's NOTICE, in the same commit that brings them.
 Devflow skills
 
 The skills under flow/skills/, the reviewer personas under flow/personas/ and
-the findings schema in flow/schemas/devflow-findings.schema.json are devpit's
-own text, adapted from the sources below. Their evals follow the pattern of
+the findings schema in flow/schemas/devflow-findings.schema.json are devflow's
+own text, from devpit, adapted from the sources below. Their evals follow the pattern of
 anthropics/skills' skill-creator.
 
   flow/skills/devflow-briefing      grilling, grill-me; interview-me
@@ -35,7 +35,7 @@ anthropics/skills' skill-creator.
   flow/skills/devflow-review        code-review; code-review-and-quality,
                                     security-and-hardening; requesting-code-review
   flow/skills/devflow-completion    handoff; verification-before-completion
-  flow/skills/devflow-setup         devpit's own
+  flow/skills/devflow-setup         devflow's own, from devpit
   flow/personas/devflow-spec        agents/code-reviewer; code-review
   flow/personas/devflow-standards   agents/code-reviewer; code-review
   flow/personas/devflow-security    agents/security-auditor; security-and-hardening

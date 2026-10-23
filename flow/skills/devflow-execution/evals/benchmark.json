@@ -30,9 +30,9 @@
       },
       "expectations": [
         {
-          "text": "Starts card_01RNM with `start`",
+          "text": "Starts item 12 with `start`",
           "passed": true,
-          "evidence": "`start` on card_01RNM: True"
+          "evidence": "`start` on item 12: True"
         },
         {
           "text": "Writes a test before the first change to src/",
@@ -50,17 +50,17 @@
           "evidence": "8 passed in 1.13s; 3 rename tests"
         },
         {
-          "text": "Records the evidence with `evidence` for card_01RNM, mapping the criteria to tests",
+          "text": "Records the evidence with `evidence` for item 12, mapping the criteria to tests",
           "passed": true,
           "evidence": "1 calls; criteria mapped 3/3; last run all green: True"
         },
         {
-          "text": "Leaves card_01UND alone: no start, no finish, no undo code",
+          "text": "Leaves item 13 alone: no start, no finish, no undo code",
           "passed": true,
-          "evidence": "calls on card_01UND: []; undo in cli.py: False"
+          "evidence": "calls on item 13: []; undo in cli.py: False"
         },
         {
-          "text": "Does not finish the card; finishing belongs to the completion stage",
+          "text": "Does not finish the item; finishing belongs to the completion stage",
           "passed": true,
           "evidence": "`finish` called 0 times"
         }
@@ -84,9 +84,9 @@
       },
       "expectations": [
         {
-          "text": "Starts card_01RNM with `start`",
+          "text": "Starts item 12 with `start`",
           "passed": true,
-          "evidence": "`start` on card_01RNM: True"
+          "evidence": "`start` on item 12: True"
         },
         {
           "text": "Writes a test before the first change to src/",
@@ -104,17 +104,17 @@
           "evidence": "8 passed in 1.09s; 3 rename tests"
         },
         {
-          "text": "Records the evidence with `evidence` for card_01RNM, mapping the criteria to tests",
+          "text": "Records the evidence with `evidence` for item 12, mapping the criteria to tests",
           "passed": false,
-          "evidence": "no `evidence` for card_01RNM"
+          "evidence": "no `evidence` for item 12"
         },
         {
-          "text": "Leaves card_01UND alone: no start, no finish, no undo code",
+          "text": "Leaves item 13 alone: no start, no finish, no undo code",
           "passed": true,
-          "evidence": "calls on card_01UND: []; undo in cli.py: False"
+          "evidence": "calls on item 13: []; undo in cli.py: False"
         },
         {
-          "text": "Does not finish the card; finishing belongs to the completion stage",
+          "text": "Does not finish the item; finishing belongs to the completion stage",
           "passed": false,
           "evidence": "`finish` called 1 times"
         }
@@ -163,7 +163,7 @@
           "evidence": "none left"
         },
         {
-          "text": "Records the evidence with `evidence` for card_01BUG",
+          "text": "Records the evidence with `evidence` for item 14",
           "passed": true,
           "evidence": "1 calls; criteria mapped 2/2; last run all green: True"
         }
@@ -212,9 +212,9 @@
           "evidence": "none left"
         },
         {
-          "text": "Records the evidence with `evidence` for card_01BUG",
+          "text": "Records the evidence with `evidence` for item 14",
           "passed": false,
-          "evidence": "no `evidence` for card_01BUG"
+          "evidence": "no `evidence` for item 14"
         }
       ]
     },
@@ -236,9 +236,9 @@
       },
       "expectations": [
         {
-          "text": "Writes .devpit/devflow/e2e/card_01CNT-<slug>.spec.ts with at least three tests",
+          "text": "Writes .devflow/e2e/16-<slug>.spec.ts with at least three tests",
           "passed": true,
-          "evidence": "card_01CNT-tasks-count-shows-the-open-tasks-per-list.spec.ts: 3 tests"
+          "evidence": "16-tasks-count-shows-the-open-tasks-per-list.spec.ts: 3 tests"
         },
         {
           "text": "Leaves pyproject.toml's version alone and attempts no git commit",
@@ -246,7 +246,7 @@
           "evidence": "version 0.3.0; commits attempted: []"
         },
         {
-          "text": "Raises the release note from the card with the person",
+          "text": "Raises the release note from the item with the person",
           "passed": true,
           "evidence": "raised"
         },
@@ -261,7 +261,7 @@
           "evidence": "8 passed in 1.31s"
         },
         {
-          "text": "Records the evidence with `evidence` for card_01CNT",
+          "text": "Records the evidence with `evidence` for item 16",
           "passed": true,
           "evidence": "1 calls; criteria mapped 3/3; last run all green: True"
         }
@@ -285,9 +285,9 @@
       },
       "expectations": [
         {
-          "text": "Writes .devpit/devflow/e2e/card_01CNT-<slug>.spec.ts with at least three tests",
+          "text": "Writes .devflow/e2e/16-<slug>.spec.ts with at least three tests",
           "passed": false,
-          "evidence": "no card_01CNT-<slug>.spec.ts; spec files: []"
+          "evidence": "no 16-<slug>.spec.ts; spec files: []"
         },
         {
           "text": "Leaves pyproject.toml's version alone and attempts no git commit",
@@ -295,7 +295,7 @@
           "evidence": "version 0.3.0; commits attempted: []"
         },
         {
-          "text": "Raises the release note from the card with the person",
+          "text": "Raises the release note from the item with the person",
           "passed": true,
           "evidence": "raised"
         },
@@ -310,9 +310,9 @@
           "evidence": "7 passed in 0.60s"
         },
         {
-          "text": "Records the evidence with `evidence` for card_01CNT",
+          "text": "Records the evidence with `evidence` for item 16",
           "passed": false,
-          "evidence": "no `evidence` for card_01CNT"
+          "evidence": "no `evidence` for item 16"
         }
       ]
     }
@@ -391,7 +391,7 @@
     "should_not_trigger_passed": "10/10",
     "results": [
       {
-        "query": "Implement card_01RNM.",
+        "query": "Implement item 12.",
         "should_trigger": true,
         "fired": [
           "devflow-execution",
@@ -402,7 +402,7 @@
         "pass": true
       },
       {
-        "query": "Pick up the next card of the editing-tasks plan and build it.",
+        "query": "Pick up the next item of the editing-tasks plan and build it.",
         "should_trigger": true,
         "fired": [
           "devflow-execution",
@@ -413,7 +413,7 @@
         "pass": true
       },
       {
-        "query": "card_01UND is unblocked now, go ahead and work on it.",
+        "query": "Item 13 is unblocked now, go ahead and work on it.",
         "should_trigger": true,
         "fired": [
           null,
@@ -424,7 +424,7 @@
         "pass": true
       },
       {
-        "query": "Fix card_01BUG: tasks added after a hand edit reuse an id.",
+        "query": "Fix item 14: tasks added after a hand edit reuse an id.",
         "should_trigger": true,
         "fired": [
           null,
@@ -435,7 +435,7 @@
         "pass": false
       },
       {
-        "query": "The reports plan is approved. Start on card_01CNT.",
+        "query": "The reports plan is approved. Start on item 16.",
         "should_trigger": true,
         "fired": [
           null,
@@ -446,7 +446,7 @@
         "pass": false
       },
       {
-        "query": "tasks add gives a duplicate id after I hand-edit the json file. there's a card for it on the board, can you fix it?",
+        "query": "tasks add gives a duplicate id after I hand-edit the json file. there's a work item for it, can you fix it?",
         "should_trigger": true,
         "fired": [
           null,
@@ -457,7 +457,7 @@
         "pass": false
       },
       {
-        "query": "Autopilot: take the first unblocked [devflow] card and implement it.",
+        "query": "Autopilot: take the first unblocked [devflow] item and implement it.",
         "should_trigger": true,
         "fired": [
           "devflow-execution",
@@ -468,7 +468,7 @@
         "pass": true
       },
       {
-        "query": "Work on card_01RNM, test first please.",
+        "query": "Work on item 12, test first please.",
         "should_trigger": true,
         "fired": [
           "devflow-execution",
@@ -490,7 +490,7 @@
         "pass": false
       },
       {
-        "query": "Build the tasks count command from the board.",
+        "query": "Build the tasks count command from its work item.",
         "should_trigger": true,
         "fired": [
           null,
@@ -501,7 +501,7 @@
         "pass": false
       },
       {
-        "query": "Plan the approved epic card_01TAG into cards.",
+        "query": "Plan the approved epic 18 into items.",
         "should_trigger": false,
         "fired": [
           "devflow-plan",
@@ -512,7 +512,7 @@
         "pass": true
       },
       {
-        "query": "Review the diff for card_01RNM against its criteria before we finish it.",
+        "query": "Review the diff for item 12 against its criteria before we finish it.",
         "should_trigger": false,
         "fired": [
           null,
@@ -523,7 +523,7 @@
         "pass": true
       },
       {
-        "query": "card_01RNM is done, close it out.",
+        "query": "Item 12 is done, close it out.",
         "should_trigger": false,
         "fired": [
           "devflow-completion",
@@ -534,7 +534,7 @@
         "pass": true
       },
       {
-        "query": "Set up Devflow for this repo.",
+        "query": "Set up devflow for this repo.",
         "should_trigger": false,
         "fired": [
           "devflow-setup",
@@ -556,7 +556,7 @@
         "pass": true
       },
       {
-        "query": "Gather the context for the approved brief card_01DUE.",
+        "query": "Gather the context for the approved brief item 17.",
         "should_trigger": false,
         "fired": [
           "devflow-context",
@@ -578,7 +578,7 @@
         "pass": true
       },
       {
-        "query": "Add a comment to card_01UND saying it waits on the rename card.",
+        "query": "Add a comment to item 13 saying it waits on the rename item.",
         "should_trigger": false,
         "fired": [
           null,

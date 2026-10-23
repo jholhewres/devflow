@@ -1,34 +1,34 @@
 [
   {
-    "query": "Implement card_01RNM.",
+    "query": "Implement item 12.",
     "should_trigger": true
   },
   {
-    "query": "Pick up the next card of the editing-tasks plan and build it.",
+    "query": "Pick up the next item of the editing-tasks plan and build it.",
     "should_trigger": true
   },
   {
-    "query": "card_01UND is unblocked now, go ahead and work on it.",
+    "query": "Item 13 is unblocked now, go ahead and work on it.",
     "should_trigger": true
   },
   {
-    "query": "Fix card_01BUG: tasks added after a hand edit reuse an id.",
+    "query": "Fix item 14: tasks added after a hand edit reuse an id.",
     "should_trigger": true
   },
   {
-    "query": "The reports plan is approved. Start on card_01CNT.",
+    "query": "The reports plan is approved. Start on item 16.",
     "should_trigger": true
   },
   {
-    "query": "tasks add gives a duplicate id after I hand-edit the json file. there's a card for it on the board, can you fix it?",
+    "query": "tasks add gives a duplicate id after I hand-edit the json file. there's a work item for it, can you fix it?",
     "should_trigger": true
   },
   {
-    "query": "Autopilot: take the first unblocked [devflow] card and implement it.",
+    "query": "Autopilot: take the first unblocked [devflow] item and implement it.",
     "should_trigger": true
   },
   {
-    "query": "Work on card_01RNM, test first please.",
+    "query": "Work on item 12, test first please.",
     "should_trigger": true
   },
   {
@@ -36,23 +36,23 @@
     "should_trigger": true
   },
   {
-    "query": "Build the tasks count command from the board.",
+    "query": "Build the tasks count command from its work item.",
     "should_trigger": true
   },
   {
-    "query": "Plan the approved epic card_01TAG into cards.",
+    "query": "Plan the approved epic 18 into items.",
     "should_trigger": false
   },
   {
-    "query": "Review the diff for card_01RNM against its criteria before we finish it.",
+    "query": "Review the diff for item 12 against its criteria before we finish it.",
     "should_trigger": false
   },
   {
-    "query": "card_01RNM is done, close it out.",
+    "query": "Item 12 is done, close it out.",
     "should_trigger": false
   },
   {
-    "query": "Set up Devflow for this repo.",
+    "query": "Set up devflow for this repo.",
     "should_trigger": false
   },
   {
@@ -60,7 +60,7 @@
     "should_trigger": false
   },
   {
-    "query": "Gather the context for the approved brief card_01DUE.",
+    "query": "Gather the context for the approved brief item 17.",
     "should_trigger": false
   },
   {
@@ -68,7 +68,7 @@
     "should_trigger": false
   },
   {
-    "query": "Add a comment to card_01UND saying it waits on the rename card.",
+    "query": "Add a comment to item 13 saying it waits on the rename item.",
     "should_trigger": false
   },
   {

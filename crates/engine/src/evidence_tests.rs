@@ -9,14 +9,22 @@ use crate::config::{Evidence as Kept, Report as Format};
 const EXECUTION: &str = include_str!("../../../flow/skills/devflow-execution/SKILL.md");
 const COMPLETION: &str = include_str!("../../../flow/skills/devflow-completion/SKILL.md");
 
-/// The JSON blocks of a skill that call the evidence tool.
+/// The JSON blocks of a skill that call the evidence tool, as the engine
+/// reads them: the tool's `item` is the engine's `card`.
 fn sent(skill: &str) -> Vec<Value> {
     skill
         .split("```json")
         .skip(1)
         .filter_map(|rest| rest.split("```").next())
         .filter_map(|block| serde_json::from_str::<Value>(block).ok())
-        .filter(|value| value.get("card").is_some() && value.get("criteria").is_some())
+        .filter(|value| value.get("item").is_some() && value.get("criteria").is_some())
+        .map(|mut value| {
+            let item = value["item"].take();
+            let fields = value.as_object_mut().expect("an object");
+            fields.remove("item");
+            fields.insert("card".to_owned(), item);
+            value
+        })
         .collect()
 }
 
@@ -26,7 +34,7 @@ fn the_evidence_takes_exactly_what_the_skills_send() {
     let completion = sent(COMPLETION);
     assert_eq!((execution.len(), completion.len()), (1, 1));
     let full = asked(&execution[0]).expect("the execution skill's call");
-    assert_eq!(full.card, "<card id>");
+    assert_eq!(full.card, "<item id>");
     assert_eq!(
         full.checks.as_deref(),
         Some(&["<check name from devflow.yaml>".to_owned()][..])

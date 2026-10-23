@@ -126,15 +126,16 @@ fn filled(value: Option<&Value>) -> Option<String> {
 
 /// The tool's input, refused with what it takes when it is not that.
 pub fn asked(params: &Value) -> Result<Asked, String> {
+    let params = &crate::work::as_card(params);
     let fields = params
         .as_object()
-        .ok_or("the gate takes { card } from an agent")?;
+        .ok_or("the gate takes { item } from an agent")?;
     if let Some(extra) = fields
         .keys()
         .find(|key| !FIELDS.contains(&key.as_str()) && key.as_str() != "project")
     {
         return Err(format!(
-            "`{extra}` is not a field of the gate: it takes {{ card }}"
+            "`{extra}` is not a field of the gate: it takes {{ item }}"
         ));
     }
     let card = filled(fields.get("card"));
@@ -156,7 +157,7 @@ pub fn asked(params: &Value) -> Result<Asked, String> {
         }),
     };
     if card.is_none() && hook.is_none() {
-        return Err("which card? pass its id as `card`".to_owned());
+        return Err("which item? pass its id as `item`".to_owned());
     }
     let kind = filled(fields.get("kind"));
     if kind
@@ -265,7 +266,7 @@ pub fn checked(looked: &Looked) -> Checked {
     let configured = &config.stages.execution.checks;
     if configured.is_empty() {
         missing.push(
-            "devflow.yaml configures no checks, so nothing can prove the card: add one with `set` (stages.execution.checks)"
+            "devflow.yaml configures no checks, so nothing can prove the item: add one with `set` (stages.execution.checks)"
                 .to_owned(),
         );
     }
@@ -273,7 +274,7 @@ pub fn checked(looked: &Looked) -> Checked {
     let mut rows = Vec::new();
     match &looked.run {
         None => missing.push(format!(
-            "no run of the card's checks yet: call `evidence` with card {} and each criterion's tests (devflow-execution)",
+            "no run of the item's checks yet: call `evidence` with item {} and each criterion's tests (devflow-execution)",
             looked.card
         )),
         Some(run) => {
@@ -412,7 +413,7 @@ fn visual(config: &Config, run: &Run, missing: &mut Vec<String>) {
         .sum();
     if !keeping.is_empty() && pictures == 0 {
         missing.push(format!(
-            "the card's E2E spec {} kept no screenshot: end each of its tests in one (devflow-execution)",
+            "the item's E2E spec {} kept no screenshot: end each of its tests in one (devflow-execution)",
             word(spec.unwrap_or(&Value::Null), "path")
         ));
     }
@@ -437,7 +438,7 @@ fn own_stages(looked: &Looked, missing: &mut Vec<String>) {
             .and_then(|(_, seen)| seen.as_ref());
         match seen {
             None => missing.push(format!(
-                "the stage `{name}` ({}) has not passed its gate: follow its skill, then call `stage` with the card",
+                "the stage `{name}` ({}) has not passed its gate: follow its skill, then call `stage` with the item",
                 step.uses
             )),
             Some((run, record)) if record.get("passed").and_then(Value::as_bool) != Some(true) => {
@@ -587,7 +588,7 @@ impl Gate {
     /// Why a stop is sent back: short, and what to do about it.
     pub fn reason(&self) -> String {
         let missing = &self.checked.missing;
-        let mut said = format!("{} — the card is not done yet:\n", self.headline());
+        let mut said = format!("{} — the item is not done yet:\n", self.headline());
         for item in missing.iter().take(NAMED) {
             said.push_str(&format!("- {item}\n"));
         }
@@ -652,7 +653,7 @@ pub fn answer(gate: &Gate, file: Option<&str>) -> Value {
         "next": if gate.passed() {
             "Write the handoff note with `handoff`, then `finish`."
         } else {
-            "Leave the card where it is: fix what is missing in the stage named, then call the gate again."
+            "Leave the item where it is: fix what is missing in the stage named, then call the gate again."
         },
     })
 }

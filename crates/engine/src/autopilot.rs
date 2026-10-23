@@ -68,7 +68,7 @@ pub fn ordered(cards: &[Planned]) -> Result<Vec<&Planned>, String> {
                     .map(|card| card.title.as_str())
                     .collect();
                 return Err(format!(
-                    "the plan's cards wait on each other: {}",
+                    "the plan's items wait on each other: {}",
                     left.join(", ")
                 ));
             }
@@ -116,7 +116,7 @@ pub fn next(cards: &[Planned], approve_each: bool) -> Next {
             return Next::Approve {
                 card: card.id.clone(),
                 why: format!(
-                    "\"{}\" passed its gate, and the flow asks you to approve each card: check it and move it to done",
+                    "\"{}\" passed its gate, and the flow asks you to approve each item: check it and mark it done",
                     card.title
                 ),
             };
@@ -147,7 +147,7 @@ pub fn next(cards: &[Planned], approve_each: bool) -> Next {
                 Some(Standing::Finished) => Some(Next::Approve {
                     card: by.clone(),
                     why: format!(
-                        "\"{}\" waits on \"{}\", which passed its gate: check it and move it to done",
+                        "\"{}\" waits on \"{}\", which passed its gate: check it and mark it done",
                         card.title,
                         title(by)
                     ),
@@ -169,7 +169,7 @@ pub fn next(cards: &[Planned], approve_each: bool) -> Next {
         Some(stop) => stop,
         None if order.iter().any(|card| card.standing == Standing::Waiting) => Next::Blocked {
             card: String::new(),
-            why: "no card of the plan can start".to_owned(),
+            why: "no item of the plan can start".to_owned(),
         },
         None => Next::Done,
     }

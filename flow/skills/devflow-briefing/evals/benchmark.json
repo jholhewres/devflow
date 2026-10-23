@@ -40,7 +40,7 @@
           "evidence": "4 numbered questions, 4 with their own recommendation"
         },
         {
-          "text": "Creates no brief, card or plan",
+          "text": "Creates no brief, item or plan",
           "passed": true,
           "evidence": "none"
         },
@@ -79,7 +79,7 @@
           "evidence": "5 numbered questions, 2 with their own recommendation"
         },
         {
-          "text": "Creates no brief, card or plan",
+          "text": "Creates no brief, item or plan",
           "passed": true,
           "evidence": "none"
         },
@@ -108,7 +108,7 @@
       },
       "expectations": [
         {
-          "text": "Turn 1 creates no brief, card or plan",
+          "text": "Turn 1 creates no brief, item or plan",
           "passed": true,
           "evidence": "none in turn 1"
         },
@@ -128,9 +128,9 @@
           "evidence": "goal/success/out_of_scope: True/True/True"
         },
         {
-          "text": "Turn 2 starts no other stage: no plan, no other card, no file change, no repo reading after the brief",
+          "text": "Turn 2 starts no other stage: no plan, no other item, no file change, no repo reading after the brief",
           "passed": true,
-          "evidence": "after brief: [], other card tools: [], files unchanged: True"
+          "evidence": "after brief: [], other item tools: [], files unchanged: True"
         }
       ]
     },
@@ -152,7 +152,7 @@
       },
       "expectations": [
         {
-          "text": "Turn 1 creates no brief, card or plan",
+          "text": "Turn 1 creates no brief, item or plan",
           "passed": true,
           "evidence": "none in turn 1"
         },
@@ -172,7 +172,7 @@
           "evidence": "no `brief` in turn 2"
         },
         {
-          "text": "Turn 2 starts no other stage: no plan, no other card, no file change, no repo reading after the brief",
+          "text": "Turn 2 starts no other stage: no plan, no other item, no file change, no repo reading after the brief",
           "passed": false,
           "evidence": "no brief in turn 2"
         }
@@ -196,7 +196,7 @@
       },
       "expectations": [
         {
-          "text": "Creates no brief, card or plan",
+          "text": "Creates no brief, item or plan",
           "passed": true,
           "evidence": "none"
         },
@@ -235,9 +235,9 @@
       },
       "expectations": [
         {
-          "text": "Creates no brief, card or plan",
+          "text": "Creates no brief, item or plan",
           "passed": false,
-          "evidence": "card tools called: ['`brief`']"
+          "evidence": "item tools called: ['`brief`']"
         },
         {
           "text": "Takes up the email change in the reply",
@@ -329,7 +329,7 @@
     "should_not_trigger_passed": "10/10",
     "results": [
       {
-        "query": "new idea for tasks: recurring tasks, like 'water plants every 3 days'. before anyone builds it can you help me pin down what it should actually do and get it onto the board?",
+        "query": "new idea for tasks: recurring tasks, like 'water plants every 3 days'. before anyone builds it can you help me pin down what it should actually do and get it into devflow?",
         "should_trigger": true,
         "fired": [
           "devflow-briefing",
@@ -340,7 +340,7 @@
         "pass": true
       },
       {
-        "query": "Let's start a new piece of work in devpit: exporting tasks to CSV. Interview me first so we agree on the scope.",
+        "query": "Let's start a new piece of work in devflow: exporting tasks to CSV. Interview me first so we agree on the scope.",
         "should_trigger": true,
         "fired": [
           "devflow-briefing",
@@ -373,7 +373,7 @@
         "pass": true
       },
       {
-        "query": "can we kick off devflow for a 'tasks undo' command? nothing exists for it on the board yet",
+        "query": "can we kick off devflow for a 'tasks undo' command? there's no work item for it yet",
         "should_trigger": true,
         "fired": [
           "devflow-briefing",
@@ -384,7 +384,7 @@
         "pass": true
       },
       {
-        "query": "My manager wants 'better search' in the tasks CLI and I honestly don't know what that means yet. Help me figure out what we're building before anyone writes cards.",
+        "query": "My manager wants 'better search' in the tasks CLI and I honestly don't know what that means yet. Help me figure out what we're building before anyone writes items.",
         "should_trigger": true,
         "fired": [
           "devflow-briefing",
@@ -428,7 +428,7 @@
         "pass": true
       },
       {
-        "query": "I'd like tasks to support several people on a shared machine. Stress-test the idea with me and put the version we agree on onto the devpit board.",
+        "query": "I'd like tasks to support several people on a shared machine. Stress-test the idea with me and put the version we agree on into devflow.",
         "should_trigger": true,
         "fired": [
           null,
@@ -439,7 +439,7 @@
         "pass": true
       },
       {
-        "query": "The brief on card_01DUE is approved. Gather the context for it.",
+        "query": "The brief on item 17 is approved. Gather the context for it.",
         "should_trigger": false,
         "fired": [
           "devflow-context",
@@ -450,7 +450,7 @@
         "pass": true
       },
       {
-        "query": "Break the approved epic card_01TAG into cards on the board, with dependencies.",
+        "query": "Break the approved epic 18 into work items, with dependencies.",
         "should_trigger": false,
         "fired": [
           "devflow-plan",
@@ -461,7 +461,7 @@
         "pass": true
       },
       {
-        "query": "Move card_01DUE to doing and start working on it.",
+        "query": "Move item 17 to doing and start working on it.",
         "should_trigger": false,
         "fired": [
           null,
@@ -494,7 +494,7 @@
         "pass": true
       },
       {
-        "query": "What's on the devpit board right now?",
+        "query": "What work items does devflow have right now?",
         "should_trigger": false,
         "fired": [
           null,
@@ -505,7 +505,7 @@
         "pass": true
       },
       {
-        "query": "Add a comment to card_01TAG saying I'm out until Monday.",
+        "query": "Add a comment to item 18 saying I'm out until Monday.",
         "should_trigger": false,
         "fired": [
           null,
@@ -516,7 +516,7 @@
         "pass": true
       },
       {
-        "query": "Change the title of card_01DUE to 'Due dates and the overdue list'.",
+        "query": "Change the title of item 17 to 'Due dates and the overdue list'.",
         "should_trigger": false,
         "fired": [
           null,

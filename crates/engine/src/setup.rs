@@ -38,7 +38,7 @@ pub(crate) const PERSONAS: [(&str, &str); 4] = [
 /// The setup copied them into projects once: a copy still one of these is
 /// devpit's default, not the person's, and is read from devpit instead, so
 /// an old text never outlives the release that replaced it.
-const SHIPPED: [(&str, &str); 12] = [
+const SHIPPED: [(&str, &str); 16] = [
     (
         "devflow-spec",
         "40b270801839a2e79d7acfbbaeb6ef83530c706f0dd9c27f09588277bccbc710",
@@ -56,6 +56,10 @@ const SHIPPED: [(&str, &str); 12] = [
         "02d06643e806befcf736691db93a0e31dad06a0ba206ebf309afa9b2c3965c55",
     ),
     (
+        "devflow-spec",
+        "0e84bd8fcc06cc438783d984c2763ce195912ce7a970489c596e61804f41d1a4",
+    ),
+    (
         "devflow-standards",
         "6a015556578ad4dc0ccf58ce6271e7bda9946326e6202ed82e9907c2ecbd871e",
     ),
@@ -66,6 +70,10 @@ const SHIPPED: [(&str, &str); 12] = [
     (
         "devflow-standards",
         "bae2a29b386f8a22755f052879521600b779e4ca3d061871e95650e60fa5782c",
+    ),
+    (
+        "devflow-standards",
+        "6c4e3dbad877dc812f4370e44b501330da1030c9f4f02a4d06a636925a0ca3ef",
     ),
     (
         "devflow-security",
@@ -80,12 +88,20 @@ const SHIPPED: [(&str, &str); 12] = [
         "1e5e6383cdedd2783b7ca5d77a2fd49e4e7c8bb85001acb384089d275a93b9b6",
     ),
     (
+        "devflow-security",
+        "1106241b7c1a0caa87ef02745dd580b3878c9d28194b67f4036314cbe1c60569",
+    ),
+    (
         "devflow-all",
         "dd7bf263271b5d641328c37e1dddf9e152f21d1528f1e0bb3409d6889107c072",
     ),
     (
         "devflow-all",
         "5c2674452e08c8fc099ceebbf005e39465d18ce28f97a38659cd666f0f233f6f",
+    ),
+    (
+        "devflow-all",
+        "0ca5f880eac84d1490e9417779c05aa5a317625c45bcace65fd15f81ada7b7e6",
     ),
 ];
 

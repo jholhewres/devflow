@@ -60,7 +60,7 @@ fn it_stops_at_the_approval_point_and_never_starts_past_it() {
         panic!("it went past the approval point")
     };
     assert_eq!(card, "a");
-    assert!(why.contains("move it to done"), "{why}");
+    assert!(why.contains("mark it done"), "{why}");
     // A flow that asks the person to approve each card stops after every one.
     assert!(matches!(
         next(&plan(Done, Finished, Waiting), true),

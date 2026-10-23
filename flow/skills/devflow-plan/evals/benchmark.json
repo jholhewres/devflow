@@ -35,7 +35,7 @@
           "evidence": "1 previews"
         },
         {
-          "text": "Creates no card before the person approves (no apply, no `item`)",
+          "text": "Creates no item before the person approves (no apply, no `item`)",
           "passed": true,
           "evidence": "apply calls: 0, `item`: 0"
         },
@@ -45,22 +45,22 @@
           "evidence": "no file changed"
         },
         {
-          "text": "Every card has at least two acceptance criteria",
+          "text": "Every item has at least two acceptance criteria",
           "passed": true,
-          "evidence": "3 cards, all pass"
+          "evidence": "3 items, all pass"
         },
         {
-          "text": "Every card lists between one and five likely files",
+          "text": "Every item lists between one and five likely files",
           "passed": true,
-          "evidence": "3 cards, all pass"
+          "evidence": "3 items, all pass"
         },
         {
-          "text": "Every card that adds behaviour verifies with the tests it adds (a test file or a test name); a prefactor, docs, tests-only or contract card runs the whole suite",
+          "text": "Every item that adds behaviour verifies with the tests it adds (a test file or a test name); a prefactor, docs, tests-only or contract item runs the whole suite",
           "passed": true,
-          "evidence": "3 cards, all pass"
+          "evidence": "3 items, all pass"
         },
         {
-          "text": "Every dependency points at a card in the plan, with no cycle",
+          "text": "Every dependency points at an item in the plan, with no cycle",
           "passed": true,
           "evidence": "missing: [], cyclic: []"
         }
@@ -89,7 +89,7 @@
           "evidence": "0 previews"
         },
         {
-          "text": "Creates no card before the person approves (no apply, no `item`)",
+          "text": "Creates no item before the person approves (no apply, no `item`)",
           "passed": false,
           "evidence": "apply calls: 1, `item`: 0"
         },
@@ -99,22 +99,22 @@
           "evidence": "no file changed"
         },
         {
-          "text": "Every card has at least two acceptance criteria",
+          "text": "Every item has at least two acceptance criteria",
           "passed": true,
-          "evidence": "3 cards, all pass"
+          "evidence": "3 items, all pass"
         },
         {
-          "text": "Every card lists between one and five likely files",
+          "text": "Every item lists between one and five likely files",
           "passed": true,
-          "evidence": "3 cards, all pass"
+          "evidence": "3 items, all pass"
         },
         {
-          "text": "Every card that adds behaviour verifies with the tests it adds (a test file or a test name); a prefactor, docs, tests-only or contract card runs the whole suite",
+          "text": "Every item that adds behaviour verifies with the tests it adds (a test file or a test name); a prefactor, docs, tests-only or contract item runs the whole suite",
           "passed": false,
-          "evidence": "3 cards; failing verify: ['model', 'add', 'overdue']"
+          "evidence": "3 items; failing verify: ['model', 'add', 'overdue']"
         },
         {
-          "text": "Every dependency points at a card in the plan, with no cycle",
+          "text": "Every dependency points at an item in the plan, with no cycle",
           "passed": true,
           "evidence": "missing: [], cyclic: []"
         }
@@ -143,29 +143,29 @@
           "evidence": "1 previews"
         },
         {
-          "text": "Creates no card before the person approves (no apply, no `item`)",
+          "text": "Creates no item before the person approves (no apply, no `item`)",
           "passed": true,
           "evidence": "apply calls: 0, `item`: 0"
         },
         {
-          "text": "One card adds the new names beside the old ones and other cards depend on it",
+          "text": "One item adds the new names beside the old ones and other items depend on it",
           "passed": true,
           "evidence": "s1 'Tasks are stored and read as projects, old files still load' blocks ['s2']"
         },
         {
-          "text": "One card removes the old names and depends, directly or not, on every other card",
+          "text": "One item removes the old names and depends, directly or not, on every other item",
           "passed": true,
           "evidence": "s5 'Contract: remove --list and the list field (next release)' depends on all others"
         },
         {
-          "text": "Every card lists between one and five likely files",
+          "text": "Every item lists between one and five likely files",
           "passed": true,
-          "evidence": "5 cards, all pass"
+          "evidence": "5 items, all pass"
         },
         {
-          "text": "Every card that adds behaviour verifies with the tests it adds (a test file or a test name); a prefactor, docs, tests-only or contract card runs the whole suite",
+          "text": "Every item that adds behaviour verifies with the tests it adds (a test file or a test name); a prefactor, docs, tests-only or contract item runs the whole suite",
           "passed": true,
-          "evidence": "5 cards, all pass"
+          "evidence": "5 items, all pass"
         }
       ]
     },
@@ -192,29 +192,29 @@
           "evidence": "0 previews"
         },
         {
-          "text": "Creates no card before the person approves (no apply, no `item`)",
+          "text": "Creates no item before the person approves (no apply, no `item`)",
           "passed": false,
           "evidence": "apply calls: 1, `item`: 0"
         },
         {
-          "text": "One card adds the new names beside the old ones and other cards depend on it",
+          "text": "One item adds the new names beside the old ones and other items depend on it",
           "passed": true,
           "evidence": "model 'Expand: model and store read both `list` and `project`, write only `project`' blocks ['cli_options', 'release']"
         },
         {
-          "text": "One card removes the old names and depends, directly or not, on every other card",
+          "text": "One item removes the old names and depends, directly or not, on every other item",
           "passed": true,
           "evidence": "contract 'Contract (next release): remove `--list` and the `list` field' depends on all others"
         },
         {
-          "text": "Every card lists between one and five likely files",
+          "text": "Every item lists between one and five likely files",
           "passed": false,
-          "evidence": "6 cards; failing files: ['release', 'contract']"
+          "evidence": "6 items; failing files: ['release', 'contract']"
         },
         {
-          "text": "Every card that adds behaviour verifies with the tests it adds (a test file or a test name); a prefactor, docs, tests-only or contract card runs the whole suite",
+          "text": "Every item that adds behaviour verifies with the tests it adds (a test file or a test name); a prefactor, docs, tests-only or contract item runs the whole suite",
           "passed": false,
-          "evidence": "6 cards; failing verify: ['model', 'cli_options', 'show_output', 'release']"
+          "evidence": "6 items; failing verify: ['model', 'cli_options', 'show_output', 'release']"
         }
       ]
     },
@@ -241,29 +241,29 @@
           "evidence": "1 previews"
         },
         {
-          "text": "Creates no card before the person approves (no apply, no `item`)",
+          "text": "Creates no item before the person approves (no apply, no `item`)",
           "passed": true,
           "evidence": "apply calls: 0, `item`: 0"
         },
         {
-          "text": "One card with no blockers reshapes the option parsing with behaviour unchanged",
+          "text": "One item with no blockers reshapes the option parsing with behaviour unchanged",
           "passed": true,
           "evidence": "s1 'Prefactor: parse command options with argparse, behaviour unchanged'"
         },
         {
-          "text": "Every other card depends, directly or not, on the prefactor",
+          "text": "Every other item depends, directly or not, on the prefactor",
           "passed": true,
           "evidence": "all blocked by the prefactor"
         },
         {
-          "text": "Every card lists between one and five likely files",
+          "text": "Every item lists between one and five likely files",
           "passed": true,
-          "evidence": "3 cards, all pass"
+          "evidence": "3 items, all pass"
         },
         {
-          "text": "Every card that adds behaviour verifies with the tests it adds (a test file or a test name); a prefactor, docs, tests-only or contract card runs the whole suite",
+          "text": "Every item that adds behaviour verifies with the tests it adds (a test file or a test name); a prefactor, docs, tests-only or contract item runs the whole suite",
           "passed": true,
-          "evidence": "3 cards, all pass"
+          "evidence": "3 items, all pass"
         }
       ]
     },
@@ -290,29 +290,29 @@
           "evidence": "0 previews"
         },
         {
-          "text": "Creates no card before the person approves (no apply, no `item`)",
+          "text": "Creates no item before the person approves (no apply, no `item`)",
           "passed": false,
           "evidence": "apply calls: 1, `item`: 0"
         },
         {
-          "text": "One card with no blockers reshapes the option parsing with behaviour unchanged",
+          "text": "One item with no blockers reshapes the option parsing with behaviour unchanged",
           "passed": true,
           "evidence": "argparse 'Refactor CLI option parsing to argparse (no behaviour change)'"
         },
         {
-          "text": "Every other card depends, directly or not, on the prefactor",
+          "text": "Every other item depends, directly or not, on the prefactor",
           "passed": false,
           "evidence": "not blocked by the prefactor: ['model', 'show']"
         },
         {
-          "text": "Every card lists between one and five likely files",
+          "text": "Every item lists between one and five likely files",
           "passed": true,
-          "evidence": "6 cards, all pass"
+          "evidence": "6 items, all pass"
         },
         {
-          "text": "Every card that adds behaviour verifies with the tests it adds (a test file or a test name); a prefactor, docs, tests-only or contract card runs the whole suite",
+          "text": "Every item that adds behaviour verifies with the tests it adds (a test file or a test name); a prefactor, docs, tests-only or contract item runs the whole suite",
           "passed": false,
-          "evidence": "6 cards; failing verify: ['model', 'add', 'list', 'show', 'docs']"
+          "evidence": "6 items; failing verify: ['model', 'add', 'list', 'show', 'docs']"
         }
       ]
     }
@@ -389,7 +389,7 @@
     "should_not_trigger_passed": "10/10",
     "results": [
       {
-        "query": "Context for card_01DUE is in. Plan it.",
+        "query": "Context for item 17 is in. Plan it.",
         "should_trigger": true,
         "fired": [
           "devflow-plan",
@@ -400,7 +400,7 @@
         "pass": true
       },
       {
-        "query": "Break the tags epic (card_01TAG) into cards on the board, with dependencies.",
+        "query": "Break the tags epic (item 18) into work items, with dependencies.",
         "should_trigger": true,
         "fired": [
           "devflow-plan",
@@ -411,7 +411,7 @@
         "pass": true
       },
       {
-        "query": "slice card_01REN into tracer bullets please",
+        "query": "slice item 20 into tracer bullets please",
         "should_trigger": true,
         "fired": [
           "devflow-plan",
@@ -422,7 +422,7 @@
         "pass": true
       },
       {
-        "query": "The epic's brief and context are approved. Turn it into tasks on the devpit board.",
+        "query": "The epic's brief and context are approved. Turn it into devflow work items.",
         "should_trigger": true,
         "fired": [
           "devflow-plan",
@@ -433,7 +433,7 @@
         "pass": true
       },
       {
-        "query": "Plan the SQLite epic as child cards, each with acceptance criteria, files and how to verify it.",
+        "query": "Plan the SQLite epic as child items, each with acceptance criteria, files and how to verify it.",
         "should_trigger": true,
         "fired": [
           "devflow-plan",
@@ -444,7 +444,7 @@
         "pass": true
       },
       {
-        "query": "How should we split card_01TAG into pieces of work? Put the plan on the board for me to approve.",
+        "query": "How should we split item 18 into pieces of work? Put the plan in devflow for me to approve.",
         "should_trigger": true,
         "fired": [
           "devflow-plan",
@@ -455,7 +455,7 @@
         "pass": true
       },
       {
-        "query": "devflow plan stage for card_01DUE",
+        "query": "devflow plan stage for item 17",
         "should_trigger": true,
         "fired": [
           "devflow-plan",
@@ -466,7 +466,7 @@
         "pass": true
       },
       {
-        "query": "We need to rename list to project everywhere without breaking people's scripts. The epic card_01REN is approved; work out the cards and their order.",
+        "query": "We need to rename list to project everywhere without breaking people's scripts. The epic 20 is approved; work out the items and their order.",
         "should_trigger": true,
         "fired": [
           "devflow-plan",
@@ -477,7 +477,7 @@
         "pass": true
       },
       {
-        "query": "Create the child cards for the approved due dates epic.",
+        "query": "Create the child items for the approved due dates epic.",
         "should_trigger": true,
         "fired": [
           null,
@@ -499,7 +499,7 @@
         "pass": false
       },
       {
-        "query": "Gather the context for card_01DUE.",
+        "query": "Gather the context for item 17.",
         "should_trigger": false,
         "fired": [
           null,
@@ -521,7 +521,7 @@
         "pass": true
       },
       {
-        "query": "Create a card for the bug where tasks show crashes on a missing id.",
+        "query": "Create an item for the bug where tasks show crashes on a missing id.",
         "should_trigger": false,
         "fired": [
           null,
@@ -532,7 +532,7 @@
         "pass": true
       },
       {
-        "query": "Move the three due dates cards to doing.",
+        "query": "Move the three due dates items to doing.",
         "should_trigger": false,
         "fired": [
           null,
@@ -543,7 +543,7 @@
         "pass": true
       },
       {
-        "query": "Implement the first card of the due dates plan.",
+        "query": "Implement the first item of the due dates plan.",
         "should_trigger": false,
         "fired": [
           null,
@@ -554,7 +554,7 @@
         "pass": true
       },
       {
-        "query": "Tick the first two criteria on card_NEW001, they're done.",
+        "query": "Tick the first two criteria on item 31, they're done.",
         "should_trigger": false,
         "fired": [
           null,
@@ -565,7 +565,7 @@
         "pass": true
       },
       {
-        "query": "What's blocking card_NEW003?",
+        "query": "What's blocking item 33?",
         "should_trigger": false,
         "fired": [
           null,

@@ -105,7 +105,7 @@ impl Runs {
     fn made(&self, card: &str, relative: &str) -> Result<PathBuf, String> {
         if !plain_card(card) {
             return Err(format!(
-                "`{card}` is not a card id devflow makes a folder of"
+                "`{card}` is not a work item id devflow makes a folder of"
             ));
         }
         std::fs::create_dir_all(&self.home)
@@ -119,12 +119,12 @@ impl Runs {
 fn inner(card: &str, run: Option<&str>) -> Result<String, String> {
     if !plain_card(card) {
         return Err(format!(
-            "`{card}` is not a card id devflow makes a folder of"
+            "`{card}` is not a work item id devflow makes a folder of"
         ));
     }
     match run {
         Some(run) if order_of(run).is_some() => Ok(format!("{card}/{run}")),
-        Some(run) => Err(format!("`{run}` is not a run of the card")),
+        Some(run) => Err(format!("`{run}` is not a run of the item")),
         None => Ok(card.to_owned()),
     }
 }

@@ -1,7 +1,7 @@
 {
   "name": "devflow-finding",
   "version": "3",
-  "description": "Whether one code-review finding holds up: a real problem, at the severity it deserves, said once, about the change under review. Asked of each finding a Devflow review consolidates; the state is the finding with its anchor in the diff as devpit read it, the others at its place, the lines its file changed and the card's criteria, never the diff. Whether it is in the diff is that anchor, not a question.",
+  "description": "Whether one code-review finding holds up: a real problem, at the severity it deserves, said once, about the change under review. Asked of each finding a devflow review consolidates; the state is the finding with its anchor in the diff as devflow read it, the others at its place, the lines its file changed and the work item's criteria, never the diff. Whether it is in the diff is that anchor, not a question.",
   "questions": {
     "real": {
       "type": "noul",

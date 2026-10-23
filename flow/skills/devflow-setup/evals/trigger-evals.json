@@ -1,6 +1,6 @@
 [
   {
-    "query": "Set up Devflow for this project.",
+    "query": "Set up devflow for this project.",
     "should_trigger": true
   },
   {
@@ -8,7 +8,7 @@
     "should_trigger": true
   },
   {
-    "query": "What would Devflow do in this repo if I switched it on? Show me the setup first.",
+    "query": "What would devflow do in this repo if I switched it on? Show me the setup first.",
     "should_trigger": true
   },
   {
@@ -40,15 +40,15 @@
     "should_trigger": true
   },
   {
-    "query": "Implement card_01RNM.",
+    "query": "Implement item 12.",
     "should_trigger": false
   },
   {
-    "query": "Review card_01OPN.",
+    "query": "Review item 22.",
     "should_trigger": false
   },
   {
-    "query": "Finish card_01RNM.",
+    "query": "Finish item 12.",
     "should_trigger": false
   },
   {
@@ -68,7 +68,7 @@
     "should_trigger": false
   },
   {
-    "query": "Plan card_01TAG.",
+    "query": "Plan item 18.",
     "should_trigger": false
   },
   {
@@ -76,7 +76,7 @@
     "should_trigger": false
   },
   {
-    "query": "Create a card for adding due dates.",
+    "query": "Create an item for adding due dates.",
     "should_trigger": false
   }
 ]

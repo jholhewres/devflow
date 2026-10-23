@@ -15,9 +15,7 @@ pub fn render(config: &Config) -> String {
          # it and never commits it.\n",
     );
     let _ = writeln!(out, "version: {}", config.version);
-    out.push_str(
-        "\n# Switched on by the person's click with `devflow config set`, never by an agent.\n",
-    );
+    out.push_str("\n# Switched on by the person with `devflow config set`, never by an agent.\n");
     let _ = writeln!(out, "enabled: {}", config.enabled);
     if config.version == V1 {
         stages_v1(&mut out, config);
@@ -219,9 +217,9 @@ fn review(out: &mut String, config: &Config) {
 
     out.push_str(
         "\n# Decisions (Jev) answers typed questions about the gates. shadow logs\n\
-         # them; enforce blocks, and waits for the person's click in the app.\n\
+         # them; enforce blocks, and only the person sets it, in a terminal.\n\
          # It is sent findings, criteria with their evidence, the brief and the\n\
-         # plan — never the diff — through the provider in Settings → Decisions\n\
+         # plan — never the diff — through the provider `devflow jev setup` chose\n\
          # (OpenRouter unless changed), with no retention and no training.\n\
          # rubrics: a stage's own rubric, from .devflow/rubrics/.\n\
          decisions:\n",

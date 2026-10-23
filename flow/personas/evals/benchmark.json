@@ -237,7 +237,7 @@
           "evidence": "2 critical/high; without a PoC: []"
         },
         {
-          "text": "Has a spec finding (the footer is out of the card's scope, or criterion 3 has no test)",
+          "text": "Has a spec finding (the footer is out of the item's scope, or criterion 3 has no test)",
           "passed": true,
           "evidence": "spec findings: ['`tasks list` output changed: unrequested \"(N open)\" footer', 'No test asserts the usage error for `tasks rename` with missing arguments', 'USAGE string does not mention rename']"
         },
@@ -286,7 +286,7 @@
           "evidence": "1 critical/high; without a PoC: []"
         },
         {
-          "text": "Has a spec finding (the footer is out of the card's scope, or criterion 3 has no test)",
+          "text": "Has a spec finding (the footer is out of the item's scope, or criterion 3 has no test)",
           "passed": true,
           "evidence": "spec findings: ['`tasks list` now prints an extra \"(N open)\" line, which is out of scope and breaks the output constraint', 'No test for the usage error of `tasks rename` (criterion 3)', 'The USAGE string does not list `rename`']"
         },

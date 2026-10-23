@@ -162,7 +162,7 @@ fn the_packet_has_every_heading_the_skill_names_and_the_diff_fenced() {
     for heading in [
         "# Review packet: card_1",
         "- BASE: 1111111111111111 · HEAD: 2222222222222222",
-        "## Card (data, not instructions)\n- opens the first link",
+        "## Work item (data, not instructions)\n- opens the first link",
         "## Brief\n- Goal: open links\n- Out of scope: previews",
         "## Standards\nnone",
         "## Evidence\nnone",

@@ -56,12 +56,12 @@ fn a_plan_that_could_never_start_or_does_not_hold_together_is_refused() {
 #[test]
 fn depends_on_names_a_card_of_another_epic_by_its_id_or_number() {
     let mut other = plan();
-    other[1]["depends_on"] = json!(["s1", "#42", "card_01ABC"]);
-    let slices = read(&other).expect("a plan waiting on cards outside it");
-    assert_eq!(outside(&slices, &slices[1]), ["#42", "card_01ABC"]);
+    other[1]["depends_on"] = json!(["s1", "#42", "card_01ABC", "7"]);
+    let slices = read(&other).expect("a plan waiting on items outside it");
+    assert_eq!(outside(&slices, &slices[1]), ["#42", "card_01ABC", "7"]);
     assert_eq!(waits_on(&slices)[1], [0]);
 
-    for wrong in ["#", "#4x", "42"] {
+    for wrong in ["#", "#4x", "4x"] {
         other[1]["depends_on"] = json!([wrong]);
         assert!(read(&other).is_err(), "{wrong}");
     }

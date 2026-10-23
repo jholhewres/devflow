@@ -1,6 +1,6 @@
 {
   "skill_name": "devflow-setup",
-  "fixture": "tasks: a small Python to-do CLI with AGENTS.md, a CONTEXT.md glossary, ADR 0001 (one JSON file store), src/tasks/{cli,model,store}.py and pytest tests. devpit is a mock MCP server answering `status` with the detection given per case; setup and set preview unless apply is true, and apply writes .devpit/devflow/.",
+  "fixture": "tasks: a small Python to-do CLI with AGENTS.md, a CONTEXT.md glossary, ADR 0001 (one JSON file store), src/tasks/{cli,model,store}.py and pytest tests. devflow is a mock MCP server answering `status` with the detection given per case; setup and set preview unless apply is true, and apply writes .devflow/.",
   "mock": "full",
   "evals": [
     {
@@ -48,13 +48,13 @@
       },
       "board": {},
       "turns": [
-        "Set Devflow up for this project."
+        "Set devflow up for this project."
       ],
       "expected_output": "Status first, then a preview of the recommended setup with nothing written, shown with where each check came from, and a request for an explicit yes.",
       "expectations": [
         {
           "check": "status_first",
-          "text": "Reads `status` before any other Devflow tool"
+          "text": "Reads `status` before any other devflow tool"
         },
         {
           "check": "setup_previewed",
@@ -119,10 +119,10 @@
       },
       "board": {},
       "turns": [
-        "Set Devflow up for this project with the recommended settings.",
+        "Set devflow up for this project with the recommended settings.",
         "yes"
       ],
-      "expected_output": "Turn 1 previews and asks for a yes. Turn 2 applies, says devpit does not commit, and says Devflow switches on only with the person's click in the app, without trying to switch it on itself.",
+      "expected_output": "Turn 1 previews and asks for a yes. Turn 2 applies, says devflow does not commit, and says devflow switches on only when the person runs `devflow config set enabled true`, without trying to switch it on itself.",
       "expectations": [
         {
           "check": "turn1_not_applied",
@@ -134,11 +134,11 @@
         },
         {
           "check": "says_click_activates",
-          "text": "Turn 2 says activation waits for the person's click in the app"
+          "text": "Turn 2 says activation waits for the person to run `devflow config set enabled true`"
         },
         {
           "check": "no_self_activation",
-          "text": "Never tries to switch Devflow on or Decisions to enforce through `set`"
+          "text": "Never tries to switch devflow on or Decisions to enforce through `set`"
         }
       ]
     },
@@ -204,7 +204,7 @@
       },
       "board": {},
       "turns": [
-        "Set up Devflow here, please."
+        "Set up devflow here, please."
       ],
       "expected_output": "A preview, then only the first open decision (which test command) asked alone with a recommendation; the turn ends with nothing applied.",
       "expectations": [

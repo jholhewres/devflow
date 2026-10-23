@@ -488,6 +488,18 @@ impl Files {
     }
 }
 
+/// A tool's params with `item` read as the engine's `card`, so either name
+/// reaches the same field.
+pub fn as_card(params: &Value) -> Value {
+    let mut params = params.clone();
+    if let Some(fields) = params.as_object_mut() {
+        if let Some(item) = fields.remove("item") {
+            fields.entry("card").or_insert(item);
+        }
+    }
+    params
+}
+
 /// An id the folder makes a file of: letters, digits, `-` and `_`.
 pub fn plain_id(id: &str) -> bool {
     crate::runs::plain_card(id)

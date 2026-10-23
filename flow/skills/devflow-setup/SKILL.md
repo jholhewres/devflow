@@ -1,23 +1,23 @@
 ---
 name: devflow-setup
-description: Use when a person wants Devflow set up, switched on, changed or fixed in a devpit project (devflow.yaml and its stages, checks, reviewers, gate or Decisions mode), or asks what Devflow would do here before it is on.
+description: Use when a person wants devflow set up, switched on, changed or fixed in a project (devflow.yaml and its stages, checks, reviewers, gate or Decisions mode), or asks what devflow would do here before it is on.
 license: Apache-2.0
 ---
 
 # Devflow: setup
 
-Set Devflow up for a project through devpit's MCP. devpit detects what it can
+Set devflow up for a project through its MCP tools. devflow detects what it can
 (test commands, E2E tooling, the agent CLIs signed in, a Decisions key, the
 glossary and ADRs) and recommends a setup; you show the preview, ask only what
 detection left open, and write the file once the person says yes. Switching
-Devflow **on** is the person's click in the devpit app, never yours.
+devflow **on** is the person's command in a terminal, never yours.
 
 ## Ground rules
 
 - **Preview before write.** `setup` and `set`
   preview by default and write only with `"apply": true`, which follows an
   explicit yes to the latest preview.
-- **Facts are devpit's, decisions are the person's.** Detection answers what is
+- **Facts are devflow's, decisions are the person's.** Detection answers what is
   in the repo; the person answers what detection could not settle.
 - **One decision at a time,** each with your recommendation.
 - **Let the person pick.** When your client has a tool for asking the person
@@ -26,17 +26,18 @@ Devflow **on** is the person's click in the devpit app, never yours.
   `<answer> (Recommended)` with the reason as its description. What it asks
   about, the preview or the restate, is still shown as text first. Without
   one, ask as text, as shown below.
-- **devpit does not commit.** The files it writes are the person's to commit.
-- **Activation is a click.** Writing the file leaves Devflow off; turning it on,
-  and moving Decisions from `shadow` to `enforce`, wait for the person's click
-  on the confirmation devpit shows in the app.
+- **devflow does not commit.** The files it writes are the person's to commit.
+- **Activation is a command.** Writing the file leaves devflow off; turning it
+  on (`devflow config set enabled true`), and moving Decisions from `shadow` to
+  `enforce` (`devflow config set decisions.mode enforce`), wait for the person
+  to run them in a terminal.
 
 ## Steps
 
 ### 1. Read the state
 
 Call `status`. It answers with the state (`no file`, `disabled`,
-`active`, `invalid`), what devpit detected with the file each fact came from,
+`active`, `invalid`), what devflow detected with the file each fact came from,
 and the current `devflow.yaml`.
 
 | State | Go to |
@@ -52,7 +53,7 @@ Done when you can say the state and list each detected fact with its source.
 
 Call `setup` with `{"preset": "recommended"}` and no `apply`.
 The recommended setup is: briefing and plan approved by the person; the
-detected checks, each as a script under `.devpit/devflow/scripts/`; one
+detected checks, each as a script under `.devflow/scripts/`; one
 reviewer, with the security persona; the `devflow-done` gate; Decisions in
 `shadow` when a key exists.
 
@@ -114,19 +115,19 @@ nothing was asked. Use `"preset": "custom"` only when the person rejected the
 recommended setup as a whole.
 
 An answer with `"applied": false` wrote nothing: the setup changed since the
-preview the person saw (a click in the app, a key saved). Show them the new
-preview and ask again.
+preview the person saw (a `devflow config` command run, a key saved). Show
+them the new preview and ask again.
 
-Reply with the files devpit wrote (`.devpit/devflow/devflow.yaml`, `scripts/`,
+Reply with the files devflow wrote (`.devflow/devflow.yaml`, `scripts/`,
 `.gitignore` ignoring `runs/`) and any check script it removed (`remove`: one
 it wrote that no check runs) or left (`unused`: one the person changed), that
 they are theirs to commit on the default branch, and whether
-Devflow is on as the tool's note says: unless the person already switched it
-on, **Devflow is still off until they click the confirmation devpit shows in
-the app**. End the turn.
+devflow is on as the tool's note says: unless the person already switched it
+on, **devflow is still off until they run `devflow config set enabled true` in
+a terminal**. End the turn.
 
 Done when the tool reported the files written and the reply says that
-activation waits for their click.
+activation waits for their command.
 
 ### 5. Change one field
 
@@ -143,12 +144,12 @@ own sign-in; `review.consolidate` says how their findings become one list:
 `jev` (Decisions, else a model pass), `agent` (one model pass) or `none`.
 `review.scale` (off unless set; `true`, or `{ small_lines, sensitive }`)
 sends a small diff that touches no sensitive path to one `devflow-all`
-reviewer instead. devpit's personas are read from devpit, never copied: to
-customize one, write it as `.devpit/devflow/reviewers/<a new name>.md` and
+reviewer instead. devflow's personas are read from devflow, never copied: to
+customize one, write it as `.devflow/reviewers/<a new name>.md` and
 name that persona in `review.reviewers`. A check added here gets a script
 under `scripts/` of its own, as the setup's do.
 
-A check's `report` is the file it writes into `$DEVPIT_REPORT_DIR` for devpit
+A check's `report` is the file it writes into `$DEVFLOW_REPORT_DIR` for devflow
 to read test by test (`junit`, `vitest`, `jest`, `cargo`, `go`); one that writes
 none, and leaves it out or says `none`, is judged by its exit code: 0 passed,
 127 not run (its command was not found), anything else failed.
@@ -156,13 +157,13 @@ none, and leaves it out or says `none`, is judged by its exit code: 0 passed,
 Two optional fields keep a check off what it shares. `requires` is a probe run
 first, such as `pg_isready -q`: when it fails the check is not run rather than
 red, since what it needs is down, not the code. `exclusive` names a lock, such
-as `postgres-test`: checks naming the same one never run at once, across cards
-and worktrees, and the one holding it is given `$DEVPIT_LOCK_POSTGRES_TEST`.
+as `postgres-test`: checks naming the same one never run at once, across items
+and worktrees, and the one holding it is given `$DEVFLOW_LOCK_POSTGRES_TEST`.
 
 Show the before and after, ask for a yes (through the question tool when
 there is one), then call it again with `"apply": true`. `enabled` and `decisions.mode: enforce` go through the
-person's click, like activation: tell them where to click instead of setting
-them.
+person's command, like activation: tell them which `devflow config set` to run
+instead of setting them.
 
-Done when the tool reported the change written, or the reply says which click
+Done when the tool reported the change written, or the reply says which command
 the change waits for.

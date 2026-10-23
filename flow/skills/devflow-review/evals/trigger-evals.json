@@ -1,6 +1,6 @@
 [
   {
-    "query": "Review card_01RNM's change before it's finished.",
+    "query": "Review item 12's change before it's finished.",
     "should_trigger": true
   },
   {
@@ -8,43 +8,43 @@
     "should_trigger": true
   },
   {
-    "query": "Can you check the open-link work on card_01OPN for security problems?",
+    "query": "Can you check the open-link work on item 22 for security problems?",
     "should_trigger": true
   },
   {
-    "query": "Is the diff for card_01CNT doing what the card asked? Give me findings.",
+    "query": "Is the diff for item 16 doing what the item asked? Give me findings.",
     "should_trigger": true
   },
   {
-    "query": "Execution is green for card_01RNM. On to the next stage.",
+    "query": "Execution is green for item 12. On to the next stage.",
     "should_trigger": true
   },
   {
-    "query": "Get the reviewers on card_01OPN's diff.",
+    "query": "Get the reviewers on item 22's diff.",
     "should_trigger": true
   },
   {
-    "query": "Before I finish card_01UND, review it against the rules in AGENTS.md.",
+    "query": "Before I finish item 13, review it against the rules in AGENTS.md.",
     "should_trigger": true
   },
   {
-    "query": "Code review for the rename card please, BASE is main.",
+    "query": "Code review for the rename item please, BASE is main.",
     "should_trigger": true
   },
   {
-    "query": "Look over the changes on this branch for scope creep and broken rules; the card is card_01RNM.",
+    "query": "Look over the changes on this branch for scope creep and broken rules; the item is 12.",
     "should_trigger": true
   },
   {
-    "query": "Audit the tasks open change on card_01OPN for injection.",
+    "query": "Audit the tasks open change on item 22 for injection.",
     "should_trigger": true
   },
   {
-    "query": "Implement card_01OPN.",
+    "query": "Implement item 22.",
     "should_trigger": false
   },
   {
-    "query": "card_01RNM's review came back clean, wrap it up.",
+    "query": "Item 12's review came back clean, wrap it up.",
     "should_trigger": false
   },
   {
@@ -52,7 +52,7 @@
     "should_trigger": false
   },
   {
-    "query": "Plan the reports epic into cards.",
+    "query": "Plan the reports epic into items.",
     "should_trigger": false
   },
   {
@@ -72,11 +72,11 @@
     "should_trigger": false
   },
   {
-    "query": "What's on the board right now?",
+    "query": "What work items are there right now?",
     "should_trigger": false
   },
   {
-    "query": "Write the handoff note for card_01UND, I'm stopping for today.",
+    "query": "Write the handoff note for item 13, I'm stopping for today.",
     "should_trigger": false
   }
 ]

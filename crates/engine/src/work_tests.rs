@@ -199,3 +199,14 @@ fn a_plan_waits_beside_its_epic() {
     );
     assert!(items.keep_plan("../x", &serde_json::json!({})).is_err());
 }
+
+#[test]
+fn a_tools_item_is_the_engines_card() {
+    let params = serde_json::json!({ "item": "3", "checks": ["unit"] });
+    assert_eq!(
+        as_card(&params),
+        serde_json::json!({ "card": "3", "checks": ["unit"] })
+    );
+    let both = serde_json::json!({ "item": "3", "card": "4" });
+    assert_eq!(as_card(&both)["card"], "4");
+}

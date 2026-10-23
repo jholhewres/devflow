@@ -30,7 +30,7 @@
       },
       "expectations": [
         {
-          "text": "Reads `status` before any other Devflow tool",
+          "text": "Reads `status` before any other devflow tool",
           "passed": true,
           "evidence": "devflow calls: ['`status`', '`setup`']"
         },
@@ -74,7 +74,7 @@
       },
       "expectations": [
         {
-          "text": "Reads `status` before any other Devflow tool",
+          "text": "Reads `status` before any other devflow tool",
           "passed": true,
           "evidence": "devflow calls: ['`status`', '`setup`']"
         },
@@ -128,12 +128,12 @@
           "evidence": "1 setup applies in turn 2"
         },
         {
-          "text": "Turn 2 says activation waits for the person's click in the app",
+          "text": "Turn 2 says activation waits for the person to run `devflow config set enabled true`",
           "passed": true,
-          "evidence": "says the click switches it on"
+          "evidence": "says the person's command switches it on"
         },
         {
-          "text": "Never tries to switch Devflow on or Decisions to enforce through `set`",
+          "text": "Never tries to switch devflow on or Decisions to enforce through `set`",
           "passed": true,
           "evidence": "none"
         }
@@ -167,12 +167,12 @@
           "evidence": "0 setup applies in turn 2"
         },
         {
-          "text": "Turn 2 says activation waits for the person's click in the app",
+          "text": "Turn 2 says activation waits for the person to run `devflow config set enabled true`",
           "passed": true,
-          "evidence": "says the click switches it on"
+          "evidence": "says the person's command switches it on"
         },
         {
-          "text": "Never tries to switch Devflow on or Decisions to enforce through `set`",
+          "text": "Never tries to switch devflow on or Decisions to enforce through `set`",
           "passed": true,
           "evidence": "none"
         }
@@ -321,7 +321,7 @@
     "should_not_trigger_passed": "10/10",
     "results": [
       {
-        "query": "Set up Devflow for this project.",
+        "query": "Set up devflow for this project.",
         "should_trigger": true,
         "fired": [
           "devflow-setup",
@@ -343,7 +343,7 @@
         "pass": true
       },
       {
-        "query": "What would Devflow do in this repo if I switched it on? Show me the setup first.",
+        "query": "What would devflow do in this repo if I switched it on? Show me the setup first.",
         "should_trigger": true,
         "fired": [
           "devflow-setup",
@@ -431,7 +431,7 @@
         "pass": true
       },
       {
-        "query": "Implement card_01RNM.",
+        "query": "Implement item 12.",
         "should_trigger": false,
         "fired": [
           "devflow-execution",
@@ -442,7 +442,7 @@
         "pass": true
       },
       {
-        "query": "Review card_01OPN.",
+        "query": "Review item 22.",
         "should_trigger": false,
         "fired": [
           "devflow-review",
@@ -453,7 +453,7 @@
         "pass": true
       },
       {
-        "query": "Finish card_01RNM.",
+        "query": "Finish item 12.",
         "should_trigger": false,
         "fired": [
           "devflow-completion",
@@ -508,7 +508,7 @@
         "pass": true
       },
       {
-        "query": "Plan card_01TAG.",
+        "query": "Plan item 18.",
         "should_trigger": false,
         "fired": [
           "devflow-plan",
@@ -530,7 +530,7 @@
         "pass": true
       },
       {
-        "query": "Create a card for adding due dates.",
+        "query": "Create an item for adding due dates.",
         "should_trigger": false,
         "fired": [
           null,
