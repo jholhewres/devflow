@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/engine", "crates/mcp", "xtask"]
 
 [workspace.package]
-version = "0.0.1-rc.1"
+version = "0.0.1-rc.2"
 edition = "2021"
 rust-version = "1.93"
 license = "Apache-2.0"
@@ -13,7 +13,7 @@ authors = ["Jhol Hewres"]
 
 [workspace.dependencies]
 serde_json = { version = "1.0.151", features = ["preserve_order"] }
-devflow-engine = { path = "crates/engine", version = "0.0.1-rc.1" }
+devflow-engine = { path = "crates/engine", version = "0.0.1-rc.2" }
 clap = { version = "4.6", features = ["derive"] }
 tempfile = "3.27.0"
 

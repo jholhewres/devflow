@@ -1,6 +1,6 @@
 {
   "name": "devflow",
-  "version": "0.0.1-rc.1",
+  "version": "0.0.1-rc.2",
   "description": "An evidence-gated engineering flow for coding agents: briefing, context, plan, execution, review and completion, served as an MCP server with its skills, reviewer agents and the gate's hook.",
   "author": {
     "name": "jholhewres",
