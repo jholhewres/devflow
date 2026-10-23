@@ -139,7 +139,7 @@ impl Log {
             .iter()
             .filter(|row| row.at >= since)
             .map(|row| row.cost_usd)
-            .sum()
+            .fold(0.0, |total, cost| total + cost)
     }
 
     /// Why the project's last call came to nothing, if it did.
