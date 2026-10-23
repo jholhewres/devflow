@@ -1,16 +1,18 @@
-//! Where a project keeps its configuration: `stagegate.yaml` at the root,
-//! else `.stagegate/stagegate.yaml`, else devpit's
+//! Where a project keeps its configuration: `devflow.yaml` at the root,
+//! else `.devflow/devflow.yaml`, else devpit's
 //! `.devpit/devflow/devflow.yaml`, read where it is so a project already on
 //! devpit's Devflow needs no migration.
 
 use std::path::{Path, PathBuf};
 
 /// The file at the project's root.
-pub const FILE: &str = "stagegate.yaml";
+pub const FILE: &str = "devflow.yaml";
 /// The folder that keeps the file, its scripts and its runs.
-pub const DIR: &str = ".stagegate";
+pub const DIR: &str = ".devflow";
 /// Where devpit's Devflow keeps the same configuration.
 pub const DEVPIT: &str = ".devpit/devflow/devflow.yaml";
+/// Every place looked in, in order.
+pub const CANDIDATES: [&str; 3] = [FILE, ".devflow/devflow.yaml", DEVPIT];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Origin {

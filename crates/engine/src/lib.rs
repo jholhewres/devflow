@@ -1,4 +1,4 @@
-//! stagegate: a short engineering flow for coding agents — briefing,
+//! devflow: a short engineering flow for coding agents — briefing,
 //! context, plan, execution, review, completion — in which work is done only
 //! when its evidence says so.
 //!

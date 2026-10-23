@@ -18,7 +18,7 @@ fn a_project_with_no_file_has_no_configuration() {
 fn the_root_file_wins_over_the_folder_and_devpit() {
     let dir = tempfile::tempdir().unwrap();
     write(dir.path(), DEVPIT);
-    write(dir.path(), ".stagegate/stagegate.yaml");
+    write(dir.path(), ".devflow/devflow.yaml");
     write(dir.path(), FILE);
 
     assert_eq!(config_in(dir.path()).unwrap().origin, Origin::Root);
@@ -28,7 +28,7 @@ fn the_root_file_wins_over_the_folder_and_devpit() {
 fn the_folder_wins_over_devpit() {
     let dir = tempfile::tempdir().unwrap();
     write(dir.path(), DEVPIT);
-    write(dir.path(), ".stagegate/stagegate.yaml");
+    write(dir.path(), ".devflow/devflow.yaml");
 
     assert_eq!(config_in(dir.path()).unwrap().origin, Origin::Folder);
 }

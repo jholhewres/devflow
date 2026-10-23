@@ -1,0 +1,4 @@
+# Append to ~/.codex/config.toml, or run: codex mcp add devflow -- devflow mcp
+[mcp_servers.devflow]
+command = "devflow"
+args = ["mcp"]

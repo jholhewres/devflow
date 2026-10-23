@@ -1,0 +1,9 @@
+{
+  "servers": {
+    "devflow": {
+      "type": "stdio",
+      "command": "devflow",
+      "args": ["mcp"]
+    }
+  }
+}

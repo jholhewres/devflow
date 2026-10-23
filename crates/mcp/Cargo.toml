@@ -1,6 +1,6 @@
 [package]
-name = "stagegate"
-description = "An evidence-gated engineering flow for coding agents, from any CLI or IDE."
+name = "devflow-mcp"
+description = "devflow as an MCP server for any agent CLI or IDE, and the few commands that set it up."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -11,11 +11,12 @@ authors.workspace = true
 readme = "../../README.md"
 
 [[bin]]
-name = "stagegate"
+name = "devflow"
 path = "src/main.rs"
 
 [dependencies]
-stagegate-core.workspace = true
+serde_json.workspace = true
+devflow-engine.workspace = true
 clap.workspace = true
 
 [dev-dependencies]

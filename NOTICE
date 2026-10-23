@@ -1,4 +1,4 @@
-stagegate
+devflow
 Copyright 2026 Jhol Hewres
 
 Licensed under the Apache License, Version 2.0 (the "License"); you may not use
@@ -10,7 +10,7 @@ with this distribution in LICENSE, and is available at:
 --------------------------------------------------------------------------------
 Origin
 
-stagegate is the Devflow engine of devpit (https://github.com/jholhewres/devpit,
+devflow is the Devflow engine of devpit (https://github.com/jholhewres/devpit,
 Apache License 2.0, Copyright 2026 Jhol Hewres), made to run on its own.
 Code is extracted from devpit at commit 7153771; devpit's history keeps how it
 got there.

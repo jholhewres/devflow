@@ -8,7 +8,7 @@ before a structural change.
 
 - Everything versioned is in English, except `README.pt-BR.md`.
 - `make check` before saying done; `make fmt` after any Rust edit.
-- No dependency on any devpit crate. devpit consumes stagegate, never the
+- No dependency on any devpit crate. devpit consumes devflow, never the
   reverse.
 - The rules in [CONTRIBUTING.md](CONTRIBUTING.md) apply: tests call the rule,
   paths are checked against the root, context reaches commands only through

@@ -3,7 +3,7 @@
 ## Reporting a vulnerability
 
 Please report privately through GitHub's
-[security advisory form](https://github.com/jholhewres/stagegate/security/advisories/new)
+[security advisory form](https://github.com/jholhewres/devflow/security/advisories/new)
 rather than a public issue.
 
 Include what you did, what happened, and what you expected. A proof of concept
@@ -37,4 +37,4 @@ Worth knowing before you run it, and worth keeping in mind when reviewing:
 In scope: this repository. Out of scope: findings that require an attacker to
 already have local code execution as your user, or write access to the
 project's repository, since either one can already run the commands
-stagegate runs.
+devflow runs.

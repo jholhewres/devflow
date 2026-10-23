@@ -1,0 +1,150 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+# Read-only by default; only the job that publishes gets write access.
+permissions:
+  contents: read
+
+jobs:
+  # Nothing is built or published until the tag, VERSION and the manifests
+  # agree and the tests pass on the tagged commit.
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@48b64ba94bc1a6fe819fd9afc0799a7647efdc65 # 1.93.0
+        with:
+          components: rustfmt, clippy
+
+      - name: Tag, VERSION and manifests agree
+        run: cargo xtask version-sync --check --tag "$GITHUB_REF_NAME"
+
+      - run: make lint
+      - run: make test
+
+  # Linked with zig against glibc 2.31 so the binary runs on Ubuntu 20.04,
+  # Debian 11 and the WSL images built on them. The runner's own linker would
+  # tie it to the runner's newer glibc ("GLIBC_2.34 not found").
+  linux:
+    needs: verify
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            arch: amd64
+          - target: aarch64-unknown-linux-gnu
+            arch: arm64
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@48b64ba94bc1a6fe819fd9afc0799a7647efdc65 # 1.93.0
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install zig and cargo-zigbuild
+        run: |
+          curl --proto '=https' --tlsv1.2 -fsSL \
+            https://ziglang.org/download/0.13.0/zig-linux-x86_64-0.13.0.tar.xz -o "$RUNNER_TEMP/zig.tar.xz"
+          echo "d45312e61ebcc48032b77bc4cf7fd6915c11fa16e4aad116b66c9468211230ea  $RUNNER_TEMP/zig.tar.xz" | sha256sum -c -
+          sudo tar xJf "$RUNNER_TEMP/zig.tar.xz" -C /opt
+          sudo ln -sf /opt/zig-linux-x86_64-0.13.0/zig /usr/local/bin/zig
+          cargo install --locked cargo-zigbuild --version 0.24.0
+
+      - name: Build
+        run: cargo zigbuild --release --locked -p devflow-mcp --target ${{ matrix.target }}.2.31
+
+      - name: glibc baseline is 2.31
+        run: |
+          BIN=target/${{ matrix.target }}/release/devflow
+          MAX=$(readelf --dyn-syms -W "$BIN" | grep -oE 'GLIBC_[0-9.]+' | sort -Vu | tail -1)
+          echo "max glibc symbol: $MAX"
+          case "$MAX" in
+            GLIBC_2.3[2-9]*|GLIBC_2.[4-9]*) echo "binary requires $MAX (> 2.31)"; exit 1 ;;
+          esac
+
+      - name: Archive
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          ARCHIVE="devflow_${VERSION}_linux_${{ matrix.arch }}.tar.gz"
+          mkdir dist
+          cp target/${{ matrix.target }}/release/devflow LICENSE NOTICE README.md dist/
+          tar czf "$ARCHIVE" -C dist devflow LICENSE NOTICE README.md
+          echo "ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ env.ARCHIVE }}
+          path: ${{ env.ARCHIVE }}
+          if-no-files-found: error
+
+  macos:
+    needs: verify
+    runs-on: macos-14
+    strategy:
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            arch: arm64
+          - target: x86_64-apple-darwin
+            arch: amd64
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@48b64ba94bc1a6fe819fd9afc0799a7647efdc65 # 1.93.0
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Build
+        run: cargo build --release --locked -p devflow-mcp --target ${{ matrix.target }}
+
+      - name: Archive
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          ARCHIVE="devflow_${VERSION}_darwin_${{ matrix.arch }}.tar.gz"
+          mkdir dist
+          cp target/${{ matrix.target }}/release/devflow LICENSE NOTICE README.md dist/
+          tar czf "$ARCHIVE" -C dist devflow LICENSE NOTICE README.md
+          echo "ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ env.ARCHIVE }}
+          path: ${{ env.ARCHIVE }}
+          if-no-files-found: error
+
+  # One checksums.txt over every archive, and the release, in one place.
+  publish:
+    needs: [linux, macos]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: devflow_*
+          path: dist
+          merge-multiple: true
+
+      - name: Checksums
+        run: |
+          cd dist
+          sha256sum devflow_*.tar.gz > checksums.txt
+          cat checksums.txt
+
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          files: dist/*
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true

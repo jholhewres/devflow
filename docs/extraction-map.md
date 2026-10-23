@@ -77,16 +77,16 @@ nothing, and any own stage's gate passed.
 
 | Coupling | Here | Default | devpit's adapter |
 |---|---|---|---|
-| Card, board | `WorkItems`: get, create, update body, comment, set state, `depends_on` | Markdown files under `.stagegate/work/` | the board's cards; Jira, Linear and GitHub Issues later |
+| Card, board | `WorkItems`: get, create, update body, comment, set state, `depends_on` | Markdown files under `.devflow/work/` | the board's cards; Jira, Linear and GitHub Issues later |
 | Criteria parser | `criteria` in the core | | devpit re-exports it |
-| Steps runner | `runner`: `sh -c`, context in `STAGEGATE_*` env, own process group, timeout, line streaming; JUnit, Vitest, Jest, cargo and Go reports | local process | may inject its own `Runner` to keep cancelling from the card |
+| Steps runner | `runner`: `sh -c`, context in `DEVFLOW_*` env, own process group, timeout, line streaming; JUnit, Vitest, Jest, cargo and Go reports | local process | may inject its own `Runner` to keep cancelling from the card |
 | Host environment | `env`: login `PATH`, `found_on`, scrubbed command | | |
 | Path guards | `fsguard`: resolve, resolve new, read within a ceiling | | |
 | Git | `git` by shell-out: review base, diff, merge base, head, changed since, lines at, fetch a pull request, detached worktree, pinned blobs | `git` on `PATH` | |
 | Agent CLIs | `ReviewAgent`: program, argv, stdin or not, answer and cost from stdout, signed out | Claude Code, Codex, Gemini CLI, Cursor, OpenCode | the same adapters |
-| Hooks, plugin | `HookTarget` per CLI: skills, MCP config, a Stop hook calling `stagegate gate --hook` where the CLI has one | `stagegate hooks install <cli>`, on the person's yes | devpit's launch line |
-| Decisions | `Judge`: rubric and state in, answer out | none; an OpenAI-compatible endpoint opt-in | devpit's provider and log |
-| Home, runs | `stagegate.yaml` or `.stagegate/`; `.stagegate/runs/` ignored by git; `.stagegate/lock`; personal layer in `$XDG_CONFIG_HOME/stagegate/`; team cache in `$XDG_CACHE_HOME/stagegate/` | | devpit passes its home and keeps its runs |
-| `devpit_devflow_*` tools | `stagegate mcp` (stdio): `stagegate_status`, `_setup`, `_set`, `_skill`, `_brief`, `_plan`, `_evidence`, `_review`, `_gate`, `_stage`, `_publish`, `_next` | | devpit proxies its names |
-| The person's click | an interactive confirmation on a terminal (`enable`, `team approve`, `publish`); the MCP tool answers with the command to run | | the click in the window |
-| Autopilot | `stagegate next`: the next item by its blockers | | devpit launches the sessions |
+| Hooks, plugin | the Claude Code plugin at the repository's root (skills, commands, reviewer agents, Stop and SessionStart hooks calling `devflow hook …`); the Gemini extension; ready configs for the rest | `install.sh` / `devflow register` | devpit's launch line |
+| Decisions | `Judge`: rubric and state in, answer out | off; OpenRouter opt-in, as in devpit, the key in `OPENROUTER_API_KEY` or `$XDG_CONFIG_HOME/devflow/credentials` (0600) | devpit's provider and log |
+| Home, runs | `devflow.yaml` or `.devflow/`; `.devflow/runs/` ignored by git; `.devflow/lock`; personal layer in `$XDG_CONFIG_HOME/devflow/`; team cache in `$XDG_CACHE_HOME/devflow/` | | devpit passes its home and keeps its runs |
+| `devpit_devflow_*` tools | `devflow mcp` (stdio): `status`, `setup`, `set`, `skill`, `brief`, `plan`, `evidence`, `review`, `gate`, `stage`, `publish`, `next`, and `item`, `items`, `comment`, `start`, `finish`, `handoff` for the work items | | devpit proxies its names |
+| The person's click | a terminal command with a confirmation (`devflow config set enabled true`, `devflow jev setup`, pinning a team layer), or `apply` after the person's yes; the MCP tool answers with the command to run | | the click in the window |
+| Autopilot | the `next` tool: the next item by its blockers | | devpit launches the sessions |

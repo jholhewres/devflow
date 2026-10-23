@@ -1,6 +1,6 @@
 [package]
-name = "stagegate-core"
-description = "The stagegate engine: stages, checks, evidence, reviews and the gate a coding agent's work passes."
+name = "devflow-engine"
+description = "The devflow engine: stages, checks, evidence, reviews and the gate a coding agent's work passes."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
