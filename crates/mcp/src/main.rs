@@ -9,8 +9,10 @@ use clap::{Parser, Subcommand};
 mod cli;
 mod consent;
 mod credentials;
+mod decisions;
 mod flow;
 mod hook;
+mod jev_cli;
 mod project;
 mod register;
 mod server;
@@ -47,6 +49,11 @@ enum Command {
         #[command(subcommand)]
         action: Configuring,
     },
+    /// Decisions (Jev) through OpenRouter: opt-in, the key never in a repository.
+    Jev {
+        #[command(subcommand)]
+        action: Judging,
+    },
     /// The project's own stages.
     Stage {
         #[command(subcommand)]
@@ -69,6 +76,22 @@ enum Configuring {
     Get { path: Option<String> },
     /// Change one field by its dotted path, after your yes.
     Set { path: String, value: String },
+}
+
+#[derive(Subcommand)]
+enum Judging {
+    /// Set the provider, the model, the day's cap and the key.
+    Setup(jev_cli::Setup),
+    /// How Decisions is set up here, and what it spent today.
+    Status,
+    /// Ask one trivial question, to check the key and the provider.
+    Test,
+    /// Take the kept key away.
+    Forget,
+    /// Send this project's state to Decisions again.
+    Send,
+    /// Never send this project's state to Decisions.
+    Withhold,
 }
 
 #[derive(Subcommand)]
@@ -105,6 +128,14 @@ fn main() -> ExitCode {
             Configuring::Set { path, value } => {
                 cli::set(&root, &path, &value, &consent::Consent::of_user())
             }
+        },
+        Command::Jev { action } => match action {
+            Judging::Setup(how) => jev_cli::setup(&how),
+            Judging::Status => jev_cli::status(),
+            Judging::Test => jev_cli::test(),
+            Judging::Forget => jev_cli::forget(),
+            Judging::Send => jev_cli::send(&root, true),
+            Judging::Withhold => jev_cli::send(&root, false),
         },
         Command::Stage {
             action: Staging::Confirm { name },

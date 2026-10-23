@@ -157,6 +157,9 @@ pub fn finish(server: &Server, params: Value) -> Result<Value, String> {
     item_here(&project, &id)?;
     super::gate::may_finish(server, &project, &id)?;
     let item = project.items().set_state(&id, State::Done)?;
+    if let devflow_engine::State::Valid(_, config) = project.read() {
+        super::jev::finished(&project, &config, &id);
+    }
     if let Some(note) = text(&params, "note") {
         project
             .items()

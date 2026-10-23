@@ -21,6 +21,8 @@ clap.workspace = true
 serde = { version = "1.0.229", features = ["derive"] }
 # A project's cache folder and a session's streak file are named by a hash.
 sha2 = "0.10"
+# Decisions over HTTPS, blocking, with rustls: no OpenSSL to link.
+ureq = { version = "3", default-features = false, features = ["rustls", "json"] }
 
 [dev-dependencies]
 tempfile.workspace = true

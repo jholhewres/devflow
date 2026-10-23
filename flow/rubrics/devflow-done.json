@@ -1,0 +1,41 @@
+{
+  "name": "devflow-done",
+  "version": "1",
+  "description": "Whether a work item's work is finished, given the item and the evidence in the state. devflow's gate asks criteriaMet once per acceptance criterion.",
+  "questions": {
+    "criteriaMet": {
+      "type": "noul",
+      "instructions": "Does the state show every acceptance criterion of the work item met?",
+      "criteria": {
+        "true": "each criterion the work item states is shown satisfied by the changes or their output",
+        "false": "a criterion is missing, unaddressed, or only claimed without evidence"
+      }
+    },
+    "verified": {
+      "type": "noul",
+      "instructions": "Does the state show the relevant checks or tests ran and passed?",
+      "criteria": {
+        "true": "test or check output covering the change is present and passing",
+        "false": "no output, checks skipped, or failures present"
+      }
+    },
+    "inScope": {
+      "type": "noul",
+      "instructions": "Do the changes stay within what the work item asked for, without unrelated edits?"
+    }
+  },
+  "thresholds": {
+    "criteriaMet": {
+      "min": 0.85,
+      "grey": 0.65
+    },
+    "verified": {
+      "min": 0.85,
+      "grey": 0.6
+    },
+    "inScope": {
+      "min": 0.7,
+      "grey": 0.5
+    }
+  }
+}

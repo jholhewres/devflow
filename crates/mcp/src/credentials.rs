@@ -51,6 +51,83 @@ fn private(file: &Path) -> bool {
     file.is_file()
 }
 
+/// Writes the key to the credentials file, readable by the person only.
+pub fn write_key(file: &Path, key: &str) -> Result<(), String> {
+    let folder = file.parent().unwrap_or(Path::new("."));
+    std::fs::create_dir_all(folder).map_err(|err| format!("{}: {err}", folder.display()))?;
+    let kept: Vec<String> = std::fs::read_to_string(file)
+        .unwrap_or_default()
+        .lines()
+        .filter(|line| {
+            line.split_once('=')
+                .is_none_or(|(name, _)| name.trim() != KEY)
+        })
+        .map(str::to_owned)
+        .collect();
+    let mut text = kept.join("\n");
+    if !text.is_empty() {
+        text.push('\n');
+    }
+    text.push_str(&format!("{KEY} = {}\n", key.trim()));
+    let name = file
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| FILE.to_owned());
+    let temp = folder.join(format!(".{name}.{}.tmp", std::process::id()));
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let written = options.open(&temp).and_then(|mut out| {
+        use std::io::Write;
+        out.write_all(text.as_bytes())?;
+        out.sync_all()
+    });
+    let renamed = written.and_then(|()| std::fs::rename(&temp, file));
+    if renamed.is_err() {
+        let _ = std::fs::remove_file(&temp);
+    }
+    renamed.map_err(|err| format!("{}: {err}", file.display()))
+}
+
+/// Takes the key out of the credentials file, keeping the rest.
+pub fn forget_key(file: &Path) -> Result<bool, String> {
+    let Ok(text) = std::fs::read_to_string(file) else {
+        return Ok(false);
+    };
+    let kept: Vec<&str> = text
+        .lines()
+        .filter(|line| {
+            line.split_once('=')
+                .is_none_or(|(name, _)| name.trim() != KEY)
+        })
+        .collect();
+    if kept.len() == text.lines().count() {
+        return Ok(false);
+    }
+    let rest = kept.join("\n");
+    if rest.trim().is_empty() {
+        std::fs::remove_file(file).map_err(|err| format!("{}: {err}", file.display()))?;
+    } else {
+        std::fs::write(file, format!("{rest}\n"))
+            .map_err(|err| format!("{}: {err}", file.display()))?;
+    }
+    Ok(true)
+}
+
+/// Where the key in use comes from, never the key itself.
+pub fn source() -> Option<&'static str> {
+    if std::env::var(ENV).is_ok_and(|key| !key.trim().is_empty()) {
+        return Some(ENV);
+    }
+    file()
+        .and_then(|file| read_key(&file))
+        .map(|_| "credentials")
+}
+
 #[cfg(test)]
 #[path = "credentials_tests.rs"]
 mod tests;

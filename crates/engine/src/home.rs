@@ -9,6 +9,11 @@ pub fn config_dir() -> Option<PathBuf> {
     xdg("XDG_CONFIG_HOME", ".config")
 }
 
+/// `$XDG_STATE_HOME/devflow`, what devflow keeps of its own: the decision log.
+pub fn state_dir() -> Option<PathBuf> {
+    xdg("XDG_STATE_HOME", ".local/state")
+}
+
 /// `$XDG_CACHE_HOME/devflow`, what devflow can fetch again.
 pub fn cache_dir() -> Option<PathBuf> {
     xdg("XDG_CACHE_HOME", ".cache")
