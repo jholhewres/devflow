@@ -1,0 +1,20 @@
+stagegate
+Copyright 2026 Jhol Hewres
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not use
+this file except in compliance with the License. A copy of the License ships
+with this distribution in LICENSE, and is available at:
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+--------------------------------------------------------------------------------
+Origin
+
+stagegate is the Devflow engine of devpit (https://github.com/jholhewres/devpit,
+Apache License 2.0, Copyright 2026 Jhol Hewres), made to run on its own.
+Code is extracted from devpit at commit 7153771; devpit's history keeps how it
+got there.
+
+The skills, reviewer personas, findings schema and rubrics that come with that
+code are adapted from MIT- and Apache-2.0-licensed sources. Their notices are
+added here, verbatim from devpit's NOTICE, in the same commit that brings them.
