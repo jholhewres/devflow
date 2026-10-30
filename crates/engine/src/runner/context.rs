@@ -82,9 +82,19 @@ impl Context {
     pub fn environment(&self) -> Vec<(String, String)> {
         // Shared first: a later variable of the same name wins, and the
         // context's own are the ones that must.
+        let own = |name: &str| {
+            CONTEXT_KEYS
+                .iter()
+                .any(|key| name == format!("DEVFLOW_{}", screaming_snake(key)))
+                || LEGACY.iter().any(|(legacy, _)| name == *legacy)
+                || name.starts_with("DEVFLOW_LOCK_")
+                || name.starts_with("DEVPIT_LOCK_")
+        };
+        // Only a name of the context's own is refused: a host's own variable,
+        // `DEVFLOW_STAGE` for a stage's gate, passes.
         self.shared
             .iter()
-            .filter(|(name, _)| !name.starts_with("DEVFLOW_") && !name.starts_with("DEVPIT_"))
+            .filter(|(name, _)| !own(name))
             .cloned()
             .chain(CONTEXT_KEYS.iter().map(|key| {
                 (
@@ -98,14 +108,11 @@ impl Context {
                     self.get(key).unwrap_or_default().to_owned(),
                 )
             }))
-            .chain(self.locks.iter().map(|(name, file)| {
-                (
-                    format!(
-                        "DEVFLOW_LOCK_{}",
-                        name.to_ascii_uppercase().replace('-', "_")
-                    ),
-                    file.clone(),
-                )
+            .chain(self.locks.iter().flat_map(|(name, file)| {
+                let name = name.to_ascii_uppercase().replace('-', "_");
+                // devpit's name too, which its setup told a script to read.
+                ["DEVFLOW_LOCK_", "DEVPIT_LOCK_"]
+                    .map(|prefix| (format!("{prefix}{name}"), file.clone()))
             }))
             .collect()
     }

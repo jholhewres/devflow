@@ -95,3 +95,29 @@ fn devpits_names_still_carry_the_same_values() {
     assert_eq!(value("DEVPIT_CARD"), Some("item_1"));
     assert_eq!(value("DEVPIT_CARD_TITLE"), Some("Ship it"));
 }
+
+/// A host's own variable reaches the command, `DEVFLOW_STAGE` for a stage's
+/// gate among them; only the context's own names cannot be stood in for.
+#[test]
+fn a_hosts_own_variable_passes_and_the_contexts_names_do_not() {
+    let context = Context {
+        shared: vec![
+            ("DEVFLOW_STAGE".to_owned(), "plan".to_owned()),
+            ("DEVPIT_CARD".to_owned(), "card_forged".to_owned()),
+            ("DEVPIT_LOCK_DB".to_owned(), "/forged".to_owned()),
+        ],
+        locks: vec![("db".to_owned(), "/locks/db".to_owned())],
+        ..sample()
+    };
+    let env = context.environment();
+    let all = |name: &str| -> Vec<&str> {
+        env.iter()
+            .filter(|(key, _)| key == name)
+            .map(|(_, v)| v.as_str())
+            .collect()
+    };
+    assert_eq!(all("DEVFLOW_STAGE"), ["plan"]);
+    assert_eq!(all("DEVPIT_CARD"), ["item_1"]);
+    assert_eq!(all("DEVPIT_LOCK_DB"), ["/locks/db"]);
+    assert_eq!(all("DEVFLOW_LOCK_DB"), ["/locks/db"]);
+}
