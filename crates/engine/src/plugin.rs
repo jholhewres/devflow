@@ -10,6 +10,8 @@ use serde_json::{json, Map, Value};
 
 use crate::skills;
 
+pub mod launch;
+
 /// The plugin's name: its skills are `/devflow:<stage>`.
 pub const NAME: &str = "devflow";
 /// The binary the hooks run, found on `PATH` as the MCP server is.

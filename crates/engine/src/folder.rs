@@ -41,6 +41,12 @@ pub fn default_dir() -> &'static str {
     pinned().unwrap_or(DIR)
 }
 
+/// The configuration a setup writes, relative to the project's root: [`FILE`]
+/// or the pinned folder's.
+pub fn default_file() -> String {
+    format!("{}/{}", default_dir(), crate::locate::FILE)
+}
+
 /// The folder `root` keeps devflow in: the pinned one, else devpit's when its
 /// configuration is the one that applies, else [`DIR`].
 pub fn dir(root: &Path) -> &'static str {
@@ -89,7 +95,7 @@ impl Default for Layout {
     fn default() -> Layout {
         Layout {
             dir: default_dir(),
-            file: format!("{}/{}", default_dir(), crate::locate::FILE),
+            file: default_file(),
         }
     }
 }
