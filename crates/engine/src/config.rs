@@ -40,6 +40,15 @@ pub const E2E_DIR: &str = ".devflow/e2e";
 /// The same, in a project whose folder is devpit's.
 pub const LEGACY_E2E_DIR: &str = ".devpit/devflow/e2e";
 
+/// Where the specs go when devflow.yaml does not say: [`E2E_DIR`], or under
+/// the folder a host pinned.
+pub fn default_e2e_dir() -> String {
+    match crate::folder::pinned() {
+        Some(dir) => format!("{dir}/e2e"),
+        None => E2E_DIR.to_owned(),
+    }
+}
+
 /// The rubric a card's completion is gated on.
 pub const GATE: &str = "devflow-done";
 
@@ -304,7 +313,7 @@ impl Default for Config {
                 execution: Execution {
                     enabled: true,
                     checks: Vec::new(),
-                    e2e_dir: E2E_DIR.to_owned(),
+                    e2e_dir: default_e2e_dir(),
                 },
                 review: Stage { enabled: true },
                 completion: Completion {
@@ -847,7 +856,7 @@ pub(crate) fn execution_in(fields: &mut Fields) -> Result<Execution, Invalid> {
     }
     let e2e_dir = match fields.get("e2e_dir") {
         Some((node, path)) => inside(node, &path)?,
-        None => E2E_DIR.to_owned(),
+        None => default_e2e_dir(),
     };
     Ok(Execution {
         enabled,

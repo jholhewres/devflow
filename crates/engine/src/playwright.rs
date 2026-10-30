@@ -21,7 +21,7 @@ pub const TOOL: &str = "playwright";
 /// The command an `e2e` check runs Devflow's specs with, through the
 /// project's own runner (`npx`, `pnpm exec`, …).
 pub fn command(exec: &str) -> String {
-    command_in(crate::folder::DIR, exec)
+    command_in(crate::folder::default_dir(), exec)
 }
 
 /// [`command`] for the config in the folder `dir`.
@@ -54,7 +54,7 @@ pub fn base(detected: &Detected) -> Option<&str> {
 /// The config's text, for specs in `e2e_dir` and, when given, on top of the
 /// project's `base` config at its root.
 pub fn text(e2e_dir: &str, base: Option<&str>) -> String {
-    text_in(crate::folder::DIR, e2e_dir, base)
+    text_in(crate::folder::default_dir(), e2e_dir, base)
 }
 
 /// [`text`] for a config in the folder `dir`.

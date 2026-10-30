@@ -20,9 +20,33 @@ pub const LEGACY: &str = ".devpit/devflow";
 /// The configuration a setup writes, relative to the project's root.
 pub const FILE: &str = ".devflow/devflow.yaml";
 
-/// The folder `root` keeps devflow in: devpit's when its configuration is
-/// the one that applies, else [`DIR`].
+static PINNED: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
+
+/// Every project keeps devflow in `dir` from now on, whatever it holds: a
+/// host with a folder of its own (devpit's [`LEGACY`]) says so once, before
+/// the first read. A second call is refused.
+pub fn pin(dir: &'static str) -> Result<(), String> {
+    PINNED
+        .set(dir)
+        .map_err(|_| "devflow's folder is already pinned".to_owned())
+}
+
+/// The folder a host pinned, if one did.
+pub fn pinned() -> Option<&'static str> {
+    PINNED.get().copied()
+}
+
+/// The folder a project with no configuration yet is set up in.
+pub fn default_dir() -> &'static str {
+    pinned().unwrap_or(DIR)
+}
+
+/// The folder `root` keeps devflow in: the pinned one, else devpit's when its
+/// configuration is the one that applies, else [`DIR`].
 pub fn dir(root: &Path) -> &'static str {
+    if let Some(pinned) = pinned() {
+        return pinned;
+    }
     match crate::locate::config_in(root) {
         Some(found) if found.origin == Origin::Devpit => LEGACY,
         _ => DIR,
@@ -32,6 +56,9 @@ pub fn dir(root: &Path) -> &'static str {
 /// The configuration that applies to `root`, relative to it: `devflow.yaml`,
 /// `.devflow/devflow.yaml` or devpit's, else where a setup writes one.
 pub fn file(root: &Path) -> String {
+    if let Some(pinned) = pinned() {
+        return format!("{pinned}/{}", crate::locate::FILE);
+    }
     match crate::locate::config_in(root).map(|found| found.origin) {
         Some(Origin::Root) => crate::locate::FILE.to_owned(),
         Some(Origin::Devpit) => crate::locate::DEVPIT.to_owned(),
@@ -57,11 +84,12 @@ impl Layout {
 }
 
 impl Default for Layout {
-    /// A new project's: `.devflow/` and `.devflow/devflow.yaml`.
+    /// A new project's: `.devflow/` and `.devflow/devflow.yaml`, or the
+    /// pinned folder's.
     fn default() -> Layout {
         Layout {
-            dir: DIR,
-            file: FILE.to_owned(),
+            dir: default_dir(),
+            file: format!("{}/{}", default_dir(), crate::locate::FILE),
         }
     }
 }
@@ -69,7 +97,10 @@ impl Default for Layout {
 /// `config` as `root` keeps it: a project in devpit's folder that never
 /// moved its E2E specs keeps them in that folder.
 pub fn relocated(root: &Path, mut config: Config) -> Config {
-    if dir(root) == LEGACY && config.stages.execution.e2e_dir == config::E2E_DIR {
+    if pinned().is_none()
+        && dir(root) == LEGACY
+        && config.stages.execution.e2e_dir == config::E2E_DIR
+    {
         config.stages.execution.e2e_dir = config::LEGACY_E2E_DIR.to_owned();
     }
     config

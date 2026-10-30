@@ -1,5 +1,6 @@
 use super::*;
 use crate::config::{Check, Report};
+use crate::folder::DIR;
 
 fn with_checks(runs: &[(&str, &str)]) -> Config {
     let mut config = Config::default();

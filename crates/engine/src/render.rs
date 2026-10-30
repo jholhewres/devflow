@@ -4,7 +4,7 @@
 
 use std::fmt::Write;
 
-use crate::config::{Approved, Check, Config, Stage, StageGate, Step, E2E_DIR, V1};
+use crate::config::{Approved, Check, Config, Stage, StageGate, Step, V1};
 
 /// The text of `config`, commented.
 pub fn render(config: &Config) -> String {
@@ -63,7 +63,7 @@ fn checks(out: &mut String, indent: &str, checks: &[Check]) {
 
 /// Where the specs go, written only when it is not where they go anyway.
 fn e2e_dir(out: &mut String, dir: &str) {
-    if dir != E2E_DIR {
+    if dir != crate::config::default_e2e_dir() {
         let _ = writeln!(out, "    e2e_dir: {}", scalar(dir));
     }
 }

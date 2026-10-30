@@ -11,7 +11,7 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 use crate::config::Config;
-use crate::folder::{Layout, DIR};
+use crate::folder::{default_dir, Layout};
 
 /// The personas, as this build ships them.
 pub(crate) const PERSONAS: [(&str, &str); 4] = [
@@ -132,7 +132,7 @@ pub struct Script {
 /// How a check runs its script, from the project's root. Through `sh`, so a
 /// checkout that lost the executable bit still runs it.
 pub fn script_run(name: &str) -> String {
-    script_run_in(DIR, name)
+    script_run_in(default_dir(), name)
 }
 
 /// [`script_run`] for a script in the folder `dir`.
@@ -143,7 +143,7 @@ pub fn script_run_in(dir: &str, name: &str) -> String {
 /// `config` with every check that runs a command of its own running a script
 /// instead, and the scripts to write. `sources` says where a command was found.
 pub fn scripted(config: Config, sources: &[(String, String)]) -> (Config, Vec<Script>) {
-    scripted_but(DIR, config, sources, &[])
+    scripted_but(default_dir(), config, sources, &[])
 }
 
 /// [`scripted`] for scripts in the folder `dir`.
@@ -158,7 +158,7 @@ pub fn scripted_in(
 /// [`scripted`] for a change: only the checks not among `had` move into a
 /// script, so a command the person wrote in devflow.yaml stays theirs.
 pub fn scripted_new(config: Config, had: &[String]) -> (Config, Vec<Script>) {
-    scripted_but(DIR, config, &[], had)
+    scripted_but(default_dir(), config, &[], had)
 }
 
 /// [`scripted_new`] for scripts in the folder `dir`.
@@ -461,7 +461,8 @@ fn there(root: &Path, path: &str) -> Option<String> {
 
 /// The folder a script at `path`, `<dir>/scripts/<file>`, belongs to.
 fn script_dir(path: &str) -> &str {
-    path.rsplit_once("/scripts/").map_or(DIR, |(dir, _)| dir)
+    path.rsplit_once("/scripts/")
+        .map_or(default_dir(), |(dir, _)| dir)
 }
 
 fn change_of(file: &Planned, existing: Option<&str>) -> &'static str {
