@@ -110,6 +110,7 @@ fn a_persona_copy_an_older_setup_made_is_not_the_projects_own() {
     )
     .expect("mine");
     let personas = Personas {
+        dialect: &crate::Dialect::DEVFLOW,
         personal: Some(&mine),
         teams: &[],
     };
@@ -146,6 +147,7 @@ fn the_packet_has_every_heading_the_skill_names_and_the_diff_fenced() {
         ..Default::default()
     };
     let said = packet(&Packet {
+        dialect: &crate::Dialect::DEVFLOW,
         card: Card {
             id: "card_1",
             title: "[devflow] Open links",
@@ -173,6 +175,7 @@ fn the_packet_has_every_heading_the_skill_names_and_the_diff_fenced() {
     }
     let long = "x".repeat(MOST_DIFF + 10);
     let cut = packet(&Packet {
+        dialect: &crate::Dialect::DEVFLOW,
         card: Card {
             id: "c",
             title: "t",
@@ -250,6 +253,7 @@ fn config_with(reviewers: Vec<Reviewer>, consolidate: Consolidate) -> Config {
 /// devpit's folder for the runs of a checkout at `root`, inside it in a test.
 fn runs_of(root: &Path) -> Runs {
     Runs {
+        dialect: &crate::Dialect::DEVFLOW,
         home: root.join("devpit-home"),
         checkout: root.to_path_buf(),
     }

@@ -294,7 +294,9 @@ impl Host for FakeGitHub {
 }
 
 fn github() -> String {
-    Destination::GitHub.shipped().to_owned()
+    Destination::GitHub
+        .shipped(&crate::Dialect::DEVFLOW)
+        .to_owned()
 }
 
 #[test]
@@ -514,7 +516,7 @@ fn a_review_asks_for_a_comment_unless_the_person_asked_for_more() {
 fn a_draft_for_a_host_devpit_does_not_post_to_is_never_posted() {
     let run = run_with(&review_like_a_real_one());
     let bitbucket = asked_for(json!({ "destination": "bitbucket" }));
-    let template = Destination::Bitbucket.shipped();
+    let template = Destination::Bitbucket.shipped(&crate::Dialect::DEVFLOW);
 
     let shown = respond(
         run.path(),

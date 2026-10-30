@@ -27,6 +27,8 @@ pub fn attached_under(card: &str) -> String {
 pub struct Runs {
     pub home: PathBuf,
     pub checkout: PathBuf,
+    /// The words a refused id is told in.
+    pub dialect: &'static crate::Dialect,
 }
 
 impl Runs {
@@ -58,7 +60,7 @@ impl Runs {
     /// the runs when there is none yet. A run an older devpit left in the
     /// checkout is written where it is; anything else goes to devpit's folder.
     pub fn file_in(&self, card: &str, run: Option<&str>, file: &str) -> Result<PathBuf, String> {
-        let folder = inner(card, run)?;
+        let folder = inner(self.dialect, card, run)?;
         let older = format!("{RUNS}/{folder}");
         let has = |base: &Path, folder: &str| match run {
             Some(_) => crate::fsguard::resolve(base, folder).is_ok_and(|at| at.is_dir()),
@@ -77,7 +79,7 @@ impl Runs {
     /// `file` of a card's run, or beside its runs, where it is: devpit's
     /// folder first, then the checkout's. Never through a link out of either.
     pub fn found(&self, card: &str, run: Option<&str>, file: &str) -> Option<PathBuf> {
-        let relative = format!("{}/{file}", inner(card, run).ok()?);
+        let relative = format!("{}/{file}", inner(self.dialect, card, run).ok()?);
         crate::fsguard::resolve(&self.home, &relative)
             .or_else(|_| crate::fsguard::resolve(&self.checkout, &format!("{RUNS}/{relative}")))
             .ok()
@@ -104,9 +106,7 @@ impl Runs {
     /// devpit's folder for `card`, and `relative` under it, made when missing.
     fn made(&self, card: &str, relative: &str) -> Result<PathBuf, String> {
         if !plain_card(card) {
-            return Err(format!(
-                "`{card}` is not a work item id devflow makes a folder of"
-            ));
+            return Err(not_an_id(self.dialect, card));
         }
         std::fs::create_dir_all(&self.home)
             .map_err(|err| format!("{}: {err}", self.home.display()))?;
@@ -115,16 +115,21 @@ impl Runs {
     }
 }
 
+fn not_an_id(dialect: &crate::Dialect, card: &str) -> String {
+    format!(
+        "`{card}` is not a {} id {} makes a folder of",
+        dialect.work_item, dialect.product
+    )
+}
+
 /// `card`, or its run `run`, as a folder under the runs.
-fn inner(card: &str, run: Option<&str>) -> Result<String, String> {
+fn inner(dialect: &crate::Dialect, card: &str, run: Option<&str>) -> Result<String, String> {
     if !plain_card(card) {
-        return Err(format!(
-            "`{card}` is not a work item id devflow makes a folder of"
-        ));
+        return Err(not_an_id(dialect, card));
     }
     match run {
         Some(run) if order_of(run).is_some() => Ok(format!("{card}/{run}")),
-        Some(run) => Err(format!("`{run}` is not a run of the item")),
+        Some(run) => Err(format!("`{run}` is not a run of the {}", dialect.item)),
         None => Ok(card.to_owned()),
     }
 }

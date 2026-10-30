@@ -23,6 +23,7 @@ fn runs_in(base: &Path) -> Runs {
     let checkout = base.join("checkout");
     std::fs::create_dir_all(&checkout).expect("checkout");
     Runs {
+        dialect: &crate::Dialect::DEVFLOW,
         home: base.join("home/devflow/runs"),
         checkout,
     }

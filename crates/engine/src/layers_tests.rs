@@ -287,12 +287,14 @@ fn a_persona_comes_from_the_project_then_its_team_then_the_person() {
     );
     write(&mine, "my-style.md", "---\nname: my-style\n---\nOnly mine.");
     let everywhere = Personas {
+        dialect: &crate::Dialect::DEVFLOW,
         personal: Some(&mine),
         teams: &teams,
     };
 
     // The person's own, in a project with no team: their way follows them.
     let alone = Personas {
+        dialect: &crate::Dialect::DEVFLOW,
         personal: Some(&mine),
         teams: &[],
     };

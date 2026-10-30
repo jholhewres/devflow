@@ -4,6 +4,7 @@ const CARD: &str = "card_01ABCDEF";
 
 fn runs_in(dir: &std::path::Path) -> Runs {
     Runs {
+        dialect: &crate::Dialect::DEVFLOW,
         home: dir.join("home"),
         checkout: dir.to_path_buf(),
     }

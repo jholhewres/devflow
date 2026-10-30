@@ -460,17 +460,22 @@ thread_local! {
 /// read is left out, not refused: a file a newer devpit wrote still reads
 /// here, and [`unread`] names what was left out.
 pub fn parse(text: &str) -> Result<Config, Invalid> {
-    parsed(text).0
+    parsed(&crate::Dialect::DEVFLOW, text).0
+}
+
+/// [`parse`], refused in `dialect`'s words.
+pub fn parse_in(dialect: &crate::Dialect, text: &str) -> Result<Config, Invalid> {
+    parsed(dialect, text).0
 }
 
 /// The fields `text` names that this build does not read.
 pub fn unread(text: &str) -> Vec<Invalid> {
-    parsed(text).1
+    parsed(&crate::Dialect::DEVFLOW, text).1
 }
 
-fn parsed(text: &str) -> (Result<Config, Invalid>, Vec<Invalid>) {
+fn parsed(dialect: &crate::Dialect, text: &str) -> (Result<Config, Invalid>, Vec<Invalid>) {
     let before = UNREAD.with(|unread| unread.replace(Some(Vec::new())));
-    let config = node::from_yaml(text).and_then(|root| read(&root, true));
+    let config = node::from_yaml(text).and_then(|root| read(dialect, &root, true));
     let unread = UNREAD.with(|unread| unread.replace(before));
     (config, unread.unwrap_or_default())
 }
@@ -478,7 +483,15 @@ fn parsed(text: &str) -> (Result<Config, Invalid>, Vec<Invalid>) {
 /// The configuration a JSON value says, checked the same way. A change made
 /// through devpit that needs version 2 gets it: the version is devpit's to write.
 pub fn from_json(value: &serde_json::Value) -> Result<Config, Invalid> {
-    read(&node::from_json(value), false)
+    from_json_in(&crate::Dialect::DEVFLOW, value)
+}
+
+/// [`from_json`], refused in `dialect`'s words.
+pub fn from_json_in(
+    dialect: &crate::Dialect,
+    value: &serde_json::Value,
+) -> Result<Config, Invalid> {
+    read(dialect, &node::from_json(value), false)
 }
 
 pub(crate) fn joined(path: &str, name: &str) -> String {
@@ -659,7 +672,7 @@ pub(crate) fn inside(node: &Node, path: &str) -> Result<String, Invalid> {
     Ok(given.trim_end_matches('/').to_owned())
 }
 
-fn read(root: &Node, from_file: bool) -> Result<Config, Invalid> {
+fn read(dialect: &crate::Dialect, root: &Node, from_file: bool) -> Result<Config, Invalid> {
     if root.value == Value::Null {
         return Err(Invalid::at(
             None,
@@ -677,7 +690,10 @@ fn read(root: &Node, from_file: bool) -> Result<Config, Invalid> {
                 return Err(Invalid::at(
                     node.line(),
                     &path,
-                    &format!("this devflow reads versions 1 and 2, not {other}"),
+                    &format!(
+                        "this {} reads versions 1 and 2, not {other}",
+                        dialect.product
+                    ),
                 ))
             }
         },

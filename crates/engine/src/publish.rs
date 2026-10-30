@@ -14,6 +14,7 @@ use std::path::Path;
 use serde_json::{json, Map, Value};
 
 use crate::config::Verify;
+use crate::dialect::Dialect;
 use crate::findings::{self, AXES};
 use crate::review::{self, Personas};
 use crate::runs;
@@ -72,11 +73,13 @@ impl Destination {
         self == Destination::GitHub
     }
 
-    fn shipped(self) -> &'static str {
+    /// The template `dialect` ships for it.
+    pub fn shipped(self, dialect: &Dialect) -> &'static str {
+        let [github, gitlab, bitbucket] = dialect.assets.publish;
         match self {
-            Destination::GitHub => include_str!("../../../flow/publish/github.md"),
-            Destination::GitLab => include_str!("../../../flow/publish/gitlab.md"),
-            Destination::Bitbucket => include_str!("../../../flow/publish/bitbucket.md"),
+            Destination::GitHub => github,
+            Destination::GitLab => gitlab,
+            Destination::Bitbucket => bitbucket,
         }
     }
 }
@@ -119,6 +122,8 @@ impl Event {
 /// The tool's input.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Asked {
+    /// The words the draft and the answer are in.
+    pub dialect: &'static Dialect,
     /// The review's folder under the project's reviews/, and its run.
     pub label: String,
     pub run: String,
@@ -136,6 +141,11 @@ impl Asked {
 
 /// The tool's input, refused with what it takes when it is not that.
 pub fn asked(params: &Value) -> Result<Asked, String> {
+    asked_in(&Dialect::DEVFLOW, params)
+}
+
+/// [`asked`], in `dialect`'s words.
+pub fn asked_in(dialect: &'static Dialect, params: &Value) -> Result<Asked, String> {
     let fields = params
         .as_object()
         .ok_or_else(|| format!("publishing takes {SHAPE}"))?;
@@ -153,7 +163,7 @@ pub fn asked(params: &Value) -> Result<Asked, String> {
     let (label, run) = review
         .split_once('/')
         .filter(|(label, run)| runs::plain_card(label) && runs::seconds_of(run).is_some())
-        .ok_or("`review` is a review's folder and run, as `review` answered them: \"pr-42/20261016T120000Z\"")?;
+        .ok_or_else(|| format!("`review` is a review's folder and run, as {} answered them: \"pr-42/20261016T120000Z\"", dialect.tools.review))?;
     let word = |key: &str| fields.get(key).filter(|said| !said.is_null());
     let destination = match word("destination") {
         None => Destination::GitHub,
@@ -171,6 +181,7 @@ pub fn asked(params: &Value) -> Result<Asked, String> {
             .ok_or("`event` is comment, approve or request_changes")?,
     };
     Ok(Asked {
+        dialect,
         label: label.to_owned(),
         run: run.to_owned(),
         apply: fields.get("apply").and_then(Value::as_bool) == Some(true),
@@ -305,6 +316,7 @@ fn listed(lines: &[String]) -> String {
 
 /// The general comment's sections, by name.
 fn sections(
+    dialect: &Dialect,
     kept: &Value,
     said: &[&Value],
     inline_count: usize,
@@ -380,7 +392,8 @@ fn sections(
     let plural =
         |count: usize, one: &str| format!("{count} {one}{}", if count == 1 { "" } else { "s" });
     let summary = format!(
-        "**devflow review** of {}: {} on the lines, {}, {} outside the diff.",
+        "**{} review** of {}: {} on the lines, {}, {} outside the diff.",
+        dialect.product,
         text(kept, "head").get(..12).unwrap_or(text(kept, "head")),
         plural(inline_count, "comment"),
         plural(nits.len(), "nit"),
@@ -469,7 +482,7 @@ pub fn template(
             return Ok(text);
         }
     }
-    Ok(destination.shipped().to_owned())
+    Ok(destination.shipped(elsewhere.dialect).to_owned())
 }
 
 /// `publish.json`: a review's findings as its pull request is told them.
@@ -505,7 +518,8 @@ pub fn draft(kept: &Value, asked: &Asked, template: &str, verify: Verify) -> Val
             json!({ "file": file, "line": line, "axes": axes, "findings": places, "body": body })
         })
         .collect();
-    let (mut sections, nits, elsewhere) = sections(kept, &said, inline.len(), verify);
+    let (mut sections, nits, elsewhere) =
+        sections(asked.dialect, kept, &said, inline.len(), verify);
     let retro = kept["mode"] == "retro";
     let tickets: Vec<Value> = said
         .iter()
@@ -540,7 +554,8 @@ pub fn draft(kept: &Value, asked: &Asked, template: &str, verify: Verify) -> Val
         }
     }
     let review_body = format!(
-        "devflow review: {} on the lines; the rest is in the comment below.",
+        "{} review: {} on the lines; the rest is in the comment below.",
+        asked.dialect.product,
         match inline.len() {
             1 => "1 comment".to_owned(),
             count => format!("{count} comments"),
@@ -615,6 +630,16 @@ fn write(folder: &Path, file: &str, value: &Value) -> Result<(), String> {
 /// a new one joins a new review, and the general comment is edited once it
 /// exists. Each id is kept in `published.json` as soon as the host answers.
 pub fn published(folder: &Path, draft: &Value, host: &dyn Host) -> Result<Value, String> {
+    published_in(&Dialect::DEVFLOW, folder, draft, host)
+}
+
+/// [`published`], its notes in `dialect`'s words.
+pub fn published_in(
+    dialect: &Dialect,
+    folder: &Path,
+    draft: &Value,
+    host: &dyn Host,
+) -> Result<Value, String> {
     let mut kept = read_json(folder, PUBLISHED)
         .filter(Value::is_object)
         .unwrap_or_else(|| json!({ "version": 1, "inline": [] }));
@@ -708,12 +733,12 @@ pub fn published(folder: &Path, draft: &Value, host: &dyn Host) -> Result<Value,
         "unnamed": unnamed,
         "by_hand": by_hand,
     });
-    let mut notes = Vec::new();
+    let mut notes: Vec<String> = Vec::new();
     if !unnamed.is_empty() {
-        notes.push("Every comment was posted, but GitHub's answer did not name those in `unnamed`: they are on the pull request, and publishing again will not post them twice; a later change to one is made there by hand.");
+        notes.push("Every comment was posted, but GitHub's answer did not name those in `unnamed`: they are on the pull request, and publishing again will not post them twice; a later change to one is made there by hand.".to_owned());
     }
     if !by_hand.is_empty() {
-        notes.push("The comments in `by_hand` changed, but GitHub never named them, so devflow cannot edit them: change it on the pull request. Everything else was published.");
+        notes.push(format!("The comments in `by_hand` changed, but GitHub never named them, so {} cannot edit them: change it on the pull request. Everything else was published.", dialect.product));
     }
     if !notes.is_empty() {
         said["note"] = json!(notes.join(" "));
@@ -734,8 +759,9 @@ pub fn respond(
 ) -> Result<Value, String> {
     let kept = read_json(folder, review::FINDINGS).ok_or_else(|| {
         format!(
-            "review {} has no findings.json yet: finish it with `review` first",
-            asked.review()
+            "review {} has no findings.json yet: finish it with {} first",
+            asked.review(),
+            asked.dialect.tools.review
         )
     })?;
     let pending: Vec<&str> = kept["pending"]
@@ -758,7 +784,7 @@ pub fn respond(
     let at = folder.join(DRAFT).display().to_string();
     // The yes was to the draft the person saw: only that one is posted.
     if asked.apply && read_json(folder, DRAFT).as_ref() == Some(&drafted) {
-        let mut said = published(folder, &drafted, host?)?;
+        let mut said = published_in(asked.dialect, folder, &drafted, host?)?;
         said["applied"] = json!(true);
         said["review"] = json!(asked.review());
         said["draft"] = json!(at);

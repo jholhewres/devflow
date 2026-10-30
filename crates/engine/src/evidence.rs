@@ -13,6 +13,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::config::{Check, Config, Report as Format};
+use crate::dialect::Dialect;
 use crate::plan::PREFIX;
 use crate::runs::{self, Attached, Media, Runs};
 
@@ -20,8 +21,12 @@ use crate::runs::{self, Attached, Media, Runs};
 /// them; `project` is an orchestrator's, as on every board tool.
 pub const FIELDS: [&str; 4] = ["card", "checks", "criteria", "red"];
 
-const SHAPE: &str =
-    "{ item, checks?: [name], criteria?: [{ criterion, tests?: [test id], proof?: { kind: screenshot|e2e|artifact, path } }], red?: [{ test, failure }] }";
+fn shape(said: &Dialect) -> String {
+    format!(
+        "{{ {}, checks?: [name], criteria?: [{{ criterion, tests?: [test id], proof?: {{ kind: screenshot|e2e|artifact, path }} }}], red?: [{{ test, failure }}] }}",
+        said.item_field
+    )
+}
 const MOST_CRITERIA: usize = 100;
 const MOST_TESTS: usize = 50;
 const MOST_RED: usize = 200;
@@ -91,7 +96,13 @@ pub struct Asked {
 
 /// The tool's input, refused with the shape it takes when it is not that.
 pub fn asked(params: &Value) -> Result<Asked, String> {
+    asked_in(&Dialect::DEVFLOW, params)
+}
+
+/// [`asked`], refused in `dialect`'s words.
+pub fn asked_in(dialect: &Dialect, params: &Value) -> Result<Asked, String> {
     let params = &crate::work::as_card(params);
+    let shape = shape(dialect);
     let extra = params.as_object().and_then(|fields| {
         fields
             .keys()
@@ -99,13 +110,16 @@ pub fn asked(params: &Value) -> Result<Asked, String> {
     });
     if let Some(extra) = extra {
         return Err(format!(
-            "`{extra}` is not a field of the evidence: it takes {SHAPE}"
+            "`{extra}` is not a field of the evidence: it takes {shape}"
         ));
     }
     let asked: Asked = serde_json::from_value(params.clone())
-        .map_err(|why| format!("the evidence is {SHAPE}: {why}"))?;
+        .map_err(|why| format!("the evidence is {shape}: {why}"))?;
     if asked.card.trim().is_empty() {
-        return Err("which item? pass its id as `item`".to_owned());
+        return Err(format!(
+            "which {}? pass its id as `{}`",
+            dialect.item, dialect.item_field
+        ));
     }
     let texts = asked
         .criteria
@@ -138,11 +152,20 @@ pub fn asked(params: &Value) -> Result<Asked, String> {
 
 /// The checks to run: those `named`, in devflow.yaml's order, or every one.
 pub fn chosen<'a>(checks: &'a [Check], named: Option<&[String]>) -> Result<Vec<&'a Check>, String> {
+    chosen_in(&Dialect::DEVFLOW, checks, named)
+}
+
+/// [`chosen`], refused in `dialect`'s words.
+pub fn chosen_in<'a>(
+    dialect: &Dialect,
+    checks: &'a [Check],
+    named: Option<&[String]>,
+) -> Result<Vec<&'a Check>, String> {
     if checks.is_empty() {
-        return Err(
-            "devflow.yaml configures no checks under stages.execution.checks: `set` adds one"
-                .to_owned(),
-        );
+        return Err(format!(
+            "devflow.yaml configures no checks under stages.execution.checks: {} adds one",
+            dialect.tools.set
+        ));
     }
     let Some(named) = named.filter(|named| !named.is_empty()) else {
         return Ok(checks.iter().collect());
@@ -518,6 +541,8 @@ pub struct Card<'a> {
 /// One run of a card's checks, and what it showed.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Evidence {
+    /// The words its record, summary and comment are in.
+    pub dialect: &'static Dialect,
     pub card: String,
     /// The run's name, its time.
     pub stamp: String,
@@ -570,6 +595,7 @@ pub(crate) fn plain(text: &str) -> String {
 
 /// What a run of a card's checks is given.
 pub struct Given<'a> {
+    pub dialect: &'static Dialect,
     /// The checkout the checks run in.
     pub root: &'a Path,
     /// Where the run is kept.
@@ -592,6 +618,7 @@ pub struct Given<'a> {
 /// [`runs::KEPT`] go.
 pub fn gathered(given: &Given) -> Result<Evidence, String> {
     let Given {
+        dialect,
         root,
         runs: kept,
         locks,
@@ -604,7 +631,11 @@ pub fn gathered(given: &Given) -> Result<Evidence, String> {
         at,
     } = given;
     let (root, budget, redact) = (*root, *budget, *redact);
-    let checks = chosen(&config.stages.execution.checks, asked.checks.as_deref())?;
+    let checks = chosen_in(
+        dialect,
+        &config.stages.execution.checks,
+        asked.checks.as_deref(),
+    )?;
     let run = kept.fresh(card.id, *at)?;
     let folder = run.display().to_string();
     let started = Instant::now();
@@ -667,6 +698,7 @@ pub fn gathered(given: &Given) -> Result<Evidence, String> {
             }
         });
     let mut evidence = Evidence {
+        dialect,
         card: card.id.to_owned(),
         stamp: run
             .file_name()
@@ -712,8 +744,9 @@ fn counts(ran: &Ran) -> Value {
 
 /// `evidence.json`: everything the run showed, for the gate and the review.
 pub fn recorded(evidence: &Evidence) -> Value {
+    let dialect = evidence.dialect;
     json!({
-        "devflow": crate::skills::made_by(&["devflow-execution", "devflow-completion"]),
+        dialect.product: crate::skills::made_by_in(dialect, &["devflow-execution", "devflow-completion"]),
         "card": evidence.card,
         "at": evidence.stamp,
         "green": evidence.green(),
@@ -812,14 +845,14 @@ pub fn summary(evidence: &Evidence, attached: &Attached, under: &str) -> Value {
 }
 
 /// A check's tests, as a person reads them.
-fn tests_said(ran: &Ran) -> String {
+fn tests_said(said: &Dialect, ran: &Ran) -> String {
     if let Some(why) = &ran.not_run {
         return format!("not run: {why}");
     }
     let Some(read) = &ran.reported else {
         return match ran.exit_code {
-            Some(code) => format!("exit {code}, no report devflow reads"),
-            None => "no report devflow reads".to_owned(),
+            Some(code) => format!("exit {code}, no report {} reads", said.product),
+            None => format!("no report {} reads", said.product),
         };
     };
     let tested = &read.tested;
@@ -856,7 +889,7 @@ pub fn comment(evidence: &Evidence, links: &[(String, String)]) -> String {
             "- {}: {}, {}\n",
             ran.name,
             said(ran.verdict),
-            tests_said(ran)
+            tests_said(evidence.dialect, ran)
         ));
     }
     if !evidence.criteria.is_empty() {
@@ -883,9 +916,14 @@ pub fn comment(evidence: &Evidence, links: &[(String, String)]) -> String {
             .take(LINKED)
             .map(|(name, path)| format!("[{name}]({path})"))
             .collect();
-        text.push_str(&format!("\nFiles: {}", shown.join(" · ")));
+        let said = evidence.dialect;
+        text.push_str(&format!("\n{}: {}", said.files_label, shown.join(" · ")));
         if links.len() > LINKED {
-            text.push_str(&format!(" · and {} more in the run", links.len() - LINKED));
+            text.push_str(&format!(
+                " · and {} more {}",
+                links.len() - LINKED,
+                said.files_more
+            ));
         }
         text.push('\n');
     }

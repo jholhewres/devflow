@@ -50,6 +50,7 @@ pub fn respond_with(project: &Project, params: &Value, hosting: Hosting) -> Resu
     let template = publish::template(
         &project.root,
         Personas {
+            dialect: &devflow_engine::Dialect::DEVFLOW,
             personal: personal.as_deref(),
             teams: &teams,
         },

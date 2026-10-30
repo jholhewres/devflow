@@ -50,7 +50,7 @@ fn the_evidence_takes_exactly_what_the_skills_send() {
 fn anything_but_that_shape_is_refused_with_the_shape() {
     let refused = asked(&json!({ "card": "card_1", "criterias": [] })).expect_err("a typo");
     assert!(
-        refused.contains("`criterias`") && refused.contains(SHAPE),
+        refused.contains("`criterias`") && refused.contains(&shape(&crate::Dialect::DEVFLOW)),
         "{refused}"
     );
     let nested = json!({ "card": "card_1", "criteria": [{ "criterion": "a", "test": "b" }] });
@@ -146,6 +146,7 @@ const FAILING: &str = r#"printf '<testsuite><testcase classname="cli" name="rena
 /// devpit's folder for the runs of a checkout at `root`, beside it in a test.
 fn runs_of(root: &Path) -> runs::Runs {
     runs::Runs {
+        dialect: &crate::Dialect::DEVFLOW,
         home: root.join("devpit-home"),
         checkout: root.to_path_buf(),
     }
@@ -159,6 +160,7 @@ fn run_of(root: &Path, config: &Config, asked: &Asked, title: &str, seconds: u64
     };
     let body = "## Acceptance criteria\n- [ ] rename changes the title\n- [ ] an empty title is refused\n- [ ] the old title is kept in history\n";
     gathered(&Given {
+        dialect: &crate::Dialect::DEVFLOW,
         root,
         runs: &runs_of(root),
         locks: &root.join("devpit-home").join("locks"),

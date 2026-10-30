@@ -146,6 +146,7 @@ fn looked<'a>(
     read: &'a Read,
 ) -> Looked<'a> {
     Looked {
+        dialect: &devflow_engine::Dialect::DEVFLOW,
         config,
         card: item,
         criteria,

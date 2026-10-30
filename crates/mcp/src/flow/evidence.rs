@@ -24,6 +24,7 @@ pub fn evidence(server: &Server, params: Value) -> Result<Value, String> {
     let context = context_of(&project, &item);
     let runs = project.runs();
     let found = evidence::gathered(&Given {
+        dialect: &devflow_engine::Dialect::DEVFLOW,
         root: &project.root,
         runs: &runs,
         locks: &project.locks(),

@@ -59,6 +59,11 @@ pub fn text(e2e_dir: &str, base: Option<&str>) -> String {
 
 /// [`text`] for a config in the folder `dir`.
 pub fn text_in(dir: &str, e2e_dir: &str, base: Option<&str>) -> String {
+    text_of(&crate::Dialect::DEVFLOW, dir, e2e_dir, base)
+}
+
+/// [`text_in`], in `dialect`'s words and its report folder.
+pub fn text_of(dialect: &crate::Dialect, dir: &str, e2e_dir: &str, base: Option<&str>) -> String {
     // An import names a TypeScript or JavaScript module without its extension.
     let import = base.map(|file| {
         let module = file
@@ -83,14 +88,14 @@ pub fn text_in(dir: &str, e2e_dir: &str, base: Option<&str>) -> String {
         ),
     };
     format!(
-        "// Devflow's Playwright config, written by devflow's setup: the specs Devflow\n\
+        "// Devflow's Playwright config, written by {product}'s setup: the specs Devflow\n\
          // writes in {e2e_dir}, with a JUnit report and every screenshot and video\n\
-         // kept in $DEVFLOW_REPORT_DIR as the run's evidence. It is yours to change:\n\
+         // kept in ${report} as the run's evidence. It is yours to change:\n\
          // a setup run again keeps your copy. Run it from the project's root.\n\
          import {{ defineConfig }} from '@playwright/test'\n\
          {import}\n\
          const root = process.cwd()\n\
-         const reports = process.env.DEVFLOW_REPORT_DIR ?? `${{root}}/{dir}/runs/local`\n\
+         const reports = process.env.{report} ?? `${{root}}/{dir}/runs/local`\n\
          \n\
          export default defineConfig({{\n\
          {spread}  testDir: `${{root}}/{e2e_dir}`,\n  \
@@ -100,6 +105,8 @@ pub fn text_in(dir: &str, e2e_dir: &str, base: Option<&str>) -> String {
          use: {{ {use_base}screenshot: 'on', video: 'on' }},\n\
          {server}}})\n",
         import = import.unwrap_or_default(),
+        product = dialect.product,
+        report = dialect.report_dir(),
     )
 }
 

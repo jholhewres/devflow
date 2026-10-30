@@ -33,20 +33,7 @@ pub fn dir(root: &std::path::Path) -> String {
 
 /// The rubrics devpit ships with Devflow. `devflow-done` is the app's
 /// `done`, asked once per criterion.
-pub const BUILT_IN: [(&str, &str); 3] = [
-    (
-        FINDING,
-        include_str!("../../../flow/rubrics/devflow-finding.json"),
-    ),
-    (
-        BRIEF,
-        include_str!("../../../flow/rubrics/devflow-brief.json"),
-    ),
-    (
-        PLAN,
-        include_str!("../../../flow/rubrics/devflow-plan.json"),
-    ),
-];
+pub const BUILT_IN: [(&str, &str); 3] = crate::Dialect::DEVFLOW.assets.rubrics;
 
 /// The stage whose work each rubric judges, as `decisions.rubrics` keys them.
 pub const STAGES: [(&str, &str); 4] = [
@@ -86,21 +73,24 @@ pub fn decisions_state(
     key: bool,
     failed: Option<&str>,
 ) -> DevflowDecisions {
+    decisions_state_in(&crate::Dialect::DEVFLOW, used, opted_out, key, failed)
+}
+
+/// [`decisions_state`], its hints in `dialect`.
+pub fn decisions_state_in(
+    dialect: &crate::Dialect,
+    used: bool,
+    opted_out: bool,
+    key: bool,
+    failed: Option<&str>,
+) -> DevflowDecisions {
     let (state, reason) = match failed {
         _ if !used => (
             DecisionsState::Off,
             Some("decisions.use is false in devflow.yaml"),
         ),
-        _ if opted_out => (
-            DecisionsState::Off,
-            Some(
-                "this project's state is not sent to Decisions — `devflow jev send` sends it again",
-            ),
-        ),
-        _ if !key => (
-            DecisionsState::NoKey,
-            Some("no key — set one with `devflow jev setup`"),
-        ),
+        _ if opted_out => (DecisionsState::Off, Some(dialect.decisions_opted_out)),
+        _ if !key => (DecisionsState::NoKey, Some(dialect.decisions_no_key)),
         Some(why) => (DecisionsState::Failing, Some(why)),
         None => (DecisionsState::On, None),
     };

@@ -156,6 +156,7 @@ fn an_item_kept_in_memory_goes_from_brief_to_a_passing_gate() {
     let dir = tempfile::tempdir().expect("a checkout");
     let root = dir.path();
     let runs = Runs {
+        dialect: &devflow_engine::Dialect::DEVFLOW,
         home: root.join("caller-home"),
         checkout: root.to_path_buf(),
     };
@@ -179,6 +180,7 @@ fn an_item_kept_in_memory_goes_from_brief_to_a_passing_gate() {
         ..Context::default()
     };
     let ran = evidence::gathered(&Given {
+        dialect: &devflow_engine::Dialect::DEVFLOW,
         root,
         runs: &runs,
         locks: &root.join("caller-home/locks"),
@@ -206,6 +208,7 @@ fn an_item_kept_in_memory_goes_from_brief_to_a_passing_gate() {
     let approved = json!({ "verdict": "approve", "findings": [], "pending": [] });
     let gated = |review: Option<Review>| {
         let checked = gate::checked(&Looked {
+            dialect: &devflow_engine::Dialect::DEVFLOW,
             config: &config,
             card: &item.id,
             criteria: &criteria,

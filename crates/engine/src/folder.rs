@@ -8,7 +8,7 @@ use crate::config::{self, Config, Invalid};
 use crate::locate::Origin;
 use crate::node::{self, Node, Value};
 use crate::preset::Change;
-use crate::render::{render, scalar};
+use crate::render::{render_in, scalar};
 
 /// The folder devflow keeps in a project, relative to its root.
 pub const DIR: &str = ".devflow";
@@ -77,6 +77,8 @@ pub fn file(root: &Path) -> String {
 pub struct Layout {
     pub dir: &'static str,
     pub file: String,
+    /// The words of the files written there.
+    pub dialect: &'static crate::Dialect,
 }
 
 impl Layout {
@@ -85,6 +87,7 @@ impl Layout {
         Layout {
             dir: dir(root),
             file: file(root),
+            dialect: &crate::Dialect::DEVFLOW,
         }
     }
 }
@@ -96,6 +99,7 @@ impl Default for Layout {
         Layout {
             dir: default_dir(),
             file: default_file(),
+            dialect: &crate::Dialect::DEVFLOW,
         }
     }
 }
@@ -128,6 +132,11 @@ pub enum State {
 /// The state of `root`'s devflow.yaml, read through symlinks and only from
 /// inside the project.
 pub fn read(root: &Path) -> State {
+    read_in(&crate::Dialect::DEVFLOW, root)
+}
+
+/// [`read`], an invalid file told in `dialect`'s words.
+pub fn read_in(dialect: &crate::Dialect, root: &Path) -> State {
     let file = file(root);
     let path = root.join(&file);
     if path.symlink_metadata().is_err() {
@@ -148,7 +157,7 @@ pub fn read(root: &Path) -> State {
     let Ok(text) = std::fs::read_to_string(&resolved) else {
         return refused("devflow.yaml is not UTF-8 text");
     };
-    match config::parse(&text) {
+    match config::parse_in(dialect, &text) {
         Ok(config) => State::Valid(text, Box::new(relocated(root, config))),
         Err(invalid) => State::Invalid(Some(text), invalid),
     }
@@ -158,12 +167,22 @@ pub fn read(root: &Path) -> State {
 /// whether the file was laid out again, which loses the person's own
 /// comments.
 pub fn rewritten(text: Option<&str>, changed: &[Change], after: &Config) -> (String, bool) {
+    rewritten_in(&crate::Dialect::DEVFLOW, text, changed, after)
+}
+
+/// [`rewritten`], a file laid out again in `dialect`'s comments.
+pub fn rewritten_in(
+    dialect: &crate::Dialect,
+    text: Option<&str>,
+    changed: &[Change],
+    after: &Config,
+) -> (String, bool) {
     if let Some(edited) = text.and_then(|text| in_place(text, changed)) {
-        if config::parse(&edited).as_ref() == Ok(after) {
+        if config::parse_in(dialect, &edited).as_ref() == Ok(after) {
             return (edited, false);
         }
     }
-    (render(after), true)
+    (render_in(dialect, after), true)
 }
 
 /// The JSON form of a file that parses as YAML, valid or not: what a change

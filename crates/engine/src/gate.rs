@@ -12,6 +12,7 @@
 use serde_json::{json, Value};
 
 use crate::config::{Config, Evidence as Kept, Mode};
+use crate::dialect::Dialect;
 use crate::evidence::plain;
 use crate::plan::PREFIX;
 
@@ -126,16 +127,22 @@ fn filled(value: Option<&Value>) -> Option<String> {
 
 /// The tool's input, refused with what it takes when it is not that.
 pub fn asked(params: &Value) -> Result<Asked, String> {
+    asked_in(&Dialect::DEVFLOW, params)
+}
+
+/// [`asked`], refused in `dialect`'s words.
+pub fn asked_in(dialect: &Dialect, params: &Value) -> Result<Asked, String> {
     let params = &crate::work::as_card(params);
+    let field = dialect.item_field;
     let fields = params
         .as_object()
-        .ok_or("the gate takes { item } from an agent")?;
+        .ok_or_else(|| format!("the gate takes {{ {field} }} from an agent"))?;
     if let Some(extra) = fields
         .keys()
         .find(|key| !FIELDS.contains(&key.as_str()) && key.as_str() != "project")
     {
         return Err(format!(
-            "`{extra}` is not a field of the gate: it takes {{ item }}"
+            "`{extra}` is not a field of the gate: it takes {{ {field} }}"
         ));
     }
     let card = filled(fields.get("card"));
@@ -157,7 +164,7 @@ pub fn asked(params: &Value) -> Result<Asked, String> {
         }),
     };
     if card.is_none() && hook.is_none() {
-        return Err("which item? pass its id as `item`".to_owned());
+        return Err(format!("which {}? pass its id as `{field}`", dialect.item));
     }
     let kind = filled(fields.get("kind"));
     if kind
@@ -205,6 +212,8 @@ pub struct Review<'a> {
 
 /// What the gate looks at.
 pub struct Looked<'a> {
+    /// The words the gate says what is missing in.
+    pub dialect: &'static Dialect,
     pub config: &'a Config,
     pub card: &'a str,
     /// The card's acceptance criteria, as its body lists them.
@@ -235,6 +244,7 @@ pub struct Row {
 /// What the deterministic checks found.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Checked {
+    pub dialect: &'static Dialect,
     pub card: String,
     pub run: Option<String>,
     pub changed: Option<String>,
@@ -262,26 +272,28 @@ fn list<'a>(value: &'a Value, key: &str) -> &'a [Value] {
 /// The deterministic half of the gate.
 pub fn checked(looked: &Looked) -> Checked {
     let config = looked.config;
+    let said = looked.dialect;
+    let (item, tools) = (said.item, &said.tools);
     let mut missing = Vec::new();
     let configured = &config.stages.execution.checks;
     if configured.is_empty() {
-        missing.push(
-            "devflow.yaml configures no checks, so nothing can prove the item: add one with `set` (stages.execution.checks)"
-                .to_owned(),
-        );
+        missing.push(format!(
+            "devflow.yaml configures no checks, so nothing can prove the {item}: add one with {} (stages.execution.checks)",
+            tools.set
+        ));
     }
     let mut checks = Vec::new();
     let mut rows = Vec::new();
     match &looked.run {
         None => missing.push(format!(
-            "no run of the item's checks yet: call `evidence` with item {} and each criterion's tests (devflow-execution)",
-            looked.card
+            "no run of the {item}'s checks yet: call {} with {} {} and each criterion's tests (devflow-execution)",
+            tools.evidence, said.item_field, looked.card
         )),
         Some(run) => {
             if let Some(changed) = looked.changed.filter(|changed| after(changed, run.name)) {
                 missing.push(format!(
-                    "the code changed after run {} (last change {changed}): run `evidence` again",
-                    run.name
+                    "the code changed after run {} (last change {changed}): run {} again",
+                    run.name, tools.evidence
                 ));
             }
             for check in list(run.evidence, "checks") {
@@ -290,15 +302,17 @@ pub fn checked(looked: &Looked) -> Checked {
             for wanted in configured {
                 match checks.iter().find(|(name, _)| *name == wanted.name) {
                     None => missing.push(format!(
-                        "check `{}` did not run in {}: leave `checks` out of `evidence` to run them all",
-                        wanted.name, run.name
+                        "check `{}` did not run in {}: leave `checks` out of {} to run them all",
+                        wanted.name, run.name, tools.evidence
                     )),
                     // Only a check set to write a report is ever inconclusive: one
                     // set to `report: none` is judged by its exit code.
                     Some((_, result)) if result == "inconclusive" => missing.push(format!(
-                        "check `{}` left no {} report devflow reads: write it to $DEVFLOW_REPORT_DIR, or set its report to none so its exit code decides (devflow-setup)",
+                        "check `{}` left no {} report {} reads: write it to ${}, or set its report to none so its exit code decides (devflow-setup)",
                         wanted.name,
-                        wanted.report.word()
+                        wanted.report.word(),
+                        said.product,
+                        said.report_dir()
                     )),
                     Some((_, result)) if result != "passed" => missing.push(format!(
                         "check `{}` {result} in {}: fix it (devflow-execution) and run the checks again",
@@ -307,11 +321,11 @@ pub fn checked(looked: &Looked) -> Checked {
                     Some(_) => {}
                 }
             }
-            visual(config, run, &mut missing);
+            visual(said, config, run, &mut missing);
             rows = looked
                 .criteria
                 .iter()
-                .map(|criterion| row(criterion, run))
+                .map(|criterion| row(said, criterion, run))
                 .collect();
             for row in rows.iter().filter(|row| !row.green) {
                 missing.push(format!("criterion \"{}\": {}", row.criterion, row.evidence));
@@ -332,6 +346,7 @@ pub fn checked(looked: &Looked) -> Checked {
     let review = reviewed(looked, &mut missing);
     own_stages(looked, &mut missing);
     Checked {
+        dialect: said,
         card: looked.card.to_owned(),
         run: looked.run.as_ref().map(|run| run.name.to_owned()),
         changed: looked.changed.map(str::to_owned),
@@ -343,19 +358,23 @@ pub fn checked(looked: &Looked) -> Checked {
     }
 }
 
-const NO_TEST: &str =
-    "names no test: map it to its tests, or a proof file, in `evidence`'s criteria";
+fn no_test(said: &Dialect) -> String {
+    format!(
+        "names no test: map it to its tests, or a proof file, in {}'s criteria",
+        said.tools.evidence
+    )
+}
 
 /// One criterion against the run: green when evidence.json maps it, on the
 /// card, to tests that all passed and a proof file that is there.
-fn row(criterion: &str, run: &Run) -> Row {
+fn row(said: &Dialect, criterion: &str, run: &Run) -> Row {
     let seen = list(run.evidence, "criteria")
         .iter()
         .find(|seen| plain(word(seen, "criterion")) == plain(criterion));
     let Some(seen) = seen else {
         return Row {
             criterion: criterion.to_owned(),
-            evidence: NO_TEST.to_owned(),
+            evidence: no_test(said),
             green: false,
         };
     };
@@ -379,7 +398,7 @@ fn row(criterion: &str, run: &Run) -> Row {
         evidence: if green {
             format!("{} in run {}", tests.join(", "), run.name)
         } else if tests.is_empty() {
-            NO_TEST.to_owned()
+            no_test(said)
         } else {
             format!("{}: make them pass (devflow-execution)", tests.join(", "))
         },
@@ -389,7 +408,7 @@ fn row(criterion: &str, run: &Run) -> Row {
 
 /// Screenshots, when the card has its own E2E spec and a check keeps them:
 /// a passing spec with no picture proves nothing a person can see.
-fn visual(config: &Config, run: &Run, missing: &mut Vec<String>) {
+fn visual(said: &Dialect, config: &Config, run: &Run, missing: &mut Vec<String>) {
     let spec = run.evidence.get("spec");
     if spec
         .and_then(|spec| spec.get("exists"))
@@ -413,7 +432,8 @@ fn visual(config: &Config, run: &Run, missing: &mut Vec<String>) {
         .sum();
     if !keeping.is_empty() && pictures == 0 {
         missing.push(format!(
-            "the item's E2E spec {} kept no screenshot: end each of its tests in one (devflow-execution)",
+            "the {}'s E2E spec {} kept no screenshot: end each of its tests in one (devflow-execution)",
+            said.item,
             word(spec.unwrap_or(&Value::Null), "path")
         ));
     }
@@ -421,6 +441,7 @@ fn visual(config: &Config, run: &Run, missing: &mut Vec<String>) {
 
 /// Each own stage with a gate: passed, and since the last change to the code.
 fn own_stages(looked: &Looked, missing: &mut Vec<String>) {
+    let (stage, item) = (looked.dialect.tools.stage, looked.dialect.item);
     for step in looked.config.own_on() {
         if step
             .own
@@ -438,18 +459,18 @@ fn own_stages(looked: &Looked, missing: &mut Vec<String>) {
             .and_then(|(_, seen)| seen.as_ref());
         match seen {
             None => missing.push(format!(
-                "the stage `{name}` ({}) has not passed its gate: follow its skill, then call `stage` with the item",
+                "the stage `{name}` ({}) has not passed its gate: follow its skill, then call {stage} with the {item}",
                 step.uses
             )),
             Some((run, record)) if record.get("passed").and_then(Value::as_bool) != Some(true) => {
                 missing.push(format!(
-                    "the stage `{name}`'s gate failed in {run}: fix what it says and call `stage` again"
+                    "the stage `{name}`'s gate failed in {run}: fix what it says and call {stage} again"
                 ))
             }
             Some((run, _)) => {
                 if let Some(changed) = looked.changed.filter(|changed| after(changed, run)) {
                     missing.push(format!(
-                        "the stage `{name}`'s gate passed before the last change ({changed}): call `stage` again"
+                        "the stage `{name}`'s gate passed before the last change ({changed}): call {stage} again"
                     ));
                 }
             }
@@ -491,8 +512,9 @@ fn reviewed(looked: &Looked, missing: &mut Vec<String>) -> Option<String> {
         .collect();
     if !pending.is_empty() {
         missing.push(format!(
-            "the review has not covered {} yet: review them from its packet and call `review` with its run and your reports (devflow-review)",
-            pending.join(", ")
+            "the review has not covered {} yet: review them from its packet and call {} with its run and your reports (devflow-review)",
+            pending.join(", "),
+            looked.dialect.tools.review
         ));
     }
     if let Some(read) = looked.unreviewed {
@@ -588,7 +610,12 @@ impl Gate {
     /// Why a stop is sent back: short, and what to do about it.
     pub fn reason(&self) -> String {
         let missing = &self.checked.missing;
-        let mut said = format!("{} — the item is not done yet:\n", self.headline());
+        let dialect = self.checked.dialect;
+        let mut said = format!(
+            "{} — the {} is not done yet:\n",
+            self.headline(),
+            dialect.item
+        );
         for item in missing.iter().take(NAMED) {
             said.push_str(&format!("- {item}\n"));
         }
@@ -598,10 +625,11 @@ impl Gate {
                 missing.len() - NAMED
             ));
         }
-        said.push_str(
-            "Fix what is listed, run `evidence` and call `gate` before \
+        said.push_str(&format!(
+            "Fix what is listed, run {} and call {} before \
              saying it is done. If you are stopping for the person's answer instead, ask it and stop.",
-        );
+            dialect.tools.evidence, dialect.tools.gate
+        ));
         said
     }
 }
@@ -643,6 +671,7 @@ pub fn recorded(gate: &Gate) -> Value {
 /// What the agent is answered: passed, or what is missing.
 pub fn answer(gate: &Gate, file: Option<&str>) -> Value {
     let (with, of) = gate.counted();
+    let said = gate.checked.dialect;
     json!({
         "result": if gate.passed() { "passed" } else { "failed" },
         "criteria": format!("{with} of {of}"),
@@ -651,9 +680,15 @@ pub fn answer(gate: &Gate, file: Option<&str>) -> Value {
         "gate": file,
         "decisions": decisions_json(gate),
         "next": if gate.passed() {
-            "Write the handoff note with `handoff`, then `finish`."
+            format!(
+                "Write the handoff note with {}, then {}.",
+                said.tools.handoff, said.tools.finish
+            )
         } else {
-            "Leave the item where it is: fix what is missing in the stage named, then call the gate again."
+            format!(
+                "Leave the {} where it is: fix what is missing in the stage named, then call the gate again.",
+                said.item
+            )
         },
     })
 }

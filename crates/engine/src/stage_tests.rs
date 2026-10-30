@@ -18,6 +18,7 @@ fn missing(
     changed: Option<&str>,
 ) -> Vec<String> {
     checked(&Looked {
+        dialect: &crate::Dialect::DEVFLOW,
         config,
         card: "card_1",
         criteria: &[],

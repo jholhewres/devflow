@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
+use crate::dialect::Dialect;
 use crate::folder;
 use crate::layers::Team;
 
@@ -28,49 +29,20 @@ pub const MOST_BYTES: u64 = 128 * 1024;
 
 /// Each skill's name, its stage (none for the setup's), and its text as this
 /// build ships it.
-const BUILT_IN: [(&str, Option<&str>, &str); 7] = [
-    (
-        "devflow-briefing",
-        Some("briefing"),
-        include_str!("../../../flow/skills/devflow-briefing/SKILL.md"),
-    ),
-    (
-        "devflow-context",
-        Some("context"),
-        include_str!("../../../flow/skills/devflow-context/SKILL.md"),
-    ),
-    (
-        "devflow-plan",
-        Some("plan"),
-        include_str!("../../../flow/skills/devflow-plan/SKILL.md"),
-    ),
-    (
-        "devflow-execution",
-        Some("execution"),
-        include_str!("../../../flow/skills/devflow-execution/SKILL.md"),
-    ),
-    (
-        "devflow-review",
-        Some("review"),
-        include_str!("../../../flow/skills/devflow-review/SKILL.md"),
-    ),
-    (
-        "devflow-completion",
-        Some("completion"),
-        include_str!("../../../flow/skills/devflow-completion/SKILL.md"),
-    ),
-    (
-        "devflow-setup",
-        None,
-        include_str!("../../../flow/skills/devflow-setup/SKILL.md"),
-    ),
-];
+const BUILT_IN: [(&str, Option<&str>, &str); 7] = Dialect::DEVFLOW.assets.skills;
 
 /// What made a record: this devpit's version, which every crate shares with
 /// the app, and the digest of each built-in skill named, as this build ships
 /// it — so a run says which text of the flow it followed.
 pub fn made_by(skills: &[&str]) -> Value {
-    let digests: serde_json::Map<String, Value> = BUILT_IN
+    made_by_in(&Dialect::DEVFLOW, skills)
+}
+
+/// [`made_by`] in `dialect`: its version, and the digests of its skills.
+pub fn made_by_in(dialect: &Dialect, skills: &[&str]) -> Value {
+    let digests: serde_json::Map<String, Value> = dialect
+        .assets
+        .skills
         .iter()
         .filter(|(name, _, _)| skills.contains(name))
         .map(|(name, _, text)| {
@@ -78,7 +50,7 @@ pub fn made_by(skills: &[&str]) -> Value {
             ((*name).to_owned(), Value::from(digest))
         })
         .collect();
-    json!({ "version": env!("CARGO_PKG_VERSION"), "skills": digests })
+    json!({ "version": dialect.version, "skills": digests })
 }
 
 /// Where a skill was found.
@@ -133,7 +105,14 @@ pub fn offered(stages_on: &[&str]) -> Vec<&'static str> {
 /// Each built-in skill's name, stage and the `description` its frontmatter
 /// gives: what a plugin's pointer to it says.
 pub fn described() -> Vec<(&'static str, Option<&'static str>, String)> {
-    BUILT_IN
+    described_in(&Dialect::DEVFLOW)
+}
+
+/// [`described`] from `dialect`'s skills.
+pub fn described_in(dialect: &Dialect) -> Vec<(&'static str, Option<&'static str>, String)> {
+    dialect
+        .assets
+        .skills
         .iter()
         .map(|(name, stage, text)| {
             let said = frontmatter(text, name)
@@ -171,7 +150,20 @@ pub fn resolve_with(
     teams: &[Team],
     name: &str,
 ) -> Result<Skill, String> {
-    let (name, stage, built_in) = BUILT_IN
+    resolve_with_in(&Dialect::DEVFLOW, project, personal, teams, name)
+}
+
+/// [`resolve_with`], the built-in skill being `dialect`'s.
+pub fn resolve_with_in(
+    dialect: &Dialect,
+    project: &Path,
+    personal: &Path,
+    teams: &[Team],
+    name: &str,
+) -> Result<Skill, String> {
+    let (name, stage, built_in) = dialect
+        .assets
+        .skills
         .iter()
         .find(|(one, ..)| *one == name)
         .copied()

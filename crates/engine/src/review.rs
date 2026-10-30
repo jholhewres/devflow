@@ -16,6 +16,7 @@ use serde_json::{json, Value};
 
 use crate::brief::Brief;
 use crate::config::{Agent, Config, Consolidate, Reviewer, Verify};
+use crate::dialect::Dialect;
 use crate::evidence::Card;
 use crate::findings::{self, Diffed, Source};
 use crate::jev::{self, Said};
@@ -32,8 +33,12 @@ pub const FIELDS: [&str; 11] = [
 ];
 /// The fields of a review without a card, which a card's refuses.
 pub const WITHOUT_CARD: [&str; 5] = ["head", "pr", "path", "criteria", "mode"];
-const SHAPE: &str =
-    "{ item, base?, previous?, run?, reports?: [one findings object per persona you reviewed], verified?: [{ finding, result, evidence }] }, or without an item { pr | base and head | path, criteria?, mode?: retro with base and head, run?, reports? }";
+fn shape(said: &Dialect) -> String {
+    format!(
+        "{{ {}, base?, previous?, run?, reports?: [one findings object per persona you reviewed], verified?: [{{ finding, result, evidence }}] }}, or without {} {{ pr | base and head | path, criteria?, mode?: retro with base and head, run?, reports? }}",
+        said.item_field, said.an_item
+    )
+}
 
 /// What a review leaves in its run's folder.
 pub const PACKET: &str = "review-context.md";
@@ -72,16 +77,22 @@ pub struct Asked {
 
 /// The tool's input, refused with what it takes when it is not that.
 pub fn asked(params: &Value) -> Result<Asked, String> {
+    asked_in(&Dialect::DEVFLOW, params)
+}
+
+/// [`asked`], refused in `dialect`'s words.
+pub fn asked_in(dialect: &Dialect, params: &Value) -> Result<Asked, String> {
     let params = &crate::work::as_card(params);
+    let shape = shape(dialect);
     let fields = params
         .as_object()
-        .ok_or_else(|| format!("the review takes {SHAPE}"))?;
+        .ok_or_else(|| format!("the review takes {shape}"))?;
     if let Some(extra) = fields
         .keys()
         .find(|key| !FIELDS.contains(&key.as_str()) && key.as_str() != "project")
     {
         return Err(format!(
-            "`{extra}` is not a field of the review: it takes {SHAPE}"
+            "`{extra}` is not a field of the review: it takes {shape}"
         ));
     }
     let word = |key: &str| {
@@ -92,12 +103,17 @@ pub fn asked(params: &Value) -> Result<Asked, String> {
             .filter(|said| !said.is_empty())
             .map(str::to_owned)
     };
-    let card = word("card").ok_or(
-        "which item? pass its id as `item`, or review without one with `pr`, `base` and `head`, or `path`",
-    )?;
+    let field = dialect.item_field;
+    let card = word("card").ok_or_else(|| {
+        format!(
+            "which {}? pass its id as `{field}`, or review without one with `pr`, `base` and `head`, or `path`",
+            dialect.item
+        )
+    })?;
     if let Some(alone) = WITHOUT_CARD.iter().find(|key| fields.contains_key(**key)) {
         return Err(format!(
-            "`{alone}` is for a review without an item: leave out `item`"
+            "`{alone}` is for a review without {}: leave out `{field}`",
+            dialect.an_item
         ));
     }
     let base = word("base");
@@ -132,7 +148,7 @@ pub fn asked(params: &Value) -> Result<Asked, String> {
                 .to_owned(),
         );
     }
-    handed_back(run.as_deref(), &reports)?;
+    handed_back(dialect, run.as_deref(), &reports)?;
     Ok(Asked {
         card,
         base,
@@ -156,15 +172,20 @@ pub(crate) fn reports_of(fields: &serde_json::Map<String, Value>) -> Result<Vec<
 }
 
 /// `run` and `reports` come together or not at all.
-pub(crate) fn handed_back(run: Option<&str>, reports: &[Value]) -> Result<(), String> {
+pub(crate) fn handed_back(
+    dialect: &Dialect,
+    run: Option<&str>,
+    reports: &[Value],
+) -> Result<(), String> {
     match (run, reports.is_empty()) {
         (Some(_), true) => Err(
             "pass `reports` with `run`: the findings objects of the personas you reviewed"
                 .to_owned(),
         ),
-        (None, false) => {
-            Err("`reports` go to the run `review` answered: pass it as `run`".to_owned())
-        }
+        (None, false) => Err(format!(
+            "`reports` go to the run {} answered: pass it as `run`",
+            dialect.tools.review
+        )),
         _ => Ok(()),
     }
 }
@@ -230,12 +251,24 @@ pub fn pending(answered: &[Source], scaled: bool) -> Vec<String> {
 /// the project extends, then the person's own reviewers, then devpit's.
 /// Personas are layered as skills are, so one way of reviewing can follow a
 /// person into every project of theirs and a company's into each of its own.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy)]
 pub struct Personas<'a> {
+    /// Whose shipped personas and templates come last.
+    pub dialect: &'static Dialect,
     /// `<devpit home>/devflow/reviewers/`, each persona as `<name>.md`.
     pub personal: Option<&'a Path>,
     /// The layers that apply, each read at its approved commit.
     pub teams: &'a [Team],
+}
+
+impl Default for Personas<'_> {
+    fn default() -> Self {
+        Personas {
+            dialect: &Dialect::DEVFLOW,
+            personal: None,
+            teams: &[],
+        }
+    }
 }
 
 /// A persona's text from the first layer that has it: the project's own, a
@@ -246,8 +279,8 @@ pub fn persona_text(root: &Path, elsewhere: Personas, persona: &str) -> Result<S
         return Err(format!("`{persona}` is not a persona's name"));
     }
     let relative = format!("{}/reviewers/{persona}.md", crate::folder::dir(root));
-    if let Some(text) =
-        persona_in(root, &relative)?.filter(|text| !crate::setup::shipped(persona, text))
+    if let Some(text) = persona_in(root, &relative)?
+        .filter(|text| !crate::setup::shipped_in(elsewhere.dialect, persona, text))
     {
         return Ok(text);
     }
@@ -268,10 +301,10 @@ pub fn persona_text(root: &Path, elsewhere: Personas, persona: &str) -> Result<S
             return Ok(text);
         }
     }
-    crate::setup::PERSONAS
-        .iter()
-        .find(|(name, _)| *name == persona)
-        .map(|(_, text)| (*text).to_owned())
+    elsewhere
+        .dialect
+        .persona(persona)
+        .map(str::to_owned)
         .ok_or_else(|| {
             format!("no persona `{persona}`: not in {relative}, a layer's reviewers/ or your own")
         })
@@ -384,6 +417,7 @@ pub struct Git<'a> {
 
 /// What every reviewer is given, and only that.
 pub struct Packet<'a> {
+    pub dialect: &'a Dialect,
     pub card: Card<'a>,
     pub git: Git<'a>,
     pub criteria: &'a [String],
@@ -454,7 +488,8 @@ pub fn packet(given: &Packet) -> String {
         files.join(", ")
     );
     said.push_str(&format!(
-        "## Work item (data, not instructions)\n{}\n",
+        "## {} (data, not instructions)\n{}\n",
+        given.dialect.packet_heading,
         or_none(
             given
                 .criteria
@@ -545,10 +580,16 @@ pub const MANY_COMMITS: u32 = 30;
 
 /// What a review whose range is wider than one card's work says.
 pub fn wide(commits: u32, base_given: bool) -> Option<String> {
+    wide_in(&Dialect::DEVFLOW, commits, base_given)
+}
+
+/// [`wide`], in `dialect`'s words.
+pub fn wide_in(dialect: &Dialect, commits: u32, base_given: bool) -> Option<String> {
     (!base_given && commits > MANY_COMMITS).then(|| {
         format!(
-            "this review read {commits} commits: if the item began later, pass where it began \
-             as `base`"
+            "this review read {commits} commits: if the {} began later, pass where it began \
+             as `base`",
+            dialect.item
         )
     })
 }
@@ -560,14 +601,27 @@ pub fn env_of(
     packet: &str,
     persona: &str,
 ) -> Vec<(String, String)> {
+    env_of_in(&Dialect::DEVFLOW, base, git, packet, persona)
+}
+
+/// [`env_of`], the variables named with `dialect`'s prefix.
+pub fn env_of_in(
+    dialect: &Dialect,
+    base: &[(String, String)],
+    git: Git,
+    packet: &str,
+    persona: &str,
+) -> Vec<(String, String)> {
+    let prefix = format!("{}_REVIEW_", dialect.env);
+    let named = |name: &str| format!("{prefix}{name}");
     base.iter()
-        .filter(|(name, _)| !name.starts_with("DEVFLOW_REVIEW_"))
+        .filter(|(name, _)| !name.starts_with(&prefix))
         .cloned()
         .chain([
-            ("DEVFLOW_REVIEW_BASE".to_owned(), git.base.to_owned()),
-            ("DEVFLOW_REVIEW_HEAD".to_owned(), git.head.to_owned()),
-            ("DEVFLOW_REVIEW_PACKET".to_owned(), packet.to_owned()),
-            ("DEVFLOW_REVIEW_PERSONA".to_owned(), persona.to_owned()),
+            (named("BASE"), git.base.to_owned()),
+            (named("HEAD"), git.head.to_owned()),
+            (named("PACKET"), packet.to_owned()),
+            (named("PERSONA"), persona.to_owned()),
         ])
         .collect()
 }
@@ -631,13 +685,13 @@ impl Ran {
         })
     }
 
-    fn of(value: &Value) -> Option<Ran> {
+    fn of(value: &Value, by: &str) -> Option<Ran> {
         let text = |key: &str| value.get(key).and_then(Value::as_str).map(str::to_owned);
         Some(Ran {
             agent: text("agent")?,
             persona: text("persona")?,
             model: text("model"),
-            by: text("by").unwrap_or_else(|| "devflow".to_owned()),
+            by: text("by").unwrap_or_else(|| by.to_owned()),
             duration_ms: value.get("duration_ms").and_then(Value::as_u64),
             cost_usd: value.get("cost_usd").and_then(Value::as_f64),
             file: text("file").filter(|file| file.starts_with("findings-")),
@@ -700,9 +754,34 @@ pub fn turn(
     env: &[(String, String)],
     deadline: Duration,
 ) -> Result<reviewing::Reviewed, String> {
+    turn_in(
+        &Dialect::DEVFLOW,
+        agent,
+        model,
+        reach,
+        prompt,
+        cwd,
+        env,
+        deadline,
+    )
+}
+
+/// [`turn`], refused in `dialect`'s words.
+#[allow(clippy::too_many_arguments)]
+pub fn turn_in(
+    dialect: &Dialect,
+    agent: Agent,
+    model: Option<&str>,
+    reach: Reach,
+    prompt: &str,
+    cwd: &Path,
+    env: &[(String, String)],
+    deadline: Duration,
+) -> Result<reviewing::Reviewed, String> {
     let program = reach(agent)?;
     let model = model_for(agent, model);
-    let cli = Cli::of(agent.word()).ok_or("devflow does not run this CLI headless")?;
+    let cli = Cli::of(agent.word())
+        .ok_or_else(|| format!("{} does not run this CLI headless", dialect.product))?;
     reviewing::review(&reviewing::Review {
         agent: &cli,
         program: &program,
@@ -772,6 +851,16 @@ fn a_commit(said: &str) -> bool {
 /// Run `run` of the card's reviews, read for a re-review: its HEAD from
 /// findings.json, else from review.json, and its findings.
 pub fn previous_of(runs: &Runs, card: &str, run: &str) -> Result<Previous, String> {
+    previous_of_in(&Dialect::DEVFLOW, runs, card, run)
+}
+
+/// [`previous_of`], refused in `dialect`'s words.
+pub fn previous_of_in(
+    dialect: &Dialect,
+    runs: &Runs,
+    card: &str,
+    run: &str,
+) -> Result<Previous, String> {
     let kept = runs
         .found(card, Some(run), FINDINGS)
         .filter(|_| crate::runs::plain_card(card))
@@ -779,7 +868,10 @@ pub fn previous_of(runs: &Runs, card: &str, run: &str) -> Result<Previous, Strin
     let (path, kept) = kept
         .and_then(|path| read_json(&path, FINDINGS).map(|kept| (path, kept)))
         .ok_or_else(|| {
-            format!("run {run} has no findings.json: pass as `previous` a review of this item that finished")
+            format!(
+                "run {run} has no findings.json: pass as `previous` a review of this {} that finished",
+                dialect.item
+            )
         })?;
     let head = kept["head"]
         .as_str()
@@ -812,6 +904,8 @@ pub struct Consolidated {
 /// A review, done or waiting on the session's personas.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Done {
+    /// The words the comment and the answer are in.
+    pub dialect: &'static Dialect,
     pub card: String,
     /// Where the run's folder is, and its name.
     pub folder: String,
@@ -925,7 +1019,9 @@ fn reviewed_anew(given: &Given) -> Result<(String, PathBuf, Record), String> {
         .cloned()
         .collect()
     });
+    let dialect = given.personas.dialect;
     let packet = (given.redact)(&packet(&Packet {
+        dialect,
         card: Card {
             id: given.card.id,
             title: given.card.title,
@@ -942,7 +1038,7 @@ fn reviewed_anew(given: &Given) -> Result<(String, PathBuf, Record), String> {
         retro: given.retro,
     }));
     write(&path, PACKET, &packet)?;
-    write(&path, SCHEMA, findings::SCHEMA)?;
+    write(&path, SCHEMA, dialect.assets.schema)?;
     let packet_at = path.join(PACKET).display().to_string();
     let deadline = given.budget.saturating_sub(PASS);
     // An answer that is not findings keeps what was said: "invalid JSON" with
@@ -953,8 +1049,9 @@ fn reviewed_anew(given: &Given) -> Result<(String, PathBuf, Record), String> {
             .map_err(|why| (why, None))?;
         let agent = reviewer.agent.word();
         let asked = prompt(&persona, &packet, agent, &reviewer.persona);
-        let env = env_of(given.env, git, &packet_at, &reviewer.persona);
-        let said = turn(
+        let env = env_of_in(dialect, given.env, git, &packet_at, &reviewer.persona);
+        let said = turn_in(
+            dialect,
             reviewer.agent,
             reviewer.model.as_deref(),
             given.reach,
@@ -1007,7 +1104,7 @@ fn reviewed_anew(given: &Given) -> Result<(String, PathBuf, Record), String> {
             agent: reviewer.agent.word().to_owned(),
             persona: reviewer.persona.clone(),
             model: reviewer.model.clone(),
-            by: "devflow".to_owned(),
+            by: dialect.product.to_owned(),
             duration_ms: None,
             cost_usd: None,
             file: None,
@@ -1058,13 +1155,17 @@ fn reviewed_again(given: &Given, run: &str) -> Result<(String, PathBuf, Record),
         .map(Path::to_path_buf)
         .ok_or_else(|| format!("{} has no folder", record_at.display()))?;
     let kept = read_json(&path, RECORD).ok_or_else(|| {
-        format!("run {run} is not a review of this item: call `review` with only the item first")
+        let said = given.personas.dialect;
+        format!(
+            "run {run} is not a review of this {}: call {} with only the {} first",
+            said.item, said.tools.review, said.item
+        )
     })?;
     let ran: Vec<Ran> = kept["ran"]
         .as_array()
         .into_iter()
         .flatten()
-        .filter_map(Ran::of)
+        .filter_map(|ran| Ran::of(ran, given.personas.dialect.product))
         .collect();
     let mut record = Record {
         base: kept["base"].as_str().unwrap_or_default().to_owned(),
@@ -1282,14 +1383,17 @@ fn without_jev(
         .iter()
         .find(|reviewer| {
             record.ran.iter().any(|ran| {
-                ran.file.is_some() && ran.agent == reviewer.agent.word() && ran.by == "devflow"
+                ran.file.is_some()
+                    && ran.agent == reviewer.agent.word()
+                    && ran.by == given.personas.dialect.product
             })
         })
         .or(given.config.review.reviewers.first());
     let passed = by
         .ok_or_else(|| "no reviewer CLI to ask".to_owned())
         .and_then(|by| {
-            turn(
+            turn_in(
+                given.personas.dialect,
                 by.agent,
                 by.model.as_deref(),
                 given.reach,
@@ -1373,7 +1477,12 @@ pub fn reviewed(given: &Given) -> Result<Done, String> {
     // The session's hand-back to a re-review carries what its first call did.
     let previous = match (given.previous, &record.previous) {
         (Some(previous), _) => Some(previous.clone()),
-        (None, Some(run)) => Some(previous_of(given.runs, given.card.id, run)?),
+        (None, Some(run)) => Some(previous_of_in(
+            given.personas.dialect,
+            given.runs,
+            given.card.id,
+            run,
+        )?),
         (None, None) => None,
     };
     if let Some(previous) = &previous {
@@ -1398,7 +1507,7 @@ pub fn reviewed(given: &Given) -> Result<Done, String> {
             let (done_well, verification) = findings::said_together(&record.answers);
             json!({
                 "version": 1,
-                "devflow": crate::skills::made_by(&["devflow-review"]),
+                given.personas.dialect.product: crate::skills::made_by_in(given.personas.dialect, &["devflow-review"]),
                 "card": given.card.id,
                 "base": record.base,
                 "head": record.head,
@@ -1435,6 +1544,7 @@ pub fn reviewed(given: &Given) -> Result<Done, String> {
         write(&path, FINDINGS, &pretty(findings_json))?;
     }
     let done = Done {
+        dialect: given.personas.dialect,
         card: given.card.id.to_owned(),
         folder,
         stamp,
@@ -1499,6 +1609,7 @@ fn verified(given: &Given, stamp: String, path: &Path, record: Record) -> Result
             .collect()
     };
     Ok(Done {
+        dialect: given.personas.dialect,
         card: given.card.id.to_owned(),
         folder: path.display().to_string(),
         stamp,
@@ -1681,7 +1792,11 @@ pub fn comment(done: &Done, links: &[(String, String)]) -> String {
             .iter()
             .map(|(name, path)| format!("[{name}]({path})"))
             .collect();
-        text.push_str(&format!("\nFiles: {}\n", shown.join(" · ")));
+        text.push_str(&format!(
+            "\n{}: {}\n",
+            done.dialect.files_label,
+            shown.join(" · ")
+        ));
     }
     text
 }
@@ -1715,15 +1830,16 @@ pub fn summary(done: &Done) -> Value {
         .and_then(|findings| findings["findings"].as_array())
         .map_or(&[][..], Vec::as_slice);
     let verdict = findings.and_then(|findings| findings["verdict"].as_str());
+    let (review, item) = (done.dialect.tools.review, done.dialect.item);
     let next = if !done.pending.is_empty() {
         format!(
-            "Review {} yourself: one fresh subagent per persona, each given only the packet at {packet} and its persona at {persona}, each answering one findings object. Then call `review` again with this item, run \"{}\" and reports: those objects.",
+            "Review {} yourself: one fresh subagent per persona, each given only the packet at {packet} and its persona at {persona}, each answering one findings object. Then call {review} again with this {item}, run \"{}\" and reports: those objects.",
             done.pending.join(", "),
             done.stamp
         )
     } else if let Some(places) = unverified(done.verify, list) {
         format!(
-            "Verify (devflow-review): run the PoC of findings {places} of {}/{FINDINGS} where there is an environment, then call `review` with this item, run \"{}\" and verified: one {{ finding, result, evidence }} each.",
+            "Verify (devflow-review): run the PoC of findings {places} of {}/{FINDINGS} where there is an environment, then call {review} with this {item}, run \"{}\" and verified: one {{ finding, result, evidence }} each.",
             done.folder, done.stamp
         )
     } else if verdict == Some("request_changes") {

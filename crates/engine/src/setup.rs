@@ -11,28 +11,11 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 use crate::config::Config;
+use crate::dialect::Dialect;
 use crate::folder::{default_dir, Layout};
 
 /// The personas, as this build ships them.
-pub(crate) const PERSONAS: [(&str, &str); 4] = [
-    (
-        "devflow-spec",
-        include_str!("../../../flow/personas/devflow-spec.md"),
-    ),
-    (
-        "devflow-standards",
-        include_str!("../../../flow/personas/devflow-standards.md"),
-    ),
-    (
-        "devflow-security",
-        include_str!("../../../flow/personas/devflow-security.md"),
-    ),
-    // Every axis in one reading, for a review `review.scale` sized down.
-    (
-        "devflow-all",
-        include_str!("../../../flow/personas/devflow-all.md"),
-    ),
-];
+pub(crate) const PERSONAS: [(&str, &str); 4] = Dialect::DEVFLOW.assets.personas;
 
 /// SHA-256 of every text a devpit release shipped for a persona, by name.
 /// The setup copied them into projects once: a copy still one of these is
@@ -107,14 +90,19 @@ const SHIPPED: [(&str, &str); 16] = [
 
 /// Whether `text` is a persona text devpit shipped as `name`: a copy the
 /// person never changed. Line endings a checkout rewrote do not count.
-pub(crate) fn shipped(name: &str, text: &str) -> bool {
-    let digest = format!(
-        "{:x}",
-        Sha256::digest(text.replace("\r\n", "\n").as_bytes())
-    );
+/// [`shipped`], `dialect`'s own text of the persona included.
+pub(crate) fn shipped_in(dialect: &Dialect, name: &str, text: &str) -> bool {
+    let sum = |text: &str| {
+        format!(
+            "{:x}",
+            Sha256::digest(text.replace("\r\n", "\n").as_bytes())
+        )
+    };
+    let digest = sum(text);
     SHIPPED
         .iter()
         .any(|(shipped, sum)| *shipped == name && *sum == digest)
+        || dialect.persona(name).is_some_and(|own| sum(own) == digest)
 }
 
 /// The line the `.gitignore` needs: a check run by hand reports there.
@@ -190,7 +178,7 @@ fn scripted_but(
     (config, scripts)
 }
 
-fn script_text(dir: &str, script: &Script) -> String {
+fn script_text(dialect: &Dialect, dir: &str, script: &Script) -> String {
     // From `<dir>/scripts/` back up to the root.
     let up = vec![".."; dir.split('/').count() + 1].join("/");
     let from = script
@@ -202,16 +190,23 @@ fn script_text(dir: &str, script: &Script) -> String {
         "#!/bin/sh\n\
          # Devflow check `{name}`{from}.\n\
          # It runs from the project's root, wherever it is started; a report\n\
-         # written to $DEVFLOW_REPORT_DIR is read as the check's evidence.\n\
+         # written to ${report} is read as the check's evidence.\n\
          set -e\n\
          cd \"$(dirname \"$0\")/{up}\"\n\
-         DEVFLOW_REPORT_DIR=\"${{DEVFLOW_REPORT_DIR:-{dir}/runs/local}}\"\n\
-         export DEVFLOW_REPORT_DIR\n\
-         mkdir -p \"$DEVFLOW_REPORT_DIR\"\n\
+         {report}=\"${{{report}:-{dir}/runs/local}}\"\n\
+         export {report}\n\
+         {made}\
          {command}\n",
         name = script.name,
         command = script.command,
+        report = dialect.report_dir(),
+        made = made_line(dialect),
     )
+}
+
+/// The line a script's header ends with, after which its command stands.
+fn made_line(dialect: &Dialect) -> String {
+    format!("mkdir -p \"${}\"\n", dialect.report_dir())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -234,6 +229,7 @@ pub struct Planned {
     text: String,
     kind: Kind,
     executable: bool,
+    dialect: &'static Dialect,
 }
 
 /// What writing a planned file does, or did.
@@ -265,6 +261,7 @@ pub fn planned_in(
         text,
         kind,
         executable,
+        dialect: layout.dialect,
     };
     let mut files = vec![
         at(layout.file.clone(), yaml.to_owned(), Kind::Ours, false),
@@ -275,7 +272,7 @@ pub fn planned_in(
             false,
         ),
     ];
-    files.extend(scripts_planned(dir, scripts));
+    files.extend(scripts_planned(layout.dialect, dir, scripts));
     files.extend(playwright.map(|text| {
         at(
             crate::playwright::file_in(dir),
@@ -298,16 +295,21 @@ pub fn config_only_in(layout: &Layout, yaml: &str, scripts: &[Script]) -> Vec<Pl
         .into_iter()
         .take(1)
         .collect();
-    files.extend(scripts_planned(layout.dir, scripts));
+    files.extend(scripts_planned(layout.dialect, layout.dir, scripts));
     files
 }
 
-fn scripts_planned<'a>(dir: &'a str, scripts: &'a [Script]) -> impl Iterator<Item = Planned> + 'a {
+fn scripts_planned<'a>(
+    dialect: &'static Dialect,
+    dir: &'a str,
+    scripts: &'a [Script],
+) -> impl Iterator<Item = Planned> + 'a {
     scripts.iter().map(move |script| Planned {
         path: format!("{dir}/scripts/{}", script_file(&script.name)),
-        text: script_text(dir, script),
+        text: script_text(dialect, dir, script),
         kind: Kind::Ours,
         executable: true,
+        dialect,
     })
 }
 
@@ -318,6 +320,16 @@ fn script_file(name: &str) -> String {
 /// `files`, and each check script under `scripts/` that `config` no longer
 /// runs: the setup says so, and removes the one devpit wrote as it was.
 pub fn with_unused(root: &Path, config: &Config, files: Vec<Planned>) -> Vec<Planned> {
+    with_unused_in(&Dialect::DEVFLOW, root, config, files)
+}
+
+/// [`with_unused`], a script recognised as one `dialect`'s setup wrote.
+pub fn with_unused_in(
+    dialect: &'static Dialect,
+    root: &Path,
+    config: &Config,
+    files: Vec<Planned>,
+) -> Vec<Planned> {
     let mut files = files;
     let dir = crate::folder::dir(root);
     let Ok(folder) = crate::fsguard::resolve(root, &format!("{dir}/scripts")) else {
@@ -346,6 +358,7 @@ pub fn with_unused(root: &Path, config: &Config, files: Vec<Planned>) -> Vec<Pla
                 text: name,
                 kind: Kind::Unused,
                 executable: false,
+                dialect,
             })
         })
         .collect();
@@ -357,8 +370,8 @@ pub fn with_unused(root: &Path, config: &Config, files: Vec<Planned>) -> Vec<Pla
 /// Whether `text` is the script devpit writes for check `name`, unchanged:
 /// written again from the command and source it names, it is the same. A
 /// command of more than one line was the person's to grow, so it is theirs.
-fn generated(dir: &str, name: &str, text: &str) -> bool {
-    let Some((head, command)) = text.split_once("mkdir -p \"$DEVFLOW_REPORT_DIR\"\n") else {
+fn generated(dialect: &Dialect, dir: &str, name: &str, text: &str) -> bool {
+    let Some((head, command)) = text.split_once(&made_line(dialect)) else {
         return false;
     };
     if command.trim_end_matches('\n').contains('\n') {
@@ -374,7 +387,7 @@ fn generated(dir: &str, name: &str, text: &str) -> bool {
         command: command.strip_suffix('\n').unwrap_or(command).to_owned(),
         source: source.map(str::to_owned),
     };
-    script_text(dir, &script) == text
+    script_text(dialect, dir, &script) == text
 }
 
 /// What writing `files` under `root` would do; nothing is written.
@@ -404,7 +417,7 @@ pub fn write(root: &Path, files: &[Planned]) -> Result<Vec<FileChange>, String> 
                 continue;
             }
             ("remove", _) => {
-                removed(root, &file.path)?;
+                removed(file.dialect, root, &file.path)?;
                 done.push(FileChange {
                     path: file.path.clone(),
                     change,
@@ -440,12 +453,12 @@ pub fn write(root: &Path, files: &[Planned]) -> Result<Vec<FileChange>, String> 
 
 /// Removes the file at `path`, itself and never what a link points at,
 /// inside a folder of the project.
-fn removed(root: &Path, path: &str) -> Result<(), String> {
+fn removed(dialect: &Dialect, root: &Path, path: &str) -> Result<(), String> {
     let (parent, name) = path.rsplit_once('/').unwrap_or(("", path));
     let folder = crate::fsguard::resolve(root, parent).map_err(|err| format!("{path}: {err}"))?;
     let entry = folder.join(name);
     if !std::fs::symlink_metadata(&entry).is_ok_and(|meta| meta.is_file()) {
-        return Err(format!("{path} is not a file devflow wrote"));
+        return Err(format!("{path} is not a file {} wrote", dialect.product));
     }
     std::fs::remove_file(entry).map_err(|err| format!("{path}: {err}"))
 }
@@ -468,7 +481,9 @@ fn script_dir(path: &str) -> &str {
 fn change_of(file: &Planned, existing: Option<&str>) -> &'static str {
     match (existing, file.kind) {
         // The text of an unused script's plan is its check's name.
-        (Some(text), Kind::Unused) if generated(script_dir(&file.path), &file.text, text) => {
+        (Some(text), Kind::Unused)
+            if generated(file.dialect, script_dir(&file.path), &file.text, text) =>
+        {
             "remove"
         }
         (_, Kind::Unused) => "unused",

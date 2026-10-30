@@ -3,6 +3,7 @@
 //! the name its runs are kept under in devpit's folder for the project, and
 //! the criteria it is held to in place of a card's.
 
+use crate::dialect::Dialect;
 use serde_json::{Map, Value};
 
 use crate::review::{self, FIELDS};
@@ -52,10 +53,18 @@ pub struct Standalone {
 /// The review's input when it names no card; `None` when it does, which is
 /// [`review::asked`]'s to read.
 pub fn standalone(params: &Value) -> Result<Option<Standalone>, String> {
+    standalone_in(&Dialect::DEVFLOW, params)
+}
+
+/// [`standalone`], refused in `dialect`'s words.
+pub fn standalone_in(dialect: &Dialect, params: &Value) -> Result<Option<Standalone>, String> {
     let params = &crate::work::as_card(params);
-    let fields = params
-        .as_object()
-        .ok_or("the review takes an item, a pr, a base and a head, or a path")?;
+    let fields = params.as_object().ok_or_else(|| {
+        format!(
+            "the review takes {}, a pr, a base and a head, or a path",
+            dialect.an_item
+        )
+    })?;
     if fields.get("card").is_some_and(|card| !card.is_null()) {
         return Ok(None);
     }
@@ -66,7 +75,10 @@ pub fn standalone(params: &Value) -> Result<Option<Standalone>, String> {
         return Err(format!("`{extra}` is not a field of the review"));
     }
     if fields.contains_key("previous") {
-        return Err("`previous` re-reviews a work item's run: pass the item".to_owned());
+        return Err(format!(
+            "`previous` re-reviews {}'s run: pass the {}",
+            dialect.a_work_item, dialect.item
+        ));
     }
     let word = |key: &str| text(fields, key);
     let revision = |key: &str| -> Result<Option<String>, String> {
@@ -88,10 +100,10 @@ pub fn standalone(params: &Value) -> Result<Option<Standalone>, String> {
         (None, _, Some(_), Some(_)) => {
             return Err("a worktree is reviewed at its own HEAD: leave out `head`".to_owned())
         }
-        (None, ..) => return Err(
-            "which change? pass `item`, or `pr`, or `base` and `head`, or `path` (a worktree of the project)"
-                .to_owned(),
-        ),
+        (None, ..) => return Err(format!(
+            "which change? pass `{}`, or `pr`, or `base` and `head`, or `path` (a worktree of the project)",
+            dialect.item_field
+        )),
     };
     let retro = match word("mode").as_deref() {
         None => false,
@@ -105,7 +117,7 @@ pub fn standalone(params: &Value) -> Result<Option<Standalone>, String> {
     };
     let reports = review::reports_of(fields)?;
     let run = word("run");
-    review::handed_back(run.as_deref(), &reports)?;
+    review::handed_back(dialect, run.as_deref(), &reports)?;
     Ok(Some(Standalone {
         subject,
         criteria: criteria_of(fields.get("criteria"))?,
@@ -227,6 +239,28 @@ pub fn next(
     detached: Option<&str>,
     retro: bool,
 ) -> String {
+    next_in(
+        &Dialect::DEVFLOW,
+        subject,
+        label,
+        stamp,
+        pending,
+        detached,
+        retro,
+    )
+}
+
+/// [`next`], in `dialect`'s words.
+pub fn next_in(
+    dialect: &Dialect,
+    subject: &Subject,
+    label: &str,
+    stamp: &str,
+    pending: &[String],
+    detached: Option<&str>,
+    retro: bool,
+) -> String {
+    let tools = &dialect.tools;
     if pending.is_empty() {
         let posted = match subject {
             Subject::Pr(number) => format!(
@@ -241,7 +275,8 @@ pub fn next(
             ""
         };
         return format!(
-            "Done: the findings are in findings.json; nothing is commented on any work item.{impact} `publish` with review \"{label}/{stamp}\" {posted}."
+            "Done: the findings are in findings.json; nothing is commented on any {}.{impact} {} with review \"{label}/{stamp}\" {posted}.",
+            dialect.work_item, tools.publish
         );
     }
     let reading = detached.map_or_else(String::new, |head| {
@@ -253,8 +288,9 @@ pub fn next(
         ""
     };
     format!(
-        "Review {} yourself: one fresh subagent per persona, each given only the packet and its persona beside it, each answering one findings object.{reading}{impact} Then call `review` again with {}, run \"{stamp}\" and reports: those objects.",
+        "Review {} yourself: one fresh subagent per persona, each given only the packet and its persona beside it, each answering one findings object.{reading}{impact} Then call {} again with {}, run \"{stamp}\" and reports: those objects.",
         pending.join(", "),
+        tools.review,
         subject.again()
     )
 }

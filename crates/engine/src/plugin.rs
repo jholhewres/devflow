@@ -22,24 +22,7 @@ pub const GATE_WAITS: u64 = 60;
 pub const CONTEXT_WAITS: u64 = 10;
 
 /// The reviewer personas, as subagents a review hands one packet each.
-pub const PERSONAS: [(&str, &str); 4] = [
-    (
-        "devflow-spec",
-        include_str!("../../../flow/personas/devflow-spec.md"),
-    ),
-    (
-        "devflow-standards",
-        include_str!("../../../flow/personas/devflow-standards.md"),
-    ),
-    (
-        "devflow-security",
-        include_str!("../../../flow/personas/devflow-security.md"),
-    ),
-    (
-        "devflow-all",
-        include_str!("../../../flow/personas/devflow-all.md"),
-    ),
-];
+pub const PERSONAS: [(&str, &str); 4] = crate::Dialect::DEVFLOW.assets.personas;
 
 /// The line a hook runs for `event`.
 pub fn hook_command(event: &str, agent: &str) -> String {

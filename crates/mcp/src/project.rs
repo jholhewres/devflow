@@ -69,6 +69,7 @@ impl Project {
     /// folder in the checkout, still read.
     pub fn runs(&self) -> Runs {
         Runs {
+            dialect: &devflow_engine::Dialect::DEVFLOW,
             home: self.root.join(self.dir()).join(RUNS),
             checkout: self.root.clone(),
         }
@@ -94,6 +95,7 @@ impl Project {
     /// Where reviews without a work item are kept.
     pub fn reviews(&self, checkout: &Path) -> Runs {
         Runs {
+            dialect: &devflow_engine::Dialect::DEVFLOW,
             home: self.cache().join("reviews"),
             checkout: checkout.to_path_buf(),
         }

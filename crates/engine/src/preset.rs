@@ -172,18 +172,32 @@ pub fn starting(preset: Preset, detected: &Detected) -> Config {
 
 /// `config` with the value at the dotted `path` replaced. Checked like a file.
 pub fn with_set(config: &Config, path: &str, value: &Value) -> Result<Config, Invalid> {
-    config::from_json(&set_path(config.to_json(), path, value)?)
+    config::from_json(&set_path(
+        &crate::Dialect::DEVFLOW,
+        config.to_json(),
+        path,
+        value,
+    )?)
 }
 
 /// `whole` with the value at the dotted `path` replaced: a field, a list item
 /// by index (one past the end adds one), or a whole map or list.
-pub(crate) fn set_path(mut whole: Value, path: &str, value: &Value) -> Result<Value, Invalid> {
+pub(crate) fn set_path(
+    dialect: &crate::Dialect,
+    mut whole: Value,
+    path: &str,
+    value: &Value,
+) -> Result<Value, Invalid> {
     let parts: Vec<&str> = path.split('.').map(str::trim).collect();
     if parts.iter().any(|part| part.is_empty()) {
         return Err(Invalid::at(None, path, "a path is fields joined by dots"));
     }
     if parts == ["version"] {
-        return Err(Invalid::at(None, path, "the version is devflow's to write"));
+        return Err(Invalid::at(
+            None,
+            path,
+            &format!("the version is {}'s to write", dialect.product),
+        ));
     }
     if !whole.is_object() {
         whole = Value::Object(Default::default());

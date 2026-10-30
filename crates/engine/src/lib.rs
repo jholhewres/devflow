@@ -18,6 +18,7 @@ pub mod calibrate;
 pub mod config;
 pub mod criteria;
 pub mod detect;
+pub mod dialect;
 pub mod env;
 pub mod evidence;
 pub mod findings;
@@ -51,6 +52,7 @@ pub mod verdict;
 pub mod work;
 
 pub use config::{Config, Invalid};
+pub use dialect::{Assets, Dialect};
 pub use folder::State;
 pub use locate::{config_in, Found, Origin};
 pub use proposal::{Ask, Proposal};

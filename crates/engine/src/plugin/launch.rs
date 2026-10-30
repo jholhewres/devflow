@@ -131,9 +131,14 @@ fn one_line(text: &str) -> String {
 /// Claude Code's plugin folder, by path inside it: loaded with
 /// `--plugin-dir`, for that session only. Skills are `/devflow:<stage>`.
 pub fn claude(exe: &str) -> Vec<(String, String)> {
+    claude_in(&crate::Dialect::DEVFLOW, exe)
+}
+
+/// [`claude`], its version and skills `dialect`'s.
+pub fn claude_in(dialect: &crate::Dialect, exe: &str) -> Vec<(String, String)> {
     let manifest = json!({
         "name": NAME,
-        "version": env!("CARGO_PKG_VERSION"),
+        "version": dialect.version,
         "description": "Devflow's gate, card context and stage skills, from devpit",
         "author": { "name": "devpit" },
     });
@@ -144,7 +149,7 @@ pub fn claude(exe: &str) -> Vec<(String, String)> {
             pretty(&hooks(exe, Cli::Claude)),
         ),
     ];
-    for (skill, stage, description) in skills::described() {
+    for (skill, stage, description) in skills::described_in(dialect) {
         let short = stage.unwrap_or("setup");
         files.push((
             format!("skills/{short}/SKILL.md"),
@@ -162,10 +167,15 @@ pub const MARKETPLACE: &str = "devpit";
 /// plugin into every session it starts, so its hooks are not in it: they
 /// ride devpit's own launch line instead ([`codex_flags`]). Installing it is
 /// `codex plugin marketplace add <folder>`, the person's to run.
-pub fn codex(_exe: &str) -> Vec<(String, String)> {
+pub fn codex(exe: &str) -> Vec<(String, String)> {
+    codex_in(&crate::Dialect::DEVFLOW, exe)
+}
+
+/// [`codex`], its version and skills `dialect`'s.
+pub fn codex_in(dialect: &crate::Dialect, _exe: &str) -> Vec<(String, String)> {
     let manifest = json!({
         "name": NAME,
-        "version": env!("CARGO_PKG_VERSION"),
+        "version": dialect.version,
         "description": "Devflow's stage skills, from devpit",
         "author": { "name": "devpit" },
     });
@@ -185,7 +195,7 @@ pub fn codex(_exe: &str) -> Vec<(String, String)> {
         ),
         (format!("{NAME}/plugin.json"), pretty(&manifest)),
     ];
-    for (skill, _, description) in skills::described() {
+    for (skill, _, description) in skills::described_in(dialect) {
         files.push((
             format!("{NAME}/skills/{skill}/SKILL.md"),
             pointer(skill, skill, &one_line(&description)),

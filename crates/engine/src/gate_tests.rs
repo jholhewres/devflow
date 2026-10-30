@@ -46,6 +46,7 @@ const RUN: &str = "20261011T120000Z";
 fn look(config: &Config, run: Option<&Value>, changed: Option<&str>) -> Checked {
     let criteria = criteria();
     checked(&Looked {
+        dialect: &crate::Dialect::DEVFLOW,
         config,
         card: "card_1",
         criteria: &criteria,
@@ -163,6 +164,7 @@ fn reviewed_with(config: &Config, findings: &Value, at: &str, changed: Option<&s
     let run = green_run();
     let criteria = criteria();
     checked(&Looked {
+        dialect: &crate::Dialect::DEVFLOW,
         config,
         card: "card_1",
         criteria: &criteria,
@@ -186,6 +188,7 @@ fn a_review_of_a_commit_the_code_moved_on_from_holds_the_card() {
     let findings = json!({ "verdict": "approve", "findings": [] });
     let looked = |unreviewed| {
         checked(&Looked {
+            dialect: &crate::Dialect::DEVFLOW,
             config: &config,
             card: "card_1",
             criteria: &criteria,
@@ -472,6 +475,7 @@ fn a_criterion_proved_by_a_screenshot_that_is_there_passes_and_a_missing_one_doe
 fn look_no_code(config: &Config, run: &Value, no_code: bool) -> Checked {
     let criteria = criteria();
     checked(&Looked {
+        dialect: &crate::Dialect::DEVFLOW,
         config,
         card: "card_1",
         criteria: &criteria,

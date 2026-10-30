@@ -238,8 +238,8 @@ pub struct Layered {
 }
 
 /// A layer above the project, read as JSON once it reads as a devflow.yaml.
-fn upper(text: &str, what: &str) -> Result<Value, Invalid> {
-    config::parse(text)
+fn upper(dialect: &crate::Dialect, text: &str, what: &str) -> Result<Value, Invalid> {
+    config::parse_in(dialect, text)
         .map_err(|invalid| Invalid::at(None, &invalid.field, &format!("{what}: {invalid}")))?;
     let mut json = folder::as_json(text).unwrap_or_default();
     if let Some(fields) = json.as_object_mut() {
@@ -263,7 +263,7 @@ fn personal(home: &Home) -> Result<Option<Value>, Invalid> {
         .map_err(|_| refused("could not be read"))?
         .ok_or_else(|| refused("is larger than 256 KB"))?;
     let text = String::from_utf8(raw).map_err(|_| refused("is not UTF-8 text"))?;
-    upper(&text, "your own devflow.yaml").map(Some)
+    upper(&crate::Dialect::DEVFLOW, &text, "your own devflow.yaml").map(Some)
 }
 
 /// `merged` with `layer` over it: maps field by field, anything else whole.
@@ -350,7 +350,17 @@ fn locked_in(layer: &Value) -> Vec<String> {
 /// The project's devflow.yaml `text` read over its layers. Refused, with the
 /// field, when the project changes what a layer locked.
 pub fn layered(root: &Path, text: &str, home: &Home) -> Result<Layered, Invalid> {
-    let own = config::parse(text)?;
+    layered_in(&crate::Dialect::DEVFLOW, root, text, home)
+}
+
+/// [`layered`], refused in `dialect`'s words.
+pub fn layered_in(
+    dialect: &crate::Dialect,
+    root: &Path,
+    text: &str,
+    home: &Home,
+) -> Result<Layered, Invalid> {
+    let own = config::parse_in(dialect, text)?;
     let (applied, teams) =
         teams(root, &own.extends, home).map_err(|why| Invalid::at(None, "extends", &why))?;
     let mut uppers: Vec<(String, Value)> = Vec::new();
@@ -363,7 +373,7 @@ pub fn layered(root: &Path, text: &str, home: &Home) -> Result<Layered, Invalid>
             .map_err(|why| Invalid::at(None, "extends", &why))?;
         if let Some(text) = read {
             let what = format!("{}'s devflow.yaml", team.name);
-            uppers.push((team.name.clone(), upper(&text, &what)?));
+            uppers.push((team.name.clone(), upper(dialect, &text, &what)?));
         }
     }
     let project = folder::as_json(text).unwrap_or_default();
@@ -398,7 +408,7 @@ pub fn layered(root: &Path, text: &str, home: &Home) -> Result<Layered, Invalid>
             fields.insert("locked".to_owned(), Value::from(own.locked.clone()));
         }
     }
-    let config = folder::relocated(root, config::from_json(&merged)?);
+    let config = folder::relocated(root, config::from_json_in(dialect, &merged)?);
     Ok(Layered {
         config,
         teams,

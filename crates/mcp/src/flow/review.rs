@@ -136,6 +136,7 @@ pub fn on_item(
         redact: &redacting,
         jev: judging.as_ref().map(|judge| judge as review::Judge),
         personas: Personas {
+            dialect: &devflow_engine::Dialect::DEVFLOW,
             personal: personal.as_deref(),
             teams: &teams,
         },
@@ -387,6 +388,7 @@ pub fn standalone(
         redact: &redacting,
         jev: None,
         personas: Personas {
+            dialect: &devflow_engine::Dialect::DEVFLOW,
             personal: personal.as_deref(),
             teams: &teams,
         },

@@ -15,7 +15,7 @@ use crate::config::{Consolidate, Severity, Verify};
 use crate::plan::PREFIX;
 
 /// The schema, as this build ships it and the setup installs it.
-pub const SCHEMA: &str = include_str!("../../../flow/schemas/devflow-findings.schema.json");
+pub const SCHEMA: &str = crate::Dialect::DEVFLOW.assets.schema;
 
 /// The axes, in the order a review reports them.
 pub const AXES: [&str; 3] = ["spec", "standards", "security"];

@@ -25,17 +25,23 @@ const MOST_ITEMS: usize = 12;
 /// Where the plan's cards go, or why they cannot go there yet. Only the
 /// board takes them: the trackers wait on their own integration.
 pub fn published(config: &crate::Config) -> Result<(), String> {
+    published_in(&crate::Dialect::DEVFLOW, config)
+}
+
+/// [`published`], in `dialect`'s words.
+pub fn published_in(dialect: &crate::Dialect, config: &crate::Config) -> Result<(), String> {
     use crate::config::Publish;
     match config.publish() {
         Publish::Board => Ok(()),
         other => Err(format!(
-            "publish: {} is not yet — it needs O-08, the {} integration. Set stages.plan.publish to board, and the plan's slices are made as work items in .devflow/work/.",
+            "publish: {} is not yet — it needs O-08, the {} integration. Set stages.plan.publish to board, and the plan's {}",
             other.word(),
             match other {
                 Publish::Jira => "Jira",
                 Publish::Linear => "Linear",
                 _ => "GitHub Issues",
-            }
+            },
+            dialect.plan_board
         )),
     }
 }
@@ -61,11 +67,19 @@ pub struct Slice {
 
 /// The slices an agent or the board passed, trimmed and checked.
 pub fn read(cards: &Value) -> Result<Vec<Slice>, String> {
+    read_in(&crate::Dialect::DEVFLOW, cards)
+}
+
+/// [`read`], refused in `dialect`'s words.
+pub fn read_in(dialect: &crate::Dialect, cards: &Value) -> Result<Vec<Slice>, String> {
     let slices: Vec<Slice> = serde_json::from_value(cards.clone()).map_err(|why| {
-        format!("`items` is a list of {{ key, title, build, criteria, files, verify, depends_on }}: {why}")
+        format!(
+            "`{}` is a list of {{ key, title, build, criteria, files, verify, depends_on }}: {why}",
+            dialect.items
+        )
     })?;
     let slices: Vec<Slice> = slices.into_iter().map(trimmed).collect();
-    checked(&slices)?;
+    checked_in(dialect, &slices)?;
     Ok(slices)
 }
 
@@ -94,11 +108,16 @@ fn trimmed(slice: Slice) -> Slice {
 
 /// Why a plan cannot become cards, or nothing.
 pub fn checked(slices: &[Slice]) -> Result<(), String> {
+    checked_in(&crate::Dialect::DEVFLOW, slices)
+}
+
+/// [`checked`], refused in `dialect`'s words.
+pub fn checked_in(dialect: &crate::Dialect, slices: &[Slice]) -> Result<(), String> {
     if slices.is_empty() || slices.len() > MOST_CARDS {
-        return Err(format!("a plan has 1 to {MOST_CARDS} items"));
+        return Err(format!("a plan has 1 to {MOST_CARDS} {}", dialect.items));
     }
     for (at, slice) in slices.iter().enumerate() {
-        let named = format!("item {} ({})", at + 1, slice.key);
+        let named = format!("{} {} ({})", dialect.item, at + 1, slice.key);
         if slice.key.is_empty() || slice.key.len() > LONGEST_KEY {
             return Err(format!("{named}: a key of 1 to {LONGEST_KEY} characters"));
         }
@@ -125,16 +144,17 @@ pub fn checked(slices: &[Slice]) -> Result<(), String> {
         for key in &slice.depends_on {
             if key == &slice.key || (!is_key(slices, key) && !names_a_card(key)) {
                 return Err(format!(
-                    "{named}: depends_on `{key}` is not another item of this plan, nor a work \
-                     item that exists, named as `#42`"
+                    "{named}: depends_on `{key}` {}",
+                    dialect.plan_outside
                 ));
             }
         }
     }
     if ordered(slices).is_none() {
-        return Err(
-            "the items' depends_on go round in a circle, so none of them could start".to_owned(),
-        );
+        return Err(format!(
+            "the {}' depends_on go round in a circle, so none of them could start",
+            dialect.items
+        ));
     }
     Ok(())
 }

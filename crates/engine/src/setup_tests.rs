@@ -35,7 +35,7 @@ fn each_command_moves_into_a_script_that_says_where_it_came_from() {
     );
     // Already a script of its own: left as it is.
     assert_eq!(scripts.len(), 1);
-    let text = script_text(DIR, &scripts[0]);
+    let text = script_text(&crate::Dialect::DEVFLOW, DIR, &scripts[0]);
     assert!(text.starts_with("#!/bin/sh\n"), "{text}");
     assert!(text.contains("found in Makefile:4"), "{text}");
     assert!(text.ends_with("\nmake test\n"), "{text}");
@@ -98,6 +98,7 @@ fn a_script_no_check_runs_is_listed_and_removed_only_when_devpit_wrote_it_as_it_
     std::fs::create_dir_all(&scripts).expect("scripts");
     let written = |name: &str, command: &str, source: Option<&str>| {
         script_text(
+            &crate::Dialect::DEVFLOW,
             DIR,
             &Script {
                 name: name.into(),
@@ -153,15 +154,22 @@ fn every_persona_devpit_ships_is_known_as_shipped() {
     // Changing a persona's text? Add its new SHA-256 to SHIPPED, so the
     // copies older setups made of it keep reading devpit's.
     for (name, text) in PERSONAS {
-        assert!(shipped(name, text), "{name} is not in SHIPPED");
         assert!(
-            shipped(name, &text.replace('\n', "\r\n")),
+            shipped_in(&crate::Dialect::DEVFLOW, name, text),
+            "{name} is not in SHIPPED"
+        );
+        assert!(
+            shipped_in(&crate::Dialect::DEVFLOW, name, &text.replace('\n', "\r\n")),
             "{name} with CRLF"
         );
-        assert!(!shipped(name, &format!("{text}\nOne line of ours.\n")));
+        assert!(!shipped_in(
+            &crate::Dialect::DEVFLOW,
+            name,
+            &format!("{text}\nOne line of ours.\n")
+        ));
     }
     assert!(
-        !shipped("devflow-all", PERSONAS[0].1),
+        !shipped_in(&crate::Dialect::DEVFLOW, "devflow-all", PERSONAS[0].1),
         "another persona's text"
     );
 }
@@ -185,6 +193,7 @@ fn a_folder_that_leads_outside_the_project_is_refused() {
 #[test]
 fn a_setup_in_devpits_folder_writes_its_files_there() {
     let layout = Layout {
+        dialect: &crate::Dialect::DEVFLOW,
         dir: crate::folder::LEGACY,
         file: crate::locate::DEVPIT.to_owned(),
     };
@@ -208,7 +217,8 @@ fn a_setup_in_devpits_folder_writes_its_files_there() {
     assert!(files[2]
         .text
         .contains("cd \"$(dirname \"$0\")/../../..\"\n"));
-    assert!(script_text(DIR, &scripts[0]).contains("cd \"$(dirname \"$0\")/../..\"\n"));
+    assert!(script_text(&crate::Dialect::DEVFLOW, DIR, &scripts[0])
+        .contains("cd \"$(dirname \"$0\")/../..\"\n"));
 
     // The script runs from the root wherever it is started.
     let root = tempfile::tempdir().expect("root");

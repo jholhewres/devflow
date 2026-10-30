@@ -16,9 +16,6 @@ use crate::config::{Agent, Report};
 /// The most of one manifest read, checked before reading.
 const MOST_BYTES: u64 = 1024 * 1024;
 
-/// Where a JS or PHP runner writes its report, for the check to read.
-const REPORT: &str = "$DEVFLOW_REPORT_DIR";
-
 /// A command found in the repository.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Found {
@@ -142,7 +139,15 @@ impl Detected {
 
 /// Everything detected about the project at `root`.
 pub fn detected(root: &Path, machine: Machine) -> Detected {
-    let files = Files { root };
+    detected_in(&crate::Dialect::DEVFLOW, root, machine)
+}
+
+/// [`detected`], each command writing its report where `dialect`'s checks do.
+pub fn detected_in(dialect: &crate::Dialect, root: &Path, machine: Machine) -> Detected {
+    let files = Files {
+        root,
+        report: format!("${}", dialect.report_dir()),
+    };
     let hints = hints(root, &files, &machine);
     let path = machine.path;
     let mut found = Detected {
@@ -177,6 +182,8 @@ pub fn detected(root: &Path, machine: Machine) -> Detected {
 /// The project's files, each read only once it is resolved inside the root.
 struct Files<'a> {
     root: &'a Path,
+    /// The variable a detected command writes its report under.
+    report: String,
 }
 
 impl Files<'_> {
@@ -257,6 +264,7 @@ fn runner(files: &Files) -> (&'static str, &'static str) {
 }
 
 fn package_json(files: &Files, into: &mut Detected) {
+    let report = &files.report;
     const FILE: &str = "package.json";
     let Some(text) = files.read(FILE) else {
         return;
@@ -277,7 +285,7 @@ fn package_json(files: &Files, into: &mut Detected) {
             .map(str::to_owned)
     };
     let (exec, manager) = runner(files);
-    let report = format!("--outputFile=\"{REPORT}/tests.json\"");
+    let report = format!("--outputFile=\"{report}/tests.json\"");
     let script_line = |name: &str| line_of(&text, &format!("\"{name}\""));
     let test = if has("vitest") {
         Some((
@@ -364,6 +372,7 @@ fn cargo(files: &Files, into: &mut Detected) {
 }
 
 fn pyproject(files: &Files, into: &mut Detected) {
+    let report = &files.report;
     const FILE: &str = "pyproject.toml";
     let Some(text) = files.read(FILE) else {
         return;
@@ -378,7 +387,7 @@ fn pyproject(files: &Files, into: &mut Detected) {
     if text.contains("[tool.pytest") || text.contains("pytest") {
         let line = line_of(&text, "pytest");
         into.test.push(found(
-            format!("{runner}python -m pytest --junitxml=\"{REPORT}/pytest.xml\""),
+            format!("{runner}python -m pytest --junitxml=\"{report}/pytest.xml\""),
             FILE,
             line,
             Report::Junit,
@@ -395,12 +404,13 @@ fn pyproject(files: &Files, into: &mut Detected) {
 }
 
 fn go(files: &Files, into: &mut Detected) {
+    let report = &files.report;
     const FILE: &str = "go.mod";
     if files.read(FILE).is_none() {
         return;
     }
     into.test.push(found(
-        format!("go test -json ./... > \"{REPORT}/go-test.json\""),
+        format!("go test -json ./... > \"{report}/go-test.json\""),
         FILE,
         1,
         Report::Go,
@@ -415,6 +425,7 @@ fn go(files: &Files, into: &mut Detected) {
 /// The Go modules in subfolders at depth 1 and 2, each tested from the root
 /// with `go -C`: `go test ./...` at the root stops at a module's edge.
 fn nested(root: &Path, files: &Files) -> Vec<Nested> {
+    let report = &files.report;
     let mut kept = Vec::new();
     for folder in subfolders(root) {
         if kept.len() == MOST_NESTED {
@@ -424,7 +435,7 @@ fn nested(root: &Path, files: &Files) -> Vec<Nested> {
         if files.read(&module).is_some() {
             kept.push(Nested {
                 test: found(
-                    format!("go -C {folder} test -json ./... > \"{REPORT}/go-test.json\""),
+                    format!("go -C {folder} test -json ./... > \"{report}/go-test.json\""),
                     &module,
                     1,
                     Report::Go,
@@ -478,6 +489,7 @@ fn plain_folder(name: &str) -> bool {
 }
 
 fn composer(files: &Files, into: &mut Detected) {
+    let report = &files.report;
     const FILE: &str = "composer.json";
     let Some(text) = files.read(FILE) else {
         return;
@@ -505,14 +517,14 @@ fn composer(files: &Files, into: &mut Detected) {
         ));
     } else if has("pestphp/pest") {
         into.test.push(found(
-            format!("vendor/bin/pest --log-junit \"{REPORT}/pest.xml\""),
+            format!("vendor/bin/pest --log-junit \"{report}/pest.xml\""),
             FILE,
             line_of(&text, "\"pestphp/pest\""),
             Report::Junit,
         ));
     } else if has("phpunit/phpunit") {
         into.test.push(found(
-            format!("vendor/bin/phpunit --log-junit \"{REPORT}/phpunit.xml\""),
+            format!("vendor/bin/phpunit --log-junit \"{report}/phpunit.xml\""),
             FILE,
             line_of(&text, "\"phpunit/phpunit\""),
             Report::Junit,

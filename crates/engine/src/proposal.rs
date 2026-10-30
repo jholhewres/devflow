@@ -98,13 +98,13 @@ pub fn setup_in(
         let (path, _) = ask.field();
         let now = preset::value_at(&before, path);
         if !now.is_null() {
-            wanted = preset::set_path(wanted, path, now)?;
+            wanted = preset::set_path(layout.dialect, wanted, path, now)?;
         }
     }
     for (path, value) in set {
-        wanted = preset::set_path(wanted, path, value)?;
+        wanted = preset::set_path(layout.dialect, wanted, path, value)?;
     }
-    let asks = held_back(&before, &mut wanted)?;
+    let asks = held_back(layout, &before, &mut wanted)?;
     let sources: Vec<(String, String)> = [&detected.test, &detected.e2e, &detected.lint]
         .into_iter()
         .flatten()
@@ -116,17 +116,22 @@ pub fn setup_in(
                 .filter_map(|tool| Some((tool.run.clone()?, tool.source.clone()))),
         )
         .collect();
-    let config = config::from_json(&wanted)?;
+    let config = config::from_json_in(layout.dialect, &wanted)?;
     // Before the commands move into scripts: a check the person chose names its tool there.
     let playwright = playwright::wanted(&config, detected).then(|| {
         let e2e_dir = &config.stages.execution.e2e_dir;
-        playwright::text_in(layout.dir, e2e_dir, playwright::base(detected))
+        playwright::text_of(
+            layout.dialect,
+            layout.dir,
+            e2e_dir,
+            playwright::base(detected),
+        )
     });
     let (config, scripts) = setup::scripted_in(layout.dir, config, &sources);
     let changes = preset::diff(&before, &config.to_json());
     // A setup run again over the person's file keeps their comments, unless
     // what it changes is more than a word.
-    let (yaml, laid_out) = folder::rewritten(text_of(state), &changes, &config);
+    let (yaml, laid_out) = folder::rewritten_in(layout.dialect, text_of(state), &changes, &config);
     Ok(Proposal {
         changes,
         files: setup::planned_in(layout, &yaml, &scripts, playwright.as_deref()),
@@ -168,8 +173,8 @@ pub fn set_in(
             return Err(invalid.clone());
         }
     }
-    let mut wanted = preset::set_path(before.clone(), path, value)?;
-    let asks = held_back(&before, &mut wanted)?;
+    let mut wanted = preset::set_path(layout.dialect, before.clone(), path, value)?;
+    let asks = held_back(layout, &before, &mut wanted)?;
     written(layout, text, &before, &wanted, asks)
 }
 
@@ -189,7 +194,7 @@ pub fn switched_in(layout: &Layout, state: &State, ask: Ask) -> Result<Proposal,
     };
     let (path, value) = ask.field();
     let before = now.to_json();
-    let wanted = preset::set_path(before.clone(), path, &value)?;
+    let wanted = preset::set_path(layout.dialect, before.clone(), path, &value)?;
     written(layout, text, &before, &wanted, Vec::new())
 }
 
@@ -218,9 +223,9 @@ fn written(
     wanted: &Value,
     asks: Vec<Ask>,
 ) -> Result<Proposal, Invalid> {
-    let config = config::from_json(wanted)?;
+    let config = config::from_json_in(layout.dialect, wanted)?;
     // A check the change adds runs a script of its own, as a setup's does.
-    let (config, scripts) = match config::from_json(before) {
+    let (config, scripts) = match config::from_json_in(layout.dialect, before) {
         Ok(had) => {
             let had: Vec<String> = had
                 .stages
@@ -238,7 +243,7 @@ fn written(
     } else {
         preset::diff(before, &config.to_json())
     };
-    let (yaml, laid_out) = folder::rewritten(Some(text), &changes, &config);
+    let (yaml, laid_out) = folder::rewritten_in(layout.dialect, Some(text), &changes, &config);
     Ok(Proposal {
         files: setup::config_only_in(layout, &yaml, &scripts),
         config,
@@ -251,7 +256,7 @@ fn written(
 }
 
 /// Puts back what only a click may raise, and says what was asked for.
-fn held_back(before: &Value, wanted: &mut Value) -> Result<Vec<Ask>, Invalid> {
+fn held_back(layout: &Layout, before: &Value, wanted: &mut Value) -> Result<Vec<Ask>, Invalid> {
     let mut asks = Vec::new();
     for ask in [Ask::Enable, Ask::Enforce] {
         let (path, raised) = ask.field();
@@ -265,7 +270,7 @@ fn held_back(before: &Value, wanted: &mut Value) -> Result<Vec<Ask>, Invalid> {
             } else {
                 now
             };
-            *wanted = preset::set_path(wanted.clone(), path, &back)?;
+            *wanted = preset::set_path(layout.dialect, wanted.clone(), path, &back)?;
             asks.push(ask);
         }
     }

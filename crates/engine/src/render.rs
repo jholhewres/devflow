@@ -5,25 +5,28 @@
 use std::fmt::Write;
 
 use crate::config::{Approved, Check, Config, Stage, StageGate, Step, V1};
+use crate::dialect::Dialect;
 
 /// The text of `config`, commented.
 pub fn render(config: &Config) -> String {
+    render_in(&Dialect::DEVFLOW, config)
+}
+
+/// [`render`], its comments in `dialect`'s words.
+pub fn render_in(dialect: &Dialect, config: &Config) -> String {
     let mut out = String::new();
-    out.push_str(
-        "# Devflow: briefing → context → plan → execution → review → completion,\n\
-         # served by devflow's MCP. This file is the source of truth: devflow edits\n\
-         # it and never commits it.\n",
-    );
+    out.push_str(dialect.yaml_header);
     let _ = writeln!(out, "version: {}", config.version);
-    out.push_str("\n# Switched on by the person with `devflow config set`, never by an agent.\n");
+    out.push('\n');
+    out.push_str(dialect.yaml_enabled);
     let _ = writeln!(out, "enabled: {}", config.enabled);
     if config.version == V1 {
-        stages_v1(&mut out, config);
+        stages_v1(dialect, &mut out, config);
     } else {
         extends(&mut out, config);
-        stages_v2(&mut out, config);
+        stages_v2(dialect, &mut out, config);
     }
-    review(&mut out, config);
+    review(dialect, &mut out, config);
     if config.version != V1 && !config.locked.is_empty() {
         out.push_str("\n# Fields a project extending this file may not change.\nlocked:\n");
         for path in &config.locked {
@@ -33,16 +36,17 @@ pub fn render(config: &Config) -> String {
     out
 }
 
-fn checks(out: &mut String, indent: &str, checks: &[Check]) {
+fn checks(dialect: &Dialect, out: &mut String, indent: &str, checks: &[Check]) {
     if checks.is_empty() {
         let _ = writeln!(out, "{indent}checks: []");
         return;
     }
     let _ = writeln!(
         out,
-        "{indent}# Run by devflow from the project's root for the evidence on the work item.\n\
+        "{indent}# Run by {} from the project's root for the evidence on the {}.\n\
          {indent}# report: junit | vitest | jest | cargo | none\n\
-         {indent}checks:"
+         {indent}checks:",
+        dialect.product, dialect.work_item
     );
     for check in checks {
         let _ = writeln!(out, "{indent}  - name: {}", scalar(&check.name));
@@ -68,7 +72,7 @@ fn e2e_dir(out: &mut String, dir: &str) {
     }
 }
 
-fn stages_v1(out: &mut String, config: &Config) {
+fn stages_v1(dialect: &Dialect, out: &mut String, config: &Config) {
     let stages = &config.stages;
     out.push_str("\nstages:\n");
     out.push_str("  # approve: person stops for the person's yes; none goes on.\n");
@@ -77,7 +81,7 @@ fn stages_v1(out: &mut String, config: &Config) {
     approved(out, "plan", &stages.plan);
     let execution = &stages.execution;
     let _ = writeln!(out, "  execution:\n    enabled: {}", execution.enabled);
-    checks(out, "    ", &execution.checks);
+    checks(dialect, out, "    ", &execution.checks);
     e2e_dir(out, &execution.e2e_dir);
     plain(out, "review", &stages.review);
     let _ = writeln!(
@@ -103,14 +107,16 @@ fn extends(out: &mut String, config: &Config) {
     }
 }
 
-fn stages_v2(out: &mut String, config: &Config) {
-    out.push_str(
-        "\n# The stages, in order. uses: builtin/<stage> is devflow's own; an own\n\
-         # stage uses project/<skill> (.devflow/skills/), personal/<skill>,\n\
+fn stages_v2(dialect: &Dialect, out: &mut String, config: &Config) {
+    let _ = write!(
+        out,
+        "\n# The stages, in order. uses: builtin/<stage> is {}'s own; an own\n\
+         # stage uses project/<skill> ({}/skills/), personal/<skill>,\n\
          # skills/<name> (a skill already installed for the agent CLIs) or\n\
-         # <team>/<skill>, with a gate: { command: … } or { rubric: … }.\n\
+         # <team>/<skill>, with a gate: {{ command: … }} or {{ rubric: … }}.\n\
          # approve: person stops for the person's yes; none goes on.\n\
          stages:\n",
+        dialect.product, dialect.folder
     );
     if config.flow.is_empty() {
         out.push_str("  []\n");
@@ -118,11 +124,11 @@ fn stages_v2(out: &mut String, config: &Config) {
     for step in &config.flow {
         let _ = writeln!(out, "  - uses: {}", scalar(&step.uses));
         let _ = writeln!(out, "    enabled: {}", config.is_on(step));
-        stage_fields(out, config, step);
+        stage_fields(dialect, out, config, step);
     }
 }
 
-fn stage_fields(out: &mut String, config: &Config, step: &Step) {
+fn stage_fields(dialect: &Dialect, out: &mut String, config: &Config, step: &Step) {
     let stages = &config.stages;
     match (step.builtin(), &step.own) {
         (Some("briefing"), _) => {
@@ -142,7 +148,7 @@ fn stage_fields(out: &mut String, config: &Config, step: &Step) {
             }
         }
         (Some("execution"), _) => {
-            checks(out, "    ", &stages.execution.checks);
+            checks(dialect, out, "    ", &stages.execution.checks);
             e2e_dir(out, &stages.execution.e2e_dir);
         }
         (Some("completion"), _) => {
@@ -166,7 +172,7 @@ fn stage_fields(out: &mut String, config: &Config, step: &Step) {
     }
 }
 
-fn review(out: &mut String, config: &Config) {
+fn review(dialect: &Dialect, out: &mut String, config: &Config) {
     out.push_str(
         "\nreview:\n  # The agent CLI each persona runs in; a persona not listed is\n  \
          # reviewed by the session itself.\n",
@@ -215,14 +221,16 @@ fn review(out: &mut String, config: &Config) {
         let _ = writeln!(out, "  verify: {}", config.review.verify.word());
     }
 
-    out.push_str(
+    let _ = write!(
+        out,
         "\n# Decisions (Jev) answers typed questions about the gates. shadow logs\n\
-         # them; enforce blocks, and only the person sets it, in a terminal.\n\
+         # them; enforce blocks, and {}.\n\
          # It is sent findings, criteria with their evidence, the brief and the\n\
-         # plan — never the diff — through the provider `devflow jev setup` chose\n\
+         # plan — never the diff — through {}\n\
          # (OpenRouter unless changed), with no retention and no training.\n\
-         # rubrics: a stage's own rubric, from .devflow/rubrics/.\n\
+         # rubrics: a stage's own rubric, from {}/rubrics/.\n\
          decisions:\n",
+        dialect.yaml_enforce, dialect.yaml_provider, dialect.folder
     );
     let decisions = &config.decisions;
     let _ = writeln!(
