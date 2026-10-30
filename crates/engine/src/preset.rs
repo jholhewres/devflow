@@ -172,12 +172,17 @@ pub fn starting(preset: Preset, detected: &Detected) -> Config {
 
 /// `config` with the value at the dotted `path` replaced. Checked like a file.
 pub fn with_set(config: &Config, path: &str, value: &Value) -> Result<Config, Invalid> {
-    config::from_json(&set_path(
-        &crate::Dialect::DEVFLOW,
-        config.to_json(),
-        path,
-        value,
-    )?)
+    with_set_in(&crate::Dialect::DEVFLOW, config, path, value)
+}
+
+/// [`with_set`], refused in `dialect`'s words.
+pub fn with_set_in(
+    dialect: &crate::Dialect,
+    config: &Config,
+    path: &str,
+    value: &Value,
+) -> Result<Config, Invalid> {
+    config::from_json_in(dialect, &set_path(dialect, config.to_json(), path, value)?)
 }
 
 /// `whole` with the value at the dotted `path` replaced: a field, a list item
