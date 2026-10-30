@@ -1,0 +1,10 @@
+#!/bin/sh
+# Devflow check `e2e-suite`, found in package.json:7.
+# It runs from the project's root, wherever it is started; a report
+# written to $DEVPIT_REPORT_DIR is read as the check's evidence.
+set -e
+cd "$(dirname "$0")/../../.."
+DEVPIT_REPORT_DIR="${DEVPIT_REPORT_DIR:-.devpit/devflow/runs/local}"
+export DEVPIT_REPORT_DIR
+mkdir -p "$DEVPIT_REPORT_DIR"
+pnpm run test:e2e

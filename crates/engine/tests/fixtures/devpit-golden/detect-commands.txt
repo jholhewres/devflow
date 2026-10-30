@@ -1,0 +1,3 @@
+pnpm exec vitest run --reporter=default --reporter=json --outputFile="$DEVPIT_REPORT_DIR/tests.json"
+pnpm run test:e2e
+pnpm run lint

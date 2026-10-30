@@ -1,0 +1,60 @@
+{
+  "base": "b4se",
+  "card": "card_1",
+  "consolidation": {
+    "asked": "none",
+    "cost_usd": null,
+    "duration_ms": null,
+    "from": 0,
+    "into": 0,
+    "note": null,
+    "used": "none"
+  },
+  "devpit": {
+    "skills": {
+      "devflow-review": "sha256:5ed9df711f510ca9ac81831de035753ff8a53f0b61e083457d78354878c22936"
+    },
+    "version": "0.1.45"
+  },
+  "done_well": [
+    "kept it small"
+  ],
+  "findings": [],
+  "head": "he4d",
+  "pending": [
+    "devflow-standards",
+    "devflow-security"
+  ],
+  "reviewers": [
+    {
+      "agent": "session",
+      "by": "session",
+      "cost_usd": null,
+      "duration_ms": null,
+      "file": "findings-session.json",
+      "findings": 0,
+      "model": null,
+      "persona": "devflow-spec",
+      "reason": null
+    }
+  ],
+  "skipped": [
+    {
+      "agent": "claude",
+      "by": "devpit",
+      "cost_usd": null,
+      "duration_ms": null,
+      "file": null,
+      "findings": 0,
+      "model": null,
+      "persona": "devflow-security",
+      "reason": "not installed"
+    }
+  ],
+  "verdict": "approve",
+  "verification": {
+    "evidence": "session devflow-spec: green",
+    "tests": "session devflow-spec: ran them"
+  },
+  "version": 1
+}

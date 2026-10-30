@@ -1,0 +1,10 @@
+#!/bin/sh
+# Devflow check `unit`, found in package.json:6.
+# It runs from the project's root, wherever it is started; a report
+# written to $DEVPIT_REPORT_DIR is read as the check's evidence.
+set -e
+cd "$(dirname "$0")/../../.."
+DEVPIT_REPORT_DIR="${DEVPIT_REPORT_DIR:-.devpit/devflow/runs/local}"
+export DEVPIT_REPORT_DIR
+mkdir -p "$DEVPIT_REPORT_DIR"
+pnpm exec vitest run --reporter=default --reporter=json --outputFile="$DEVPIT_REPORT_DIR/tests.json"

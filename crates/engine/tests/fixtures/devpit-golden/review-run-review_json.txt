@@ -1,0 +1,68 @@
+{
+  "at": "20261014T174640Z",
+  "base": "b4se",
+  "card": "card_1",
+  "changed": {
+    "src/a.rs": [
+      [
+        1,
+        2
+      ]
+    ]
+  },
+  "consolidation": {
+    "asked": "none",
+    "cost_usd": null,
+    "duration_ms": null,
+    "from": 0,
+    "into": 0,
+    "note": null,
+    "used": "none"
+  },
+  "diffed": {
+    "src/a.rs": {
+      "added": [
+        [
+          2,
+          2
+        ]
+      ],
+      "hunks": [
+        [
+          1,
+          2
+        ]
+      ]
+    }
+  },
+  "head": "he4d",
+  "jev": {},
+  "pending": [
+    "devflow-standards",
+    "devflow-security"
+  ],
+  "ran": [
+    {
+      "agent": "claude",
+      "by": "devpit",
+      "cost_usd": null,
+      "duration_ms": null,
+      "file": null,
+      "findings": 0,
+      "model": null,
+      "persona": "devflow-security",
+      "reason": "not installed"
+    },
+    {
+      "agent": "session",
+      "by": "session",
+      "cost_usd": null,
+      "duration_ms": null,
+      "file": "findings-session.json",
+      "findings": 0,
+      "model": null,
+      "persona": "devflow-spec",
+      "reason": null
+    }
+  ]
+}

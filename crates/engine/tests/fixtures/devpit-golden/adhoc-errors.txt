@@ -1,0 +1,4 @@
+the review takes a card, a pr, a base and a head, or a path
+`previous` re-reviews a card's run: pass the card
+which change? pass `card`, or `pr`, or `base` and `head`, or `path` (a worktree of the project)
+pass `reports` with `run`: the findings objects of the personas you reviewed

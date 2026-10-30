@@ -1,0 +1,8 @@
+[devflow] evidence: 0 of 2 checks green, run 20261011T120000Z
+
+- unit: inconclusive, exit 0, no report devpit reads
+- lint: inconclusive, no report devpit reads
+- criteria with every test green: 0 of 1
+- seen red, now green: 1 of 1
+
+Attached: [f0.txt](devpit://artifact/f0.txt) · [f1.txt](devpit://artifact/f1.txt) · [f2.txt](devpit://artifact/f2.txt) · [f3.txt](devpit://artifact/f3.txt) · [f4.txt](devpit://artifact/f4.txt) · [f5.txt](devpit://artifact/f5.txt) · [f6.txt](devpit://artifact/f6.txt) · [f7.txt](devpit://artifact/f7.txt) · [f8.txt](devpit://artifact/f8.txt) · [f9.txt](devpit://artifact/f9.txt) · [f10.txt](devpit://artifact/f10.txt) · [f11.txt](devpit://artifact/f11.txt) · [f12.txt](devpit://artifact/f12.txt) · [f13.txt](devpit://artifact/f13.txt) · [f14.txt](devpit://artifact/f14.txt) · [f15.txt](devpit://artifact/f15.txt) · [f16.txt](devpit://artifact/f16.txt) · [f17.txt](devpit://artifact/f17.txt) · [f18.txt](devpit://artifact/f18.txt) · [f19.txt](devpit://artifact/f19.txt) · and 2 more among the artifacts

@@ -1,0 +1,9 @@
+`../x` is not a card id devpit makes a folder of
+`nope` is not a run of the card
+`cards` is a list of { key, title, build, criteria, files, verify, depends_on }: invalid type: string "x", expected a sequence
+a plan has 1 to 30 cards
+card 1 (a): depends_on `zzz` is not another card of this plan, nor a card on the board (`card_…` or `#42`)
+the cards' depends_on go round in a circle, so none of them could start
+publish: jira is not yet — it needs O-08, the Jira integration. Set stages.plan.publish to board, and the plan's cards are made on the devpit board.
+line 1, `version`: this devpit reads versions 1 and 2, not 3
+`version`: the version is devpit's to write

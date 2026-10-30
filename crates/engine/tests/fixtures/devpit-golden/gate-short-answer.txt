@@ -1,0 +1,19 @@
+{
+  "criteria": "0 of 2",
+  "decisions": null,
+  "gate": null,
+  "missing": [
+    "the code changed after run 20261011T120000Z (last change 20261011T120200Z): run devpit_devflow_evidence again",
+    "check `unit` left no junit report devpit reads: write it to $DEVPIT_REPORT_DIR, or set its report to none so its exit code decides (devflow-setup)",
+    "check `e2e` did not run in 20261011T120000Z: leave `checks` out of devpit_devflow_evidence to run them all",
+    "the card's E2E spec .devpit/devflow/e2e/card_1-rename.spec.ts kept no screenshot: end each of its tests in one (devflow-execution)",
+    "criterion \"rename changes the title\": `rename` failed: make them pass (devflow-execution)",
+    "criterion \"an empty title is refused\": names no test: map it to its tests, or a proof file, in devpit_devflow_evidence's criteria",
+    "the review has not covered devflow-spec yet: review them from its packet and call devpit_devflow_review with its run and your reports (devflow-review)",
+    "the review is older than the last change (20261011T120200Z): review again (devflow-review)",
+    "the stage `pr`'s gate failed in 20261011T110000Z: fix what it says and call devpit_devflow_stage again"
+  ],
+  "next": "Leave the card where it is: fix what is missing in the stage named, then call the gate again.",
+  "result": "failed",
+  "run": "20261011T120000Z"
+}

@@ -1,0 +1,4 @@
+which card? pass its id as `card`
+`nope` is not a field of the evidence: it takes { card, checks?: [name], criteria?: [{ criterion, tests?: [test id], proof?: { kind: screenshot|e2e|artifact, path } }], red?: [{ test, failure }] }
+devflow.yaml configures no checks under stages.execution.checks: devpit_devflow_set adds one
+`typo` is not a check in devflow.yaml, which has unit, e2e

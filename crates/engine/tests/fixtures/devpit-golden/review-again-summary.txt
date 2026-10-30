@@ -1,0 +1,47 @@
+{
+  "base": "b4se",
+  "card": "card_1",
+  "consolidation": {
+    "asked": "none",
+    "cost_usd": null,
+    "duration_ms": null,
+    "from": 0,
+    "into": 0,
+    "note": null,
+    "used": "none"
+  },
+  "findings": [],
+  "findings_file": "<ROOT>/home/card_1/20261014T174640Z/findings.json",
+  "folder": "<ROOT>/home/card_1/20261014T174640Z",
+  "head": "he4d",
+  "next": "Review devflow-standards, devflow-security yourself: one fresh subagent per persona, each given only the packet at <ROOT>/home/card_1/20261014T174640Z/review-context.md and its persona at <ROOT>/home/card_1/20261014T174640Z/persona-<persona>.md, each answering one findings object. Then call devpit_devflow_review again with this card, run \"20261014T174640Z\" and reports: those objects.",
+  "packet": "<ROOT>/home/card_1/20261014T174640Z/review-context.md",
+  "pending": [
+    "devflow-standards",
+    "devflow-security"
+  ],
+  "reviewers": [
+    {
+      "agent": "claude",
+      "by": "devpit",
+      "cost_usd": null,
+      "duration_ms": null,
+      "findings": 0,
+      "persona": "devflow-security",
+      "reason": "not installed",
+      "result": "skipped"
+    },
+    {
+      "agent": "session",
+      "by": "session",
+      "cost_usd": null,
+      "duration_ms": null,
+      "findings": 0,
+      "persona": "devflow-spec",
+      "reason": null,
+      "result": "answered"
+    }
+  ],
+  "run": "20261014T174640Z",
+  "verdict": "approve"
+}

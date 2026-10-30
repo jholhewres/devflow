@@ -1,0 +1,4 @@
+which card? pass its id as `card`, or review without one with `pr`, `base` and `head`, or `path`
+`pr` is for a review without a card: leave out `card`
+`bad` is not a field of the review: it takes { card, base?, previous?, run?, reports?: [one findings object per persona you reviewed], verified?: [{ finding, result, evidence }] }, or without a card { pr | base and head | path, criteria?, mode?: retro with base and head, run?, reports? }
+`reports` go to the run devpit_devflow_review answered: pass it as `run`

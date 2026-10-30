@@ -1,0 +1,1 @@
+remove .devpit/devflow/scripts/check-lint.sh

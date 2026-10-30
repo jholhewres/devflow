@@ -1,0 +1,84 @@
+{
+  "at": "20261011T120000Z",
+  "card": "card_1",
+  "checks": [
+    {
+      "exit": 0,
+      "failures": null,
+      "log": "unit.log",
+      "name": "unit",
+      "not_run": null,
+      "read_from": null,
+      "reports": [],
+      "result": "inconclusive",
+      "screenshots": [],
+      "seconds": 1.5,
+      "tests": {
+        "failed": null,
+        "passed": null,
+        "skipped": null
+      },
+      "timed_out": false,
+      "video": []
+    },
+    {
+      "exit": null,
+      "failures": null,
+      "log": "lint.log",
+      "name": "lint",
+      "not_run": null,
+      "read_from": null,
+      "reports": [],
+      "result": "inconclusive",
+      "screenshots": [],
+      "seconds": 1.5,
+      "tests": {
+        "failed": null,
+        "passed": null,
+        "skipped": null
+      },
+      "timed_out": false,
+      "video": []
+    }
+  ],
+  "criteria": [
+    {
+      "criterion": "rename changes the title",
+      "green": false,
+      "on_card": true,
+      "proof": {
+        "exists": false,
+        "kind": "screenshot",
+        "path": "shot.png"
+      },
+      "tests": [
+        {
+          "result": "passed",
+          "test": "rename"
+        }
+      ]
+    }
+  ],
+  "devpit": {
+    "skills": {
+      "devflow-completion": "sha256:cb6d1fa0348f4626284932ecf0cc5b19dd1c8118b6084585586cf1c49adb1bee",
+      "devflow-execution": "sha256:f50c05d30440afa5a452a6d480d59716b8654f7552f1a791676066933eb2f4ee"
+    },
+    "version": "0.1.45"
+  },
+  "green": false,
+  "not_mapped": [
+    "an empty title is refused"
+  ],
+  "red": [
+    {
+      "failure": "expected x",
+      "now": "passed",
+      "test": "rename"
+    }
+  ],
+  "spec": {
+    "exists": false,
+    "path": "e2e/card_1.spec.ts"
+  }
+}

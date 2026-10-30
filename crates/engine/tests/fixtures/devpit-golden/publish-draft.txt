@@ -1,0 +1,26 @@
+{
+  "base": "b4se",
+  "destination": "github",
+  "event": "comment",
+  "general": {
+    "body": "**devpit review** of he4d01234567: 0 comments on the lines, 1 nit, 1 outside the diff.\n\n### Outside the diff\n\n- **high** [security] `src/a.rs:2` Shell injection — outside the lines this change shows, so it has no line here. why Worth a separate ticket.\n\n<details><summary>Nits</summary>\n\n1. `src/b.rs:9` A name — why\n\n</details>\n\n### Verification\n\n- Tests: ran them\n\n### Good\n\n- kept it small\n",
+    "elsewhere": [
+      {
+        "file": "src/a.rs",
+        "line": 2,
+        "severity": "high",
+        "ticket": true,
+        "title": "Shell injection"
+      }
+    ],
+    "nits": [
+      "1. `src/b.rs:9` A name — why"
+    ]
+  },
+  "head": "he4d0123456789",
+  "inline": [],
+  "review": "pr-7/20261011T120000Z",
+  "review_body": "devpit review: 0 comments on the lines; the rest is in the comment below.",
+  "verdict": "request_changes",
+  "version": 1
+}

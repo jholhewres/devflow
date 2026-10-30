@@ -1,0 +1,1 @@
+devflow.yaml configures no checks, so nothing can prove the card: add one with devpit_devflow_set (stages.execution.checks)

@@ -1,0 +1,65 @@
+# Devflow: briefing → context → plan → execution → review → completion,
+# served by devpit's MCP. This file is the source of truth: devpit edits
+# it and never commits it.
+version: 2
+
+# Switched on by the person's click in the devpit app, never by an agent.
+enabled: false
+
+# The stages, in order. uses: builtin/<stage> is devpit's own; an own
+# stage uses project/<skill> (.devpit/devflow/skills/), personal/<skill>,
+# skills/<name> (a skill already installed for the agent CLIs) or
+# <team>/<skill>, with a gate: { command: … } or { rubric: … }.
+# approve: person stops for the person's yes; none goes on.
+stages:
+  - uses: builtin/briefing
+    enabled: true
+    approve: person
+  - uses: builtin/context
+    enabled: true
+  - uses: builtin/plan
+    enabled: true
+    approve: person
+    publish: board   # board | jira | linear | github
+  - uses: builtin/execution
+    enabled: true
+    # Run by devpit from the project's root for the evidence on the card.
+    # report: junit | vitest | jest | cargo | none
+    checks:
+      - name: unit
+        run: sh .devpit/devflow/scripts/check-unit.sh
+        report: vitest
+      - name: e2e
+        run: sh .devpit/devflow/scripts/check-e2e.sh
+        report: junit
+        evidence: [screenshots, video]
+      - name: e2e-suite
+        run: sh .devpit/devflow/scripts/check-e2e-suite.sh
+        report: none
+      - name: lint
+        run: sh .devpit/devflow/scripts/check-lint.sh
+        report: none
+  - uses: builtin/review
+    enabled: true
+  - uses: builtin/completion
+    enabled: true
+    gate: devflow-done
+
+review:
+  # The agent CLI each persona runs in; a persona not listed is
+  # reviewed by the session itself.
+  reviewers: []
+  block_on: [critical, high]
+  # How several reviewers' findings become one: jev (Decisions, else a
+  # model pass), agent (one model pass) or none (merged as they are).
+  consolidate: jev
+
+# Decisions (Jev) answers typed questions about the gates. shadow logs
+# them; enforce blocks, and waits for the person's click in the app.
+# It is sent findings, criteria with their evidence, the brief and the
+# plan — never the diff — through the provider in Settings → Decisions
+# (OpenRouter unless changed), with no retention and no training.
+# rubrics: a stage's own rubric, from .devpit/devflow/rubrics/.
+decisions:
+  use: false
+  mode: shadow

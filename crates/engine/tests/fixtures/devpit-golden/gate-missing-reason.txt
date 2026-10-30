@@ -1,0 +1,5 @@
+[devflow] gate: 0 of 2 criteria with evidence — the card is not done yet:
+- no run of the card's checks yet: call devpit_devflow_evidence with card card_1 and each criterion's tests (devflow-execution)
+- no review yet: run the review stage (devflow-review), which writes findings.json
+- the stage `pr` (project/pr) has not passed its gate: follow its skill, then call devpit_devflow_stage with the card
+Fix what is listed, run devpit_devflow_evidence and call devpit_devflow_gate before saying it is done. If you are stopping for the person's answer instead, ask it and stop.

@@ -1,0 +1,13 @@
+{
+  "criteria": "0 of 2",
+  "decisions": null,
+  "gate": "gate.json",
+  "missing": [
+    "no run of the card's checks yet: call devpit_devflow_evidence with card card_1 and each criterion's tests (devflow-execution)",
+    "no review yet: run the review stage (devflow-review), which writes findings.json",
+    "the stage `pr` (project/pr) has not passed its gate: follow its skill, then call devpit_devflow_stage with the card"
+  ],
+  "next": "Leave the card where it is: fix what is missing in the stage named, then call the gate again.",
+  "result": "failed",
+  "run": null
+}

@@ -1,0 +1,2 @@
+this project's state is not sent to Decisions — see Settings → Decisions
+no key — set one in Settings → Decisions

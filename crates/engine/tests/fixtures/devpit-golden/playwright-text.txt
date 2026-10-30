@@ -1,0 +1,22 @@
+// Devflow's Playwright config, written by devpit's setup: the specs Devflow
+// writes in .devpit/devflow/e2e, with a JUnit report and every screenshot and video
+// kept in $DEVPIT_REPORT_DIR as the run's evidence. It is yours to change:
+// a setup run again keeps your copy. Run it from the project's root.
+import { defineConfig } from '@playwright/test'
+import base from '../../playwright.config'
+
+const root = process.cwd()
+const reports = process.env.DEVPIT_REPORT_DIR ?? `${root}/.devpit/devflow/runs/local`
+
+export default defineConfig({
+  ...base,
+  testDir: `${root}/.devpit/devflow/e2e`,
+  testMatch: '**/*.spec.ts',
+  outputDir: `${reports}/test-results`,
+  reporter: [['list'], ['junit', { outputFile: `${reports}/report.xml` }]],
+  use: { ...base.use, screenshot: 'on', video: 'on' },
+  // The project's server starts from its root, not from this folder.
+  ...(base.webServer
+    ? { webServer: [base.webServer].flat().map((server) => ({ cwd: root, ...server })) }
+    : {}),
+})

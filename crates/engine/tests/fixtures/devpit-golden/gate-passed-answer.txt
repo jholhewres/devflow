@@ -1,0 +1,9 @@
+{
+  "criteria": "0 of 0",
+  "decisions": null,
+  "gate": "gate.json",
+  "missing": [],
+  "next": "Write the handoff note with devpit_handoff, then devpit_finish_card.",
+  "result": "passed",
+  "run": "20261011T120000Z"
+}

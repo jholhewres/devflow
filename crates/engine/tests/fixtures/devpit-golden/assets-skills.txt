@@ -1,0 +1,154 @@
+{
+  "file": null,
+  "layer": "built-in",
+  "name": "devflow-briefing",
+  "skill": {
+    "frontmatter": {
+      "description": "Use when a person brings new work to a devpit project with Devflow on (a feature, change or idea that has no approved \"[devflow] Brief\" epic yet), or asks to brief, scope or be grilled on work before it is planned.",
+      "license": "Apache-2.0",
+      "name": "devflow-briefing"
+    },
+    "resources": [
+      {
+        "digest": "sha256:c8cde8146256f046ba2ca686d2388566288b33bc7c760d88f6f73e0dd69a51bd",
+        "size": 6883,
+        "uri": "skill://devflow/devflow-briefing/SKILL.md"
+      }
+    ],
+    "uri": "skill://devflow/devflow-briefing/SKILL.md"
+  },
+  "stage": "briefing"
+}
+{
+  "file": null,
+  "layer": "built-in",
+  "name": "devflow-context",
+  "skill": {
+    "frontmatter": {
+      "description": "Use when a \"[devflow] Brief\" epic is approved but not yet planned and the groundwork is wanted first, either its context gathered or research into what the project already knows about the work (code and tests it touches, rules, glossary, ADRs, history, devpit's memory), written onto the epic.",
+      "license": "Apache-2.0",
+      "name": "devflow-context"
+    },
+    "resources": [
+      {
+        "digest": "sha256:4a128a50e6fe0af9639a8785ad06159cc3d9d73629c8b1194f4ef3e2453d0a74",
+        "size": 5182,
+        "uri": "skill://devflow/devflow-context/SKILL.md"
+      }
+    ],
+    "uri": "skill://devflow/devflow-context/SKILL.md"
+  },
+  "stage": "context"
+}
+{
+  "file": null,
+  "layer": "built-in",
+  "name": "devflow-plan",
+  "skill": {
+    "frontmatter": {
+      "description": "Use when an approved \"[devflow] Brief\" epic, with its context gathered, needs breaking into cards, or when a person asks to plan, slice or order an epic's work into tasks on the devpit board. A card that already exists is implemented in the execution stage instead.",
+      "license": "Apache-2.0",
+      "name": "devflow-plan"
+    },
+    "resources": [
+      {
+        "digest": "sha256:87d5a33823e5e1686f3e151d38418b98d00f46fb720ef0e149e6acbe86faac33",
+        "size": 7499,
+        "uri": "skill://devflow/devflow-plan/SKILL.md"
+      }
+    ],
+    "uri": "skill://devflow/devflow-plan/SKILL.md"
+  },
+  "stage": "plan"
+}
+{
+  "file": null,
+  "layer": "built-in",
+  "name": "devflow-execution",
+  "skill": {
+    "frontmatter": {
+      "description": "Use when a card on a devpit board with Devflow on is to be implemented, built, worked on or fixed (a card id such as card_01..., the next card of a plan, or a bug report), before writing any code for it.",
+      "license": "Apache-2.0",
+      "name": "devflow-execution"
+    },
+    "resources": [
+      {
+        "digest": "sha256:f50c05d30440afa5a452a6d480d59716b8654f7552f1a791676066933eb2f4ee",
+        "size": 8467,
+        "uri": "skill://devflow/devflow-execution/SKILL.md"
+      }
+    ],
+    "uri": "skill://devflow/devflow-execution/SKILL.md"
+  },
+  "stage": "execution"
+}
+{
+  "file": null,
+  "layer": "built-in",
+  "name": "devflow-review",
+  "skill": {
+    "frontmatter": {
+      "description": "Use when a card's change in a devpit project with Devflow on is to be reviewed, audited or checked (its diff, branch or work, against its criteria, the repo's rules or for security), when execution is green and the next stage is asked for, or when a pull request, a range of commits or a worktree is to be reviewed without a card.",
+      "license": "Apache-2.0",
+      "name": "devflow-review"
+    },
+    "resources": [
+      {
+        "digest": "sha256:5ed9df711f510ca9ac81831de035753ff8a53f0b61e083457d78354878c22936",
+        "size": 14694,
+        "uri": "skill://devflow/devflow-review/SKILL.md"
+      }
+    ],
+    "uri": "skill://devflow/devflow-review/SKILL.md"
+  },
+  "stage": "review"
+}
+{
+  "file": null,
+  "layer": "built-in",
+  "name": "devflow-completion",
+  "skill": {
+    "frontmatter": {
+      "description": "Use before calling a card in a devpit project with Devflow on done, finished, fixed or passing, and before finishing, closing or moving it on, including when someone says the work is already done or asks to skip the checks.",
+      "license": "Apache-2.0",
+      "name": "devflow-completion"
+    },
+    "resources": [
+      {
+        "digest": "sha256:cb6d1fa0348f4626284932ecf0cc5b19dd1c8118b6084585586cf1c49adb1bee",
+        "size": 7053,
+        "uri": "skill://devflow/devflow-completion/SKILL.md"
+      }
+    ],
+    "uri": "skill://devflow/devflow-completion/SKILL.md"
+  },
+  "stage": "completion"
+}
+{
+  "file": null,
+  "layer": "built-in",
+  "name": "devflow-setup",
+  "skill": {
+    "frontmatter": {
+      "description": "Use when a person wants Devflow set up, switched on, changed or fixed in a devpit project (devflow.yaml and its stages, checks, reviewers, gate or Decisions mode), or asks what Devflow would do here before it is on.",
+      "license": "Apache-2.0",
+      "name": "devflow-setup"
+    },
+    "resources": [
+      {
+        "digest": "sha256:99196f998f1925c41c21c72a5d2b779946c0b9f1cea40150e84a5acfaee5cbe9",
+        "size": 7527,
+        "uri": "skill://devflow/devflow-setup/SKILL.md"
+      }
+    ],
+    "uri": "skill://devflow/devflow-setup/SKILL.md"
+  },
+  "stage": null
+}
+devflow-briefing Some("briefing") Use when a person brings new work to a devpit project with Devflow on (a feature, change or idea that has no approved "[devflow] Brief" epic yet), or asks to brief, scope or be grilled on work before it is planned.
+devflow-context Some("context") Use when a "[devflow] Brief" epic is approved but not yet planned and the groundwork is wanted first, either its context gathered or research into what the project already knows about the work (code and tests it touches, rules, glossary, ADRs, history, devpit's memory), written onto the epic.
+devflow-plan Some("plan") Use when an approved "[devflow] Brief" epic, with its context gathered, needs breaking into cards, or when a person asks to plan, slice or order an epic's work into tasks on the devpit board. A card that already exists is implemented in the execution stage instead.
+devflow-execution Some("execution") Use when a card on a devpit board with Devflow on is to be implemented, built, worked on or fixed (a card id such as card_01..., the next card of a plan, or a bug report), before writing any code for it.
+devflow-review Some("review") Use when a card's change in a devpit project with Devflow on is to be reviewed, audited or checked (its diff, branch or work, against its criteria, the repo's rules or for security), when execution is green and the next stage is asked for, or when a pull request, a range of commits or a worktree is to be reviewed without a card.
+devflow-completion Some("completion") Use before calling a card in a devpit project with Devflow on done, finished, fixed or passing, and before finishing, closing or moving it on, including when someone says the work is already done or asks to skip the checks.
+devflow-setup None Use when a person wants Devflow set up, switched on, changed or fixed in a devpit project (devflow.yaml and its stages, checks, reviewers, gate or Decisions mode), or asks what Devflow would do here before it is on.

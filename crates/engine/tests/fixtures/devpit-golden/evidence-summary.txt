@@ -1,0 +1,72 @@
+{
+  "attached": {
+    "files": 0,
+    "left_out": [],
+    "under": "devflow/card_1/20261011T120000Z"
+  },
+  "card": "card_1",
+  "checks": [
+    {
+      "exit": 0,
+      "failures": null,
+      "last_lines": [
+        "last line"
+      ],
+      "log": "/runs/card_1/20261011T120000Z/unit.log",
+      "name": "unit",
+      "reports": [],
+      "result": "inconclusive",
+      "tests": {
+        "failed": null,
+        "passed": null,
+        "skipped": null
+      }
+    },
+    {
+      "exit": null,
+      "failures": null,
+      "last_lines": [
+        "last line"
+      ],
+      "log": "/runs/card_1/20261011T120000Z/lint.log",
+      "name": "lint",
+      "reports": [],
+      "result": "inconclusive",
+      "tests": {
+        "failed": null,
+        "passed": null,
+        "skipped": null
+      }
+    }
+  ],
+  "criteria": [
+    {
+      "criterion": "rename changes the title",
+      "green": false,
+      "on_card": true,
+      "proof": {
+        "exists": false,
+        "kind": "screenshot",
+        "path": "shot.png"
+      },
+      "tests": [
+        {
+          "result": "passed",
+          "test": "rename"
+        }
+      ]
+    }
+  ],
+  "criteria_green": "0 of 1",
+  "evidence": "/runs/card_1/20261011T120000Z/evidence.json",
+  "green": false,
+  "not_mapped": [
+    "an empty title is refused"
+  ],
+  "red_now_green": "1 of 1",
+  "run": "/runs/card_1/20261011T120000Z",
+  "spec": {
+    "exists": false,
+    "path": "e2e/card_1.spec.ts"
+  }
+}
