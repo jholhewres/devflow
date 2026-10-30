@@ -577,17 +577,24 @@ pub struct Inline {
     pub body: String,
 }
 
+/// A review the host took: its id, and each comment's id in the order they
+/// were given, `None` where its answer did not name one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Posted {
+    pub review: u64,
+    pub ids: Vec<Option<u64>>,
+}
+
 /// A pull request a review is published on.
 pub trait Host {
-    /// One review of `event` at `commit`, with `comments` on their lines:
-    /// each comment's id, in their order.
+    /// One review of `event` at `commit`, with `comments` on their lines.
     fn review(
         &self,
         commit: &str,
         event: Event,
         body: &str,
         comments: &[Inline],
-    ) -> Result<Vec<u64>, String>;
+    ) -> Result<Posted, String>;
     fn edit_inline(&self, id: u64, body: &str) -> Result<(), String>;
     /// The general comment: its id.
     fn comment(&self, body: &str) -> Result<u64, String>;
@@ -617,6 +624,7 @@ pub fn published(folder: &Path, draft: &Value, host: &dyn Host) -> Result<Value,
     }
     let event = Event::of(text(draft, "event")).unwrap_or(Event::Comment);
     let mut edited = 0;
+    let mut by_hand = Vec::new();
     let mut new = Vec::new();
     let drafted = draft["inline"].as_array().map_or(&[][..], Vec::as_slice);
     for one in drafted {
@@ -628,12 +636,15 @@ pub fn published(folder: &Path, draft: &Value, host: &dyn Host) -> Result<Value,
         match had {
             Some(had) if text(had, "body") == body => {}
             Some(had) => {
-                let id = had["id"]
-                    .as_u64()
-                    .ok_or("published.json lost a comment's id")?;
-                host.edit_inline(id, body)?;
+                match had["id"].as_u64() {
+                    Some(id) => {
+                        host.edit_inline(id, body)?;
+                        edited += 1;
+                    }
+                    // Kept as changed, so the same draft does not ask again.
+                    None => by_hand.push(format!("{file}:{line}")),
+                }
                 had["body"] = json!(body);
-                edited += 1;
                 write(folder, PUBLISHED, &kept)?;
             }
             None => new.push(Inline {
@@ -654,20 +665,23 @@ pub fn published(folder: &Path, draft: &Value, host: &dyn Host) -> Result<Value,
         })
         .map(|had| format!("{}:{}", text(had, "file"), line_of(had)))
         .collect();
+    let mut unnamed = Vec::new();
     if !new.is_empty() || event != Event::Comment {
-        let ids = host.review(text(draft, "head"), event, text(draft, "review_body"), &new)?;
-        if ids.len() != new.len() {
-            return Err(format!(
-                "the review was posted, but the host named {} of its {} comments: edit them by hand",
-                ids.len(),
-                new.len()
-            ));
-        }
+        let posted = host.review(text(draft, "head"), event, text(draft, "review_body"), &new)?;
+        // Every comment the review carried is kept, named or not: posting
+        // again for one the answer did not name is what duplicated reviews.
         if let Some(list) = kept["inline"].as_array_mut() {
-            for (one, id) in new.iter().zip(ids) {
-                list.push(
-                    json!({ "file": one.file, "line": one.line, "id": id, "body": one.body }),
-                );
+            for (at, one) in new.iter().enumerate() {
+                let id = posted.ids.get(at).copied().flatten();
+                if id.is_none() {
+                    unnamed.push(format!("{}:{}", one.file, one.line));
+                }
+                // The review a comment GitHub did not name is under, to
+                // find it on the pull request by hand.
+                list.push(json!({
+                    "file": one.file, "line": one.line, "id": id,
+                    "review": posted.review, "body": one.body,
+                }));
             }
         }
         write(folder, PUBLISHED, &kept)?;
@@ -686,12 +700,25 @@ pub fn published(folder: &Path, draft: &Value, host: &dyn Host) -> Result<Value,
     };
     kept["general"]["body"] = json!(body);
     write(folder, PUBLISHED, &kept)?;
-    Ok(json!({
+    let mut said = json!({
         "posted": new.len(),
         "edited": edited,
         "general": general,
         "left": left,
-    }))
+        "unnamed": unnamed,
+        "by_hand": by_hand,
+    });
+    let mut notes = Vec::new();
+    if !unnamed.is_empty() {
+        notes.push("Every comment was posted, but GitHub's answer did not name those in `unnamed`: they are on the pull request, and publishing again will not post them twice; a later change to one is made there by hand.");
+    }
+    if !by_hand.is_empty() {
+        notes.push("The comments in `by_hand` changed, but GitHub never named them, so devflow cannot edit them: change it on the pull request. Everything else was published.");
+    }
+    if !notes.is_empty() {
+        said["note"] = json!(notes.join(" "));
+    }
+    Ok(said)
 }
 
 /// What a review's run answers the tool: its draft, written for the person

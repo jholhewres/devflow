@@ -1438,3 +1438,67 @@ fn a_retro_review_follows_up_what_would_have_held_it_and_never_asks_for_changes(
     let refused = handed.review().expect_err("refused");
     assert!(refused.contains("needs an `impact`"), "{refused}");
 }
+
+/// Card 7a: a reviewer's `model` is a tier or a model id; a tier is the
+/// engine's own model for it, and the CLI's default where it names none.
+#[test]
+fn a_reviewers_model_tier_is_the_engines_model_for_it() {
+    assert_eq!(
+        model_for(Agent::Claude, Some("small")).as_deref(),
+        Some("sonnet")
+    );
+    assert_eq!(
+        model_for(Agent::Claude, Some("large")).as_deref(),
+        Some("opus")
+    );
+    assert_eq!(model_for(Agent::Claude, Some("default")), None);
+    assert_eq!(model_for(Agent::Claude, None), None);
+    // Codex names its models per account: a tier is its default, an id is kept.
+    assert_eq!(model_for(Agent::Codex, Some("small")), None);
+    assert_eq!(
+        model_for(Agent::Codex, Some("gpt-5-codex")).as_deref(),
+        Some("gpt-5-codex")
+    );
+    assert_eq!(
+        model_for(Agent::Claude, Some("claude-haiku-4-5")).as_deref(),
+        Some("claude-haiku-4-5")
+    );
+}
+
+/// Card 7a: whoever starts a turn — a reviewer or the consolidation pass —
+/// starts it on the tier's model, never on the tier's name.
+#[cfg(unix)]
+#[test]
+fn a_turn_starts_its_cli_on_the_tiers_model() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let seen = dir.path().join("argv");
+    let cli = dir.path().join("claude-fake");
+    let script = format!(
+        "#!/bin/sh\necho \"$@\" > '{}'\ncat > /dev/null\n",
+        seen.display()
+    );
+    let done = std::process::Command::new("sh")
+        .args([
+            "-c",
+            "printf '%s' \"$1\" > \"$2\" && chmod 755 \"$2\"",
+            "sh",
+            &script,
+        ])
+        .arg(&cli)
+        .status()
+        .expect("sh");
+    assert!(done.success());
+    let program = cli.display().to_string();
+    let reach = move |_: Agent| Ok(program.clone());
+    let _ = turn(
+        Agent::Claude,
+        Some("small"),
+        &reach,
+        "review",
+        dir.path(),
+        &[],
+        Duration::from_secs(10),
+    );
+    let argv = std::fs::read_to_string(&seen).expect("the CLI ran");
+    assert!(argv.contains("--model sonnet"), "{argv}");
+}

@@ -212,6 +212,9 @@ struct FakeGitHub {
     inline: RefCell<BTreeMap<u64, Inline>>,
     comments: RefCell<BTreeMap<u64, String>>,
     edits: Cell<usize>,
+    /// Answers the review without naming its comments, as GitHub's answer
+    /// once did (#248).
+    unnamed: Cell<bool>,
 }
 
 impl FakeGitHub {
@@ -239,7 +242,7 @@ impl Host for FakeGitHub {
         event: Event,
         _body: &str,
         comments: &[Inline],
-    ) -> Result<Vec<u64>, String> {
+    ) -> Result<Posted, String> {
         for one in comments {
             let shown = self.diffed.get(&one.file).is_some_and(|file| {
                 file.hunks
@@ -256,14 +259,16 @@ impl Host for FakeGitHub {
         self.reviews
             .borrow_mut()
             .push((commit.to_owned(), event.api().to_owned()));
-        Ok(comments
+        let review = self.id();
+        let ids = comments
             .iter()
             .map(|one| {
                 let id = self.id();
                 self.inline.borrow_mut().insert(id, one.clone());
-                id
+                (!self.unnamed.get()).then_some(id)
             })
-            .collect())
+            .collect();
+        Ok(Posted { review, ids })
     }
 
     fn edit_inline(&self, id: u64, body: &str) -> Result<(), String> {
@@ -634,4 +639,66 @@ fn a_retro_review_is_never_published_as_asking_for_changes() {
 
     assert!(refused.is_err_and(|why| why.contains("never requests changes")));
     assert_eq!(host.calls(), 0);
+}
+
+/// #248: GitHub kept the comments but its answer did not name them. The
+/// review is still recorded as posted, so publishing again never posts a
+/// second one.
+#[test]
+fn a_review_whose_comments_github_did_not_name_is_never_posted_twice() {
+    let kept = review_like_a_real_one();
+    let run = run_with(&kept);
+    let host = FakeGitHub::of(change());
+    host.unnamed.set(true);
+
+    let first = shown_then_applied(run.path(), &host);
+    assert_eq!(first["posted"].as_u64(), Some(7), "{first}");
+    assert_eq!(
+        first["unnamed"].as_array().map(Vec::len),
+        Some(7),
+        "{first}"
+    );
+
+    let again = shown_then_applied(run.path(), &host);
+    assert_eq!(again["posted"].as_u64(), Some(0), "{again}");
+    assert_eq!(host.reviews.borrow().len(), 1, "a second review was posted");
+    assert_eq!(host.inline.borrow().len(), 7);
+}
+
+#[test]
+fn a_change_to_a_comment_github_did_not_name_says_where_to_make_it_and_the_rest_goes_on() {
+    let mut kept = review_like_a_real_one();
+    let run = run_with(&kept);
+    let host = FakeGitHub::of(change());
+    host.unnamed.set(true);
+    shown_then_applied(run.path(), &host);
+
+    kept["findings"][6]["suggestion"] = json!("Use UTC for the settlement date.");
+    kept["done_well"] = json!(["Charges are idempotent by key", "Small handlers"]);
+    std::fs::write(
+        run.path().join(review::FINDINGS),
+        serde_json::to_string(&kept).expect("json"),
+    )
+    .expect("findings");
+    let edited = shown_then_applied(run.path(), &host);
+    assert_eq!(
+        edited["by_hand"].as_array().map(Vec::len),
+        Some(1),
+        "{edited}"
+    );
+    assert_eq!(
+        edited["general"], "edited",
+        "the rest of the publish stopped"
+    );
+    assert!(edited["note"]
+        .as_str()
+        .is_some_and(|note| note.contains("change it on the pull request")));
+
+    let again = shown_then_applied(run.path(), &host);
+    assert_eq!(
+        again["by_hand"].as_array().map(Vec::len),
+        Some(0),
+        "{again}"
+    );
+    assert_eq!(host.reviews.borrow().len(), 1, "a second review was posted");
 }

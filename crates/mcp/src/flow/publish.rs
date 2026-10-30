@@ -7,7 +7,7 @@ use std::process::Stdio;
 use std::time::Duration;
 
 use devflow_engine::adhoc;
-use devflow_engine::publish::{self, Destination, Event, Host, Inline};
+use devflow_engine::publish::{self, Destination, Event, Host, Inline, Posted};
 use devflow_engine::review::Personas;
 use serde_json::{json, Value};
 
@@ -144,31 +144,46 @@ impl Gh {
     }
 }
 
-/// Each comment of `wanted` matched to the one GitHub kept for it, by file
-/// and line: the ids in `wanted`'s order.
-pub fn ids_of(wanted: &[Inline], kept: &[Value]) -> Result<Vec<u64>, String> {
+/// Each comment of `wanted` matched to the one `review` kept for it, by file
+/// and line: the ids in `wanted`'s order, `None` where none matched.
+pub fn ids_of(wanted: &[Inline], kept: &[Value], review: u64) -> Vec<Option<u64>> {
     let mut taken = vec![false; kept.len()];
-    wanted
-        .iter()
-        .map(|one| {
+    let mut ids = vec![None; wanted.len()];
+    // `original_line` is where it was posted, so every comment is matched on
+    // it first; `line`, where the head shows it now, only for those left.
+    for field in ["original_line", "line"] {
+        for (slot, one) in wanted.iter().enumerate() {
+            if ids[slot].is_some() {
+                continue;
+            }
             let at = kept.iter().enumerate().position(|(at, had)| {
-                let line = had["line"]
-                    .as_u64()
-                    .or_else(|| had["original_line"].as_u64());
-                !taken[at] && had["path"] == one.file.as_str() && line == Some(one.line)
+                !taken[at]
+                    && had["pull_request_review_id"].as_u64() == Some(review)
+                    && had["path"] == one.file.as_str()
+                    && had[field].as_u64() == Some(one.line)
             });
-            let at = at.ok_or_else(|| {
-                format!(
-                    "GitHub did not keep the comment on {}:{}",
-                    one.file, one.line
-                )
-            })?;
-            taken[at] = true;
-            kept[at]["id"]
-                .as_u64()
-                .ok_or_else(|| "GitHub answered a comment without an id".to_owned())
-        })
-        .collect()
+            if let Some(at) = at {
+                taken[at] = true;
+                ids[slot] = kept[at]["id"].as_u64();
+            }
+        }
+    }
+    ids
+}
+
+/// What `review` posted, from the listing read back after it. The review is
+/// on GitHub whatever the listing says, so a failed read names no comment
+/// rather than failing: a failure here was what posted reviews twice.
+pub fn posted_from(review: u64, comments: &[Inline], listed: Result<Value, String>) -> Posted {
+    let listed = listed.unwrap_or_default();
+    Posted {
+        review,
+        ids: ids_of(
+            comments,
+            listed.as_array().map_or(&[][..], Vec::as_slice),
+            review,
+        ),
+    }
 }
 
 impl Host for Gh {
@@ -178,7 +193,7 @@ impl Host for Gh {
         event: Event,
         body: &str,
         comments: &[Inline],
-    ) -> Result<Vec<u64>, String> {
+    ) -> Result<Posted, String> {
         let asked = json!({
             "commit_id": commit,
             "event": event.api(),
@@ -192,21 +207,25 @@ impl Host for Gh {
             &self.repo(&format!("pulls/{}/reviews", self.pr)),
             Some(&asked),
         )?;
-        if comments.is_empty() {
-            return Ok(Vec::new());
-        }
         let id = review["id"]
             .as_u64()
             .ok_or("GitHub answered a review without an id")?;
-        let kept = self.api(
+        if comments.is_empty() {
+            return Ok(Posted {
+                review: id,
+                ids: Vec::new(),
+            });
+        }
+        // Newest first, so the review just posted is on the first page.
+        let listed = self.api(
             "GET",
             &self.repo(&format!(
-                "pulls/{}/reviews/{id}/comments?per_page=100",
+                "pulls/{}/comments?per_page=100&sort=created&direction=desc",
                 self.pr
             )),
             None,
-        )?;
-        ids_of(comments, kept.as_array().map_or(&[][..], Vec::as_slice))
+        );
+        Ok(posted_from(id, comments, listed))
     }
 
     fn edit_inline(&self, id: u64, body: &str) -> Result<(), String> {
@@ -228,3 +247,7 @@ impl Host for Gh {
             .map(|_| ())
     }
 }
+
+#[cfg(test)]
+#[path = "publish_tests.rs"]
+mod tests;

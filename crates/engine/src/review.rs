@@ -676,7 +676,21 @@ pub fn in_parallel<T: Sync, R: Send>(
     })
 }
 
+/// The model a reviewer's `model` names: a tier (`small`, `default`, `large`)
+/// is the engine's own model for it, anything else a model id kept as said.
+/// Codex names its models per account, so its tiers leave its default.
+pub fn model_for(agent: Agent, said: Option<&str>) -> Option<String> {
+    match (agent, said?) {
+        (_, "default") => None,
+        (Agent::Claude, "small") => Some("sonnet".to_owned()),
+        (Agent::Claude, "large") => Some("opus".to_owned()),
+        (_, "small" | "large") => None,
+        (_, id) => Some(id.to_owned()),
+    }
+}
+
 /// One headless turn on `agent`'s CLI: its text, cost and time, or why not.
+/// `model` is as devflow.yaml says it, a tier or an id ([`model_for`]).
 pub fn turn(
     agent: Agent,
     model: Option<&str>,
@@ -687,13 +701,14 @@ pub fn turn(
     deadline: Duration,
 ) -> Result<reviewing::Reviewed, String> {
     let program = reach(agent)?;
+    let model = model_for(agent, model);
     let cli = Cli::of(agent.word()).ok_or("devflow does not run this CLI headless")?;
     reviewing::review(&reviewing::Review {
         agent: &cli,
         program: &program,
         prompt,
         cwd,
-        model,
+        model: model.as_deref(),
         env,
         deadline,
     })
