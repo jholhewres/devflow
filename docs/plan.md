@@ -122,6 +122,20 @@ in 0.1.0; phase 9 waits on the maintainer.
 - Decisions' key moves from devpit's Settings to `OPENROUTER_API_KEY` or
   `devflow jev setup`.
 
+## A host of its own
+
+0.2.0 is what devpit (phase 9) builds on. A host that starts the agents
+itself keeps what its people already see:
+
+- `env::spawn_with` starts the engine's programs its own way, and
+  `folder::pin` fixes the folder every project keeps devflow in.
+- A `Dialect` carries its words — the item, the tools' names, the variables'
+  prefix, the comments' labels, devflow.yaml's comments, the Decisions hints —
+  and an `Assets` its own skills, personas, rubrics, schema and publish
+  templates. It is passed where text is made (`gate::Looked`,
+  `evidence::Given`, `review::Personas`, `folder::Layout`, `runs::Runs`, the
+  `_in` functions); `Dialect::DEVFLOW` is devflow's own.
+
 ## Release
 
 `VERSION` is the one version. `cargo xtask version-sync` writes it into the
