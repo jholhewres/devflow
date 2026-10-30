@@ -704,3 +704,27 @@ fn a_change_to_a_comment_github_did_not_name_says_where_to_make_it_and_the_rest_
     );
     assert_eq!(host.reviews.borrow().len(), 1, "a second review was posted");
 }
+
+static OWN_TEMPLATES: crate::Assets = crate::Assets {
+    publish: ["a host's github", "a host's gitlab", "a host's bitbucket"],
+    ..crate::Assets::DEVFLOW
+};
+static OWN: crate::Dialect = crate::Dialect {
+    assets: &OWN_TEMPLATES,
+    ..crate::Dialect::DEVFLOW
+};
+
+#[test]
+fn a_host_that_ships_its_own_templates_is_served_them() {
+    let root = tempfile::tempdir().expect("root");
+    let personas = Personas {
+        dialect: &OWN,
+        ..Personas::default()
+    };
+    for (destination, text) in Destination::ALL.into_iter().zip(OWN_TEMPLATES.publish) {
+        assert_eq!(
+            template(root.path(), personas, destination).expect("template"),
+            text
+        );
+    }
+}
