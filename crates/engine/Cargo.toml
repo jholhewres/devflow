@@ -11,7 +11,8 @@ authors.workspace = true
 
 [dependencies]
 serde = { version = "1.0.229", features = ["derive"] }
-serde_json.workspace = true
+# Not the workspace's: its `preserve_order` would reach every host's JSON.
+serde_json = "1.0.151"
 # The digest a skill is listed with, and a team layer's cache name.
 sha2 = "0.10"
 # The event parser, for the line each key and value sits on: an invalid
