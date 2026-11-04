@@ -976,7 +976,7 @@ fn a_rereview_reads_only_what_changed_since_and_carries_what_did_not_block() {
             persona,
             vec![
                 finding("src/app.rs", 1, "critical", "Shell injection in open"),
-                finding("src/app.rs", 1, "low", "Opener name is vague"),
+                finding("src/app.rs", 40, "low", "Opener name is vague"),
             ],
         ),
         "{}",
@@ -1075,6 +1075,127 @@ fn a_rereview_reads_only_what_changed_since_and_carries_what_did_not_block() {
     assert_eq!(found["previous"], json!(before.stamp));
     assert_eq!(found["findings"].as_array().map(Vec::len), Some(1));
     assert_eq!(found["findings"][0]["carried_from"], json!(before.stamp));
+}
+
+/// A re-review reads one fix's delta: one `devflow-all` by default, even past
+/// small and on a sensitive path, and the carried findings whose lines the
+/// delta changed are asked again; one not reported again is dropped.
+/// `review.scale: false` keeps the configured reviewers.
+#[cfg(unix)]
+#[test]
+fn a_rereview_is_read_once_and_rechecks_the_carried_findings_the_delta_touched() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let root = dir.path();
+    let persona = "devflow-security";
+    let first = fake_cli(
+        root,
+        "claude-first",
+        &answer(
+            "claude",
+            persona,
+            vec![
+                finding("src/app.rs", 1, "critical", "Shell injection in open"),
+                finding("src/app.rs", 1, "low", "Opener name is vague"),
+                finding("src/app.rs", 40, "low", "Retry count is magic"),
+            ],
+        ),
+        "{}",
+        "0",
+    );
+    let mut config = config_with(vec![reviewer(Agent::Claude, persona)], Consolidate::Jev);
+    assert_eq!(config.review.scale, None, "no review.scale in the file");
+    let reach = move |_: Agent| Ok(first.clone());
+    let before = Ran {
+        root,
+        config: &config,
+        asked: fresh(),
+        reach: &reach,
+        jev: None,
+    }
+    .review()
+    .expect("the first review");
+    let previous = previous_of(&runs_of(root), "card_1", &before.stamp).expect("its run");
+    let fixed = fake_cli(
+        root,
+        "claude-fixed",
+        &answer("claude", "devflow-all", Vec::new()),
+        "{}",
+        "0",
+    );
+    let reach = move |_: Agent| Ok(fixed.clone());
+    let migration = "db/migrations/0004_owner.sql";
+    let files = vec!["src/app.rs".to_owned(), migration.to_owned()];
+    let delta = format!(
+        "--- a/src/app.rs\n+++ b/src/app.rs\n@@ -1 +1 @@\n-os.system(f\"xdg-open {{link}}\")\n+subprocess.run([\"xdg-open\", link])\n\
+         diff --git a/{migration} b/{migration}\n--- /dev/null\n+++ b/{migration}\n@@ -0,0 +1,200 @@\n{}",
+        "+select 1;\n".repeat(200)
+    );
+    let again = |config: &Config| {
+        let mut asked = fresh();
+        asked.previous = Some(before.stamp.clone());
+        Ran {
+            root,
+            config,
+            asked,
+            reach: &reach,
+            jev: None,
+        }
+        .review_of(
+            Git {
+                base: &previous.head,
+                head: "3333333333333333",
+                files: &files,
+                diff: &delta,
+            },
+            Some(&previous),
+        )
+        .expect("the re-review")
+    };
+
+    let after = again(&config);
+    let personas: Vec<&str> = after.ran.iter().map(|ran| ran.persona.as_str()).collect();
+    assert_eq!(personas, ["devflow-all"]);
+    assert!(after.pending.is_empty(), "{:?}", after.pending);
+    let why = &after.scale.as_ref().expect("sized").why;
+    assert_eq!(
+        why,
+        &format!(
+            "re-review of run {} → one reviewer (devflow-all)",
+            before.stamp
+        )
+    );
+    let packet =
+        std::fs::read_to_string(root.join(&after.folder).join(PACKET)).expect("the packet");
+    assert!(packet.contains("Shell injection in open"));
+    assert!(
+        packet.contains("Opener name is vague"),
+        "touched: asked again"
+    );
+    assert!(
+        !packet.contains("Retry count is magic"),
+        "untouched: carried"
+    );
+    let found = after.findings.as_ref().expect("findings.json");
+    let list = found["findings"].as_array().expect("findings");
+    let titles: Vec<&str> = list
+        .iter()
+        .filter_map(|one| one["title"].as_str())
+        .collect();
+    assert_eq!(titles, ["Retry count is magic"]);
+    assert_eq!(list[0]["carried_from"], json!(before.stamp));
+    let dropped = found["dropped"].as_array().expect("dropped");
+    assert_eq!(dropped.len(), 1, "{dropped:#?}");
+    assert_eq!(dropped[0]["title"], "Opener name is vague");
+    assert_eq!(
+        dropped[0]["reason"],
+        "fixed in the delta: not reported again"
+    );
+
+    config.review.scale_off = true;
+    let after = again(&config);
+    let personas: Vec<&str> = after.ran.iter().map(|ran| ran.persona.as_str()).collect();
+    assert_eq!(personas, [persona]);
+    assert_eq!(after.scale, None);
 }
 
 /// The HEAD a previous run names becomes an argument to git: anything but a

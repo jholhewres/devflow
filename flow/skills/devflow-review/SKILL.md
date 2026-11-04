@@ -22,8 +22,11 @@ own `axis`. `review.scale` sends it, alone, instead of `review.reviewers` when
 a diff is small (at most `small_lines` changed lines, 80 unless set) and
 touches no sensitive path (auth, routes, migrations, dependency manifests and
 lockfiles, secrets and `.env`, CI workflows; `sensitive` replaces the list).
-Anything else gets the configured reviewers. It is off unless devflow.yaml
-says `scale: true` or sets either field.
+Anything else gets the configured reviewers. A first review is sized only
+when devflow.yaml says `scale: true` or sets either field; the recommended
+setup writes `scale: true`. A re-review with `previous` reads one fix's
+delta, so it always goes to one `devflow-all`, unless devflow.yaml says
+`scale: false`.
 
 ## Ground rules
 
@@ -55,8 +58,8 @@ changed files, the item's criteria, the brief, the standards, the evidence
 and the diff — and runs every reviewer `review.reviewers` lists in
 `devflow.yaml` at once, each headless on its own agent CLI and from that
 packet alone. With `review.scale` on, the answer's `scale` says which way it
-went and why ("scaled: small diff, no sensitive path → one reviewer"); a
-scaled review runs the first reviewer's CLI on `devflow-all`. A CLI that is
+went and why ("scaled: small diff, no sensitive path → one reviewer", or
+"re-review of run X → one reviewer"); a scaled review runs the first reviewer's CLI on `devflow-all`. A CLI that is
 not installed or not signed in is skipped, and the item's comment says so; the review
 goes on without it. An empty diff ends the
 review with "nothing to review".
@@ -226,12 +229,14 @@ the run of the last review, the one whose blocking findings were fixed.
 { "item": "<item id>", "previous": "<the last review's run>" }
 ```
 
-The packet then carries that run's blocking findings under "Previous
-findings", and the diff only from its HEAD to the new HEAD. A reviewer reports
-again, at HEAD's lines, any of them that still stands; one not reported again
-is taken as fixed. Its other findings were not read again, so they still
-stand: devflow carries them into the new `findings.json`, each with
-`carried_from` naming the run it was found in. Without `previous` the review
+The packet then carries, under "Previous findings", that run's blocking
+findings and those of its other findings on lines the delta changed, and the
+diff only from its HEAD to the new HEAD. A reviewer reports again, at HEAD's
+lines, any of them that still stands; one not reported again is taken as
+fixed, and a non-blocking one is listed in `dropped` as "fixed in the delta:
+not reported again". Its findings on lines the delta did not touch were not
+read again, so they still stand: devflow carries them into the new
+`findings.json`, each with `carried_from` naming the run it was found in. Without `previous` the review
 reads from BASE, as in step 1. Steps 2 to 6 are the same.
 
 ### Without a work item

@@ -204,14 +204,23 @@ fn review(dialect: &Dialect, out: &mut String, config: &Config) {
     if let Some(scale) = &config.review.scale {
         out.push_str(
             "  # A diff of at most small_lines changed lines that touches no\n  \
-             # sensitive path is read by one devflow-all reviewer.\n  \
-             scale:\n",
+             # sensitive path, and any re-review, is read by one devflow-all reviewer.\n",
         );
-        let _ = writeln!(out, "    small_lines: {}", scale.small_lines);
-        if scale.sensitive != crate::scale::Scale::default().sensitive {
-            let globs: Vec<String> = scale.sensitive.iter().map(|one| scalar(one)).collect();
-            let _ = writeln!(out, "    sensitive: [{}]", globs.join(", "));
+        if *scale == crate::scale::Scale::default() {
+            out.push_str("  scale: true\n");
+        } else {
+            out.push_str("  scale:\n");
+            let _ = writeln!(out, "    small_lines: {}", scale.small_lines);
+            if scale.sensitive != crate::scale::Scale::default().sensitive {
+                let globs: Vec<String> = scale.sensitive.iter().map(|one| scalar(one)).collect();
+                let _ = writeln!(out, "    sensitive: [{}]", globs.join(", "));
+            }
         }
+    } else if config.review.scale_off {
+        out.push_str(
+            "  # Off: every review, a re-review too, gets the configured reviewers.\n  \
+             scale: false\n",
+        );
     }
     if config.review.verify != crate::config::Verify::Off {
         out.push_str(

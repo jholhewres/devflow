@@ -161,8 +161,12 @@ fn the_review_asks_for_no_poc_run_unless_the_file_says_verify() {
 #[test]
 fn the_review_is_scaled_only_when_the_file_asks() {
     let scale = |text: &str| parse(text).expect("valid").review.scale;
+    let off = |text: &str| parse(text).expect("valid").review.scale_off;
     assert_eq!(scale("version: 2\n"), None);
+    assert!(!off("version: 2\n"), "absent is not said off");
     assert_eq!(scale("version: 2\nreview:\n  scale: false\n"), None);
+    assert!(off("version: 2\nreview:\n  scale: false\n"));
+    assert!(!off("version: 2\nreview:\n  scale: true\n"));
     assert_eq!(
         scale("version: 2\nreview:\n  scale: true\n"),
         Some(crate::scale::Scale::default())

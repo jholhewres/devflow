@@ -9,6 +9,12 @@
 //! commit's `flow/`, the files the engine embeds. Every input here mirrors the
 //! harness's: change one, change both and write the goldens again.
 //!
+//! Changed since, on purpose (devpit #257, devflow 0.2.2): the recommended
+//! preset writes `review.scale: true`, so `setup-yaml` and `setup-file…` carry
+//! those lines; and `devflow-review/SKILL.md` says how a re-review is scaled
+//! and rechecks carried findings, so its digest and size in the goldens are
+//! the new file's. devpit's own copy follows when it takes 0.2.2.
+//!
 //! devpit's build sorts JSON keys; this one keeps them in the order written
 //! (`preserve_order`). JSON is compared after sorting its keys, which is the
 //! one difference that is not words.

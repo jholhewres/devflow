@@ -60,10 +60,28 @@ fn full() -> Config {
 fn what_is_written_reads_back_the_same() {
     let mut scaled = Config::default();
     scaled.review.scale = Some(crate::scale::Scale::default());
-    for config in [Config::default(), full(), scaled] {
+    let mut off = Config::default();
+    off.review.scale_off = true;
+    for config in [Config::default(), full(), scaled, off] {
         let text = render(&config);
-        assert_eq!(parse(&text), Ok(config), "{text}");
+        assert_eq!(parse(&text), Ok(config.clone()), "{text}");
+        assert_eq!(crate::config::from_json(&config.to_json()), Ok(config));
     }
+}
+
+#[test]
+fn scale_is_written_as_said() {
+    let mut config = Config::default();
+    assert!(!render(&config).contains("scale:"));
+    config.review.scale = Some(crate::scale::Scale::default());
+    assert!(render(&config).contains("\n  scale: true\n"));
+    config.review.scale = None;
+    config.review.scale_off = true;
+    assert!(render(&config).contains("\n  scale: false\n"));
+    assert_eq!(
+        config.to_json()["review"]["scale"],
+        serde_json::json!(false)
+    );
 }
 
 #[test]

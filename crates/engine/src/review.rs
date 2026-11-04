@@ -940,6 +940,9 @@ pub struct Done {
     /// Each file of the diff, which findings are anchored in; `None` for a
     /// run an older devpit made.
     pub diffed: Option<BTreeMap<String, Diffed>>,
+    /// A re-review's: the lines the delta changed at the previous HEAD, by
+    /// file, whose carried findings were asked again.
+    pub touched: Option<BTreeMap<String, Vec<(u64, u64)>>>,
     /// The findings on no line of HEAD, taken out with why.
     pub dropped: Vec<Value>,
     /// Which way `review.scale` sent the review; `None` with it off.
@@ -981,6 +984,7 @@ struct Record {
     judged: BTreeMap<String, Value>,
     previous: Option<String>,
     diffed: Option<BTreeMap<String, Diffed>>,
+    touched: Option<BTreeMap<String, Vec<(u64, u64)>>>,
     scale: Option<Sized>,
     retro: bool,
 }
@@ -1023,11 +1027,13 @@ fn reviewed_anew(given: &Given) -> Result<(String, PathBuf, Record), String> {
     }
     let path = given.runs.fresh(given.card.id, given.at)?;
     let criteria = criteria_of(given.card.body);
+    let touched = given.previous.map(|_| findings::touched(git.diff));
     let blocked: Vec<Value> = given.previous.map_or_else(Vec::new, |previous| {
-        findings::blocking(
+        findings::rechecked(
             &previous.findings,
             &given.config.review.block_on,
             given.config.review.verify,
+            touched.as_ref().unwrap_or(&BTreeMap::new()),
         )
         .into_iter()
         .cloned()
@@ -1083,12 +1089,12 @@ fn reviewed_anew(given: &Given) -> Result<(String, PathBuf, Record), String> {
             Err(why) => Err((why, Some(said))),
         }
     };
-    let scale = given
-        .config
-        .review
-        .scale
-        .as_ref()
-        .map(|scale| scale::sized(scale, git.files, git.diff));
+    let scale = scale::chosen(
+        &given.config.review,
+        given.previous.map(|previous| previous.run.as_str()),
+        git.files,
+        git.diff,
+    );
     let readers = models::readers(
         given.config,
         scale.as_ref().is_some_and(|scale| scale.one),
@@ -1113,6 +1119,7 @@ fn reviewed_anew(given: &Given) -> Result<(String, PathBuf, Record), String> {
                 .take(MOST_CHANGED)
                 .collect(),
         ),
+        touched,
         scale,
         retro: given.retro,
     };
@@ -1200,6 +1207,9 @@ fn reviewed_again(given: &Given, run: &str) -> Result<(String, PathBuf, Record),
         diffed: kept
             .get("diffed")
             .and_then(|diffed| serde_json::from_value(diffed.clone()).ok()),
+        touched: kept
+            .get("touched")
+            .and_then(|touched| serde_json::from_value(touched.clone()).ok()),
         scale: kept["scale"]["why"].as_str().map(|why| Sized {
             one: kept["scale"]["one"].as_bool().unwrap_or(false),
             why: why.to_owned(),
@@ -1498,7 +1508,7 @@ pub fn reviewed(given: &Given) -> Result<Done, String> {
         .collect();
     // After signing, so a reviewer's own `anchor` is never the one kept.
     let head = record.head.clone();
-    let dropped = record.diffed.as_ref().map_or_else(Vec::new, |diffed| {
+    let mut dropped = record.diffed.as_ref().map_or_else(Vec::new, |diffed| {
         findings::anchored(&mut all, diffed, &|file| (given.lines_at)(&head, file))
     });
     let left = given.budget.saturating_sub(began.elapsed()).min(PASS);
@@ -1517,13 +1527,14 @@ pub fn reviewed(given: &Given) -> Result<Done, String> {
         (None, None) => None,
     };
     if let Some(previous) = &previous {
-        findings::carried_over(
+        dropped.extend(findings::carried_over_since(
             &mut merged,
             &previous.findings,
             &given.config.review.block_on,
             given.config.review.verify,
             &previous.run,
-        );
+            record.touched.as_ref().unwrap_or(&BTreeMap::new()),
+        ));
     }
     let earlier = read_json(&path, FINDINGS);
     findings::carried(
@@ -1601,6 +1612,7 @@ pub fn reviewed(given: &Given) -> Result<Done, String> {
         judged: record.judged,
         previous: record.previous,
         diffed: record.diffed,
+        touched: record.touched,
         dropped,
         scale: record.scale,
         verify: given.config.review.verify,
@@ -1675,6 +1687,7 @@ fn verified(given: &Given, stamp: String, path: &Path, record: Record) -> Result
         judged: record.judged,
         previous: record.previous,
         diffed: record.diffed,
+        touched: record.touched,
         scale: record.scale,
         verify: review.verify,
         retro: record.retro,
@@ -1711,6 +1724,9 @@ pub fn recorded(done: &Done) -> Value {
     }
     if let Some(diffed) = &done.diffed {
         recorded["diffed"] = json!(diffed);
+    }
+    if let Some(touched) = &done.touched {
+        recorded["touched"] = json!(touched);
     }
     if !done.dropped.is_empty() {
         recorded["dropped"] = json!(done.dropped);

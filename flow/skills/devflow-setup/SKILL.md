@@ -142,9 +142,10 @@ More reviewers are more items of `review.reviewers`, each
 `{ "agent": "codex", "persona": "devflow-spec", "model": "…" }` on that CLI's
 own sign-in; `review.consolidate` says how their findings become one list:
 `jev` (Decisions, else a model pass), `agent` (one model pass) or `none`.
-`review.scale` (off unless set; `true`, or `{ small_lines, sensitive }`)
-sends a small diff that touches no sensitive path to one `devflow-all`
-reviewer instead. devflow's personas are read from devflow, never copied: to
+`review.scale` (`true`, as the recommended setup writes it, or
+`{ small_lines, sensitive }`) sends a small diff that touches no sensitive
+path to one `devflow-all` reviewer instead; a re-review always goes to one,
+unless it says `false`. devflow's personas are read from devflow, never copied: to
 customize one, write it as `.devflow/reviewers/<a new name>.md` and
 name that persona in `review.reviewers`. A check added here gets a script
 under `scripts/` of its own, as the setup's do.

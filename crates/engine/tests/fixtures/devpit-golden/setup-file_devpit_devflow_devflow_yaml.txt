@@ -53,6 +53,9 @@ review:
   # How several reviewers' findings become one: jev (Decisions, else a
   # model pass), agent (one model pass) or none (merged as they are).
   consolidate: jev
+  # A diff of at most small_lines changed lines that touches no
+  # sensitive path, and any re-review, is read by one devflow-all reviewer.
+  scale: true
 
 # Decisions (Jev) answers typed questions about the gates. shadow logs
 # them; enforce blocks, and waits for the person's click in the app.

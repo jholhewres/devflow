@@ -49,6 +49,8 @@ fn detected() -> Detected {
 fn the_recommended_setup_is_built_from_what_was_detected() {
     let config = starting(Preset::Recommended, &detected());
     assert!(!config.enabled);
+    assert_eq!(config.review.scale, Some(crate::scale::Scale::default()));
+    assert_eq!(starting(Preset::Custom, &detected()).review.scale, None);
     assert_eq!(config.stages.briefing.approve, Approve::Person);
     assert_eq!(config.stages.plan.approve, Approve::Person);
     let checks = &config.stages.execution.checks;

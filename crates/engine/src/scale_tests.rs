@@ -112,3 +112,27 @@ fn scaled_the_first_reviewers_cli_reads_every_axis_and_unscaled_nothing_changes(
     assert_eq!(reviewers(&config.review, false), config.review.reviewers);
     assert!(reviewers(&Config::default().review, true).is_empty());
 }
+
+#[test]
+fn a_rereview_is_read_by_one_reviewer_unless_scale_is_said_off() {
+    let mut review = Config::default().review;
+    let file = "db/migrations/0003_add_owner.rb".to_owned();
+    let diff = added(&file, 200);
+    let files = [file];
+    let said = chosen(&review, Some("run-1"), &files, &diff).expect("sized");
+    assert!(said.one);
+    assert_eq!(
+        said.why,
+        "re-review of run run-1 → one reviewer (devflow-all)"
+    );
+    assert_eq!(
+        chosen(&review, None, &files, &diff),
+        None,
+        "a first review: off"
+    );
+    review.scale = Some(Scale::default());
+    assert!(!chosen(&review, None, &files, &diff).expect("sized").one);
+    review.scale = None;
+    review.scale_off = true;
+    assert_eq!(chosen(&review, Some("run-1"), &files, &diff), None);
+}

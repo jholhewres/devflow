@@ -753,3 +753,64 @@ fn a_poc_run_is_kept_only_on_a_critical_or_high_and_carried_with_it() {
     carried(&mut again, &list);
     assert_eq!(again[0]["verified"], list[0]["verified"]);
 }
+
+#[test]
+fn the_old_side_of_each_hunk_is_what_the_delta_touched() {
+    let read = touched(DIFF);
+    assert_eq!(read["src/app.rs"], [(1, 3), (20, 22)]);
+    assert_eq!(read["src/gone.rs"], [(1, 2)]);
+    assert!(!read.contains_key("src/new.rs"), "no old side");
+    let added = touched("--- a/a.rs\n+++ b/a.rs\n@@ -7,0 +8,2 @@\n+x\n+y\n");
+    assert_eq!(
+        added["a.rs"],
+        [(7, 7)],
+        "an insertion spans the line it follows"
+    );
+}
+
+#[test]
+fn a_carried_finding_the_delta_touched_is_kept_only_when_reported_again() {
+    let at = |line: u64, severity: &str, title: &str| json!({ "file": "src/app.rs", "line": line, "axis": "standards", "severity": severity, "title": title });
+    let previous = vec![
+        at(1, "critical", "Shell injection in open"),
+        at(2, "low", "Opener name is vague"),
+        at(21, "low", "Loop counter shadowed"),
+        at(40, "low", "Retry count is magic"),
+    ];
+    let block_on = [Severity::Critical, Severity::High];
+    let touched = touched(DIFF);
+    let asked: Vec<&str> = rechecked(&previous, &block_on, Verify::Off, &touched)
+        .iter()
+        .map(|one| one["title"].as_str().unwrap_or_default())
+        .collect();
+    assert_eq!(
+        asked,
+        [
+            "Shell injection in open",
+            "Opener name is vague",
+            "Loop counter shadowed"
+        ]
+    );
+    let mut merged = vec![at(22, "low", "Loop counter shadowed")];
+    let dropped = carried_over_since(
+        &mut merged,
+        &previous,
+        &block_on,
+        Verify::Off,
+        "run-1",
+        &touched,
+    );
+    let titles: Vec<&str> = merged
+        .iter()
+        .filter_map(|one| one["title"].as_str())
+        .collect();
+    assert_eq!(titles, ["Loop counter shadowed", "Retry count is magic"]);
+    assert!(merged[0].get("carried_from").is_none(), "reported again");
+    assert_eq!(merged[1]["carried_from"], "run-1");
+    assert_eq!(dropped.len(), 1);
+    assert_eq!(dropped[0]["title"], "Opener name is vague");
+    assert_eq!(dropped[0]["reason"], FIXED_IN_DELTA);
+    let mut merged = Vec::new();
+    carried_over(&mut merged, &previous, &block_on, Verify::Off, "run-1");
+    assert_eq!(merged.len(), 3, "with nothing touched every one is carried");
+}

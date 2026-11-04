@@ -295,6 +295,14 @@ pub struct Review {
     /// One reviewer for a small, unsensitive diff; off when absent.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scale: Option<Scale>,
+    /// `scale: false` said in the file: a re-review keeps the configured
+    /// reviewers too. Absent, a re-review is read by one `devflow-all`.
+    #[serde(
+        rename = "scale",
+        skip_serializing_if = "std::ops::Not::not",
+        serialize_with = "said_false"
+    )]
+    pub scale_off: bool,
     #[serde(skip_serializing_if = "Verify::off")]
     pub verify: Verify,
     /// One more reading before the review's, on a large model, of a diff
@@ -371,6 +379,7 @@ impl Default for Config {
                 block_on: vec![Severity::Critical, Severity::High],
                 consolidate: Consolidate::Jev,
                 scale: None,
+                scale_off: false,
                 verify: Verify::Off,
                 analysis: None,
             },
@@ -1073,9 +1082,13 @@ pub(crate) fn review(node: &Node, path: &str) -> Result<Review, Invalid> {
         )?,
         None => Config::default().review.consolidate,
     };
-    let scale = match fields.get("scale") {
-        Some((node, path)) => scale(node, &path)?,
-        None => None,
+    let (scale, scale_off) = match fields.get("scale") {
+        Some((node, path)) => {
+            let scale = scale(node, &path)?;
+            let off = scale.is_none();
+            (scale, off)
+        }
+        None => (None, false),
     };
     let verify = match fields.get("verify") {
         Some((node, path)) => word(node, &path, Verify::of, Verify::ALL, Verify::word)?,
@@ -1091,9 +1104,14 @@ pub(crate) fn review(node: &Node, path: &str) -> Result<Review, Invalid> {
         block_on,
         consolidate,
         scale,
+        scale_off,
         verify,
         analysis,
     })
+}
+
+fn said_false<S: serde::Serializer>(_: &bool, to: S) -> Result<S::Ok, S::Error> {
+    to.serialize_bool(false)
 }
 
 /// `analysis: true` or `false`, or a map of `enabled` and `model`.

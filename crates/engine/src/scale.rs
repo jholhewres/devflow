@@ -1,7 +1,9 @@
 //! `review.scale`: a review sized to its change. A small diff that touches no
 //! sensitive path is read once, every axis in one reading, by `devflow-all`;
-//! anything else gets the configured reviewers. Off unless devflow.yaml asks:
-//! the security persona alone has brought a real PR's only blocking findings.
+//! anything else gets the configured reviewers. A first review is sized only
+//! when devflow.yaml asks: the security persona alone has brought a real PR's
+//! only blocking findings. A re-review reads one fix's delta, so it is read
+//! once unless the file says `scale: false`.
 
 use serde::Serialize;
 
@@ -115,6 +117,24 @@ pub fn sized(scale: &Scale, files: &[String], diff: &str) -> Sized {
             "scaled: small diff ({lines} changed lines), no sensitive path → one reviewer ({ALL_AXES})"
         ),
     }
+}
+
+/// Which way a review goes: a re-review of `previous` by one `devflow-all`
+/// unless `review.scale: false` is said, else as `review.scale` sizes it;
+/// `None` with it off.
+pub fn chosen(
+    review: &Review,
+    previous: Option<&str>,
+    files: &[String],
+    diff: &str,
+) -> Option<Sized> {
+    if let Some(run) = previous.filter(|_| !review.scale_off) {
+        return Some(Sized {
+            one: true,
+            why: format!("re-review of run {run} → one reviewer ({ALL_AXES})"),
+        });
+    }
+    review.scale.as_ref().map(|scale| sized(scale, files, diff))
 }
 
 /// Who runs: the first configured reviewer's CLI and model on `devflow-all`

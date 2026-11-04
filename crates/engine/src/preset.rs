@@ -165,6 +165,7 @@ pub fn starting(preset: Preset, detected: &Detected) -> Config {
         })
         .into_iter()
         .collect();
+    config.review.scale = Some(crate::scale::Scale::default());
     config.decisions.use_ = detected.decisions_key && !detected.decisions_opted_out;
     config.decisions.mode = Mode::Shadow;
     config

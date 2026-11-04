@@ -447,6 +447,18 @@ pub fn alike(one: &Value, other: &Value) -> bool {
     candidates(one, other) && shorter > 0 && shared * 2 >= shorter
 }
 
+/// [`alike`] wherever in the file: the same file and axis, the titles
+/// sharing at least half the words of the shorter one.
+fn alike_moved(one: &Value, other: &Value) -> bool {
+    let (mine, theirs) = (words(text(one, "title")), words(text(other, "title")));
+    let shorter = mine.len().min(theirs.len());
+    ["file", "axis"]
+        .iter()
+        .all(|key| text(one, key) == text(other, key))
+        && shorter > 0
+        && mine.intersection(&theirs).count() * 2 >= shorter
+}
+
 /// The findings as groups of one problem each: a finding joins the first
 /// group whose first finding is a candidate and `same` says is the same.
 pub fn grouped(findings: &[Value], same: &dyn Fn(usize, usize) -> bool) -> Vec<Vec<usize>> {
@@ -713,9 +725,40 @@ pub fn carried_over(
     verify: Verify,
     run: &str,
 ) {
+    carried_over_since(merged, previous, block_on, verify, run, &BTreeMap::new());
+}
+
+/// Why a carried finding the delta touched is not carried again.
+pub const FIXED_IN_DELTA: &str = "fixed in the delta: not reported again";
+
+/// [`carried_over`], where a finding on lines the delta `touched` (as
+/// [`touched`] reads it) was asked again: one not reported again is taken
+/// out, and what was taken out, with why, is what this returns.
+pub fn carried_over_since(
+    merged: &mut Vec<Value>,
+    previous: &[Value],
+    block_on: &[Severity],
+    verify: Verify,
+    run: &str,
+    touched: &BTreeMap<String, Vec<(u64, u64)>>,
+) -> Vec<Value> {
     let new = merged.len();
+    let mut dropped = Vec::new();
     for finding in previous.iter().filter(|one| !blocks(one, block_on, verify)) {
         if merged[..new].iter().any(|now| alike(now, finding)) {
+            continue;
+        }
+        if on_touched(finding, touched) {
+            // Reported again at HEAD's lines, which the delta may have moved.
+            if merged[..new].iter().any(|now| alike_moved(now, finding)) {
+                continue;
+            }
+            let mut said = texts_of(
+                finding,
+                &["file", "line", "axis", "title", "agent", "persona"],
+            );
+            said["reason"] = json!(FIXED_IN_DELTA);
+            dropped.push(said);
             continue;
         }
         let mut kept = finding.clone();
@@ -724,6 +767,30 @@ pub fn carried_over(
         }
         merged.push(kept);
     }
+    dropped
+}
+
+/// The findings of the previous run a re-review asks again: those that
+/// blocked, and those carried whose lines the delta `touched`.
+pub fn rechecked<'a>(
+    previous: &'a [Value],
+    block_on: &[Severity],
+    verify: Verify,
+    touched: &BTreeMap<String, Vec<(u64, u64)>>,
+) -> Vec<&'a Value> {
+    previous
+        .iter()
+        .filter(|one| blocks(one, block_on, verify) || on_touched(one, touched))
+        .collect()
+}
+
+fn on_touched(finding: &Value, touched: &BTreeMap<String, Vec<(u64, u64)>>) -> bool {
+    let (start, end) = lines(finding);
+    touched.get(text(finding, "file")).is_some_and(|ranges| {
+        ranges
+            .iter()
+            .any(|(first, last)| start <= *last as i64 && end >= *first as i64)
+    })
 }
 
 /// The blocking findings of a re-review that repeat one the previous run
@@ -880,6 +947,61 @@ pub(crate) fn new_side(header: &str) -> Option<(u64, u64, u64)> {
     let (_, old) = count(parts.next()?.strip_prefix('-')?)?;
     let (start, new) = count(parts.next()?.strip_prefix('+')?)?;
     Some((start, old, new))
+}
+
+/// `-a,b` of a hunk header: where the old side starts and how many lines.
+fn old_side(header: &str) -> Option<(u64, u64)> {
+    let ranges = header.strip_prefix("@@ ")?.split(" @@").next()?;
+    let old = ranges.split_whitespace().next()?.strip_prefix('-')?;
+    match old.split_once(',') {
+        Some((start, count)) => Some((start.parse().ok()?, count.parse().ok()?)),
+        None => Some((old.parse().ok()?, 1)),
+    }
+}
+
+/// The lines each hunk of a unified diff spans on its old side, by the
+/// file's path there: what a finding made at BASE sat on when the delta
+/// changed it. A hunk that only adds spans the line it follows.
+pub fn touched(diff: &str) -> BTreeMap<String, Vec<(u64, u64)>> {
+    let mut files: BTreeMap<String, Vec<(u64, u64)>> = BTreeMap::new();
+    let mut file: Option<String> = None;
+    let (mut old, mut new) = (0u64, 0u64);
+    for line in diff.lines() {
+        if old > 0 || new > 0 {
+            match line.chars().next() {
+                Some('+') => {
+                    new = new.saturating_sub(1);
+                    continue;
+                }
+                Some('-') => {
+                    old = old.saturating_sub(1);
+                    continue;
+                }
+                Some(' ') | None => {
+                    (old, new) = (old.saturating_sub(1), new.saturating_sub(1));
+                    continue;
+                }
+                Some('\\') => continue,
+                _ => (old, new) = (0, 0),
+            }
+        }
+        if line.starts_with("diff --git ") {
+            file = None;
+        } else if let Some(path) = line.strip_prefix("--- ") {
+            file = path.strip_prefix("a/").map(str::to_owned);
+        } else if let (Some((_, from, to)), Some((start, count))) = (new_side(line), old_side(line))
+        {
+            (old, new) = (from, to);
+            if let Some(file) = &file {
+                let ranges = files.entry(file.clone()).or_default();
+                if ranges.len() < MOST_RANGES {
+                    let first = start.max(1);
+                    ranges.push((first, first + count.max(1) - 1));
+                }
+            }
+        }
+    }
+    files
 }
 
 /// Each file a unified diff changes, by its path on the new side; a file

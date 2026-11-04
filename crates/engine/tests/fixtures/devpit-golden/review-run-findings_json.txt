@@ -12,7 +12,7 @@
   },
   "devpit": {
     "skills": {
-      "devflow-review": "sha256:5ed9df711f510ca9ac81831de035753ff8a53f0b61e083457d78354878c22936"
+      "devflow-review": "sha256:a2ab51db49f989d248191f76666d0910954412e8ece515cd8ee921f98aba5ee1"
     },
     "version": "0.1.45"
   },
