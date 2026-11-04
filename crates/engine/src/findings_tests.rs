@@ -757,7 +757,11 @@ fn a_poc_run_is_kept_only_on_a_critical_or_high_and_carried_with_it() {
 #[test]
 fn the_old_side_of_each_hunk_is_what_the_delta_touched() {
     let read = touched(DIFF);
-    assert_eq!(read["src/app.rs"], [(1, 3), (20, 22)]);
+    assert_eq!(
+        read["src/app.rs"],
+        [(2, 2), (21, 21)],
+        "context is not touched"
+    );
     assert_eq!(read["src/gone.rs"], [(1, 2)]);
     assert!(!read.contains_key("src/new.rs"), "no old side");
     let added = touched("--- a/a.rs\n+++ b/a.rs\n@@ -7,0 +8,2 @@\n+x\n+y\n");
@@ -776,6 +780,17 @@ fn a_carried_finding_the_delta_touched_is_kept_only_when_reported_again() {
         at(2, "low", "Opener name is vague"),
         at(21, "low", "Loop counter shadowed"),
         at(40, "low", "Retry count is magic"),
+        at(1, "low", "Main has no doc comment"),
+        {
+            let mut dismissed = at(2, "high", "Old call leaks a handle");
+            dismissed["false_positive"] = json!(true);
+            dismissed
+        },
+        {
+            let mut older = at(21, "low", "Counter starts at one");
+            older["carried_from"] = json!("run-0");
+            older
+        },
     ];
     let block_on = [Severity::Critical, Severity::High];
     let touched = touched(DIFF);
@@ -804,7 +819,18 @@ fn a_carried_finding_the_delta_touched_is_kept_only_when_reported_again() {
         .iter()
         .filter_map(|one| one["title"].as_str())
         .collect();
-    assert_eq!(titles, ["Loop counter shadowed", "Retry count is magic"]);
+    assert_eq!(
+        titles,
+        [
+            "Loop counter shadowed",
+            "Retry count is magic",
+            "Main has no doc comment",
+            "Old call leaks a handle",
+            "Counter starts at one"
+        ],
+        "context, a false positive and one carried before are carried as they were"
+    );
+    assert_eq!(merged[4]["carried_from"], "run-0");
     assert!(merged[0].get("carried_from").is_none(), "reported again");
     assert_eq!(merged[1]["carried_from"], "run-1");
     assert_eq!(dropped.len(), 1);
@@ -812,5 +838,5 @@ fn a_carried_finding_the_delta_touched_is_kept_only_when_reported_again() {
     assert_eq!(dropped[0]["reason"], FIXED_IN_DELTA);
     let mut merged = Vec::new();
     carried_over(&mut merged, &previous, &block_on, Verify::Off, "run-1");
-    assert_eq!(merged.len(), 3, "with nothing touched every one is carried");
+    assert_eq!(merged.len(), 6, "with nothing touched every one is carried");
 }

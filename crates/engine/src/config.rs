@@ -297,11 +297,9 @@ pub struct Review {
     pub scale: Option<Scale>,
     /// `scale: false` said in the file: a re-review keeps the configured
     /// reviewers too. Absent, a re-review is read by one `devflow-all`.
-    #[serde(
-        rename = "scale",
-        skip_serializing_if = "std::ops::Not::not",
-        serialize_with = "said_false"
-    )]
+    /// Written as `scale: false`, by `to_json` and `render`, when `scale`
+    /// is `None`.
+    #[serde(skip)]
     pub scale_off: bool,
     #[serde(skip_serializing_if = "Verify::off")]
     pub verify: Verify,
@@ -483,6 +481,9 @@ impl Config {
     /// version 2's list.
     pub fn to_json(&self) -> serde_json::Value {
         let mut json = serde_json::to_value(self).unwrap_or_default();
+        if self.review.scale.is_none() && self.review.scale_off {
+            json["review"]["scale"] = serde_json::Value::Bool(false);
+        }
         if self.version == V1 {
             return json;
         }
@@ -1108,10 +1109,6 @@ pub(crate) fn review(node: &Node, path: &str) -> Result<Review, Invalid> {
         verify,
         analysis,
     })
-}
-
-fn said_false<S: serde::Serializer>(_: &bool, to: S) -> Result<S::Ok, S::Error> {
-    to.serialize_bool(false)
 }
 
 /// `analysis: true` or `false`, or a map of `enabled` and `model`.

@@ -441,22 +441,22 @@ fn words(title: &str) -> BTreeSet<String> {
 /// The same on their face, with no model asked: candidates whose titles
 /// share at least half the words of the shorter one.
 pub fn alike(one: &Value, other: &Value) -> bool {
-    let (mine, theirs) = (words(text(one, "title")), words(text(other, "title")));
-    let shared = mine.intersection(&theirs).count();
-    let shorter = mine.len().min(theirs.len());
-    candidates(one, other) && shorter > 0 && shared * 2 >= shorter
+    candidates(one, other) && titled_alike(one, other)
 }
 
-/// [`alike`] wherever in the file: the same file and axis, the titles
-/// sharing at least half the words of the shorter one.
-fn alike_moved(one: &Value, other: &Value) -> bool {
+/// Titles sharing at least half the words of the shorter one.
+fn titled_alike(one: &Value, other: &Value) -> bool {
     let (mine, theirs) = (words(text(one, "title")), words(text(other, "title")));
     let shorter = mine.len().min(theirs.len());
+    shorter > 0 && mine.intersection(&theirs).count() * 2 >= shorter
+}
+
+/// [`alike`] wherever in the file: the same file and axis, titled alike.
+fn alike_moved(one: &Value, other: &Value) -> bool {
     ["file", "axis"]
         .iter()
         .all(|key| text(one, key) == text(other, key))
-        && shorter > 0
-        && mine.intersection(&theirs).count() * 2 >= shorter
+        && titled_alike(one, other)
 }
 
 /// The findings as groups of one problem each: a finding joins the first
@@ -728,6 +728,10 @@ pub fn carried_over(
     carried_over_since(merged, previous, block_on, verify, run, &BTreeMap::new());
 }
 
+/// The old-side lines a re-review's delta changed, by file: ranges of lines
+/// at the previous run's HEAD.
+pub type Touched = BTreeMap<String, Vec<(u64, u64)>>;
+
 /// Why a carried finding the delta touched is not carried again.
 pub const FIXED_IN_DELTA: &str = "fixed in the delta: not reported again";
 
@@ -740,7 +744,7 @@ pub fn carried_over_since(
     block_on: &[Severity],
     verify: Verify,
     run: &str,
-    touched: &BTreeMap<String, Vec<(u64, u64)>>,
+    touched: &Touched,
 ) -> Vec<Value> {
     let new = merged.len();
     let mut dropped = Vec::new();
@@ -748,7 +752,7 @@ pub fn carried_over_since(
         if merged[..new].iter().any(|now| alike(now, finding)) {
             continue;
         }
-        if on_touched(finding, touched) {
+        if asked_again(finding, touched) {
             // Reported again at HEAD's lines, which the delta may have moved.
             if merged[..new].iter().any(|now| alike_moved(now, finding)) {
                 continue;
@@ -776,21 +780,26 @@ pub fn rechecked<'a>(
     previous: &'a [Value],
     block_on: &[Severity],
     verify: Verify,
-    touched: &BTreeMap<String, Vec<(u64, u64)>>,
+    touched: &Touched,
 ) -> Vec<&'a Value> {
     previous
         .iter()
-        .filter(|one| blocks(one, block_on, verify) || on_touched(one, touched))
+        .filter(|one| blocks(one, block_on, verify) || asked_again(one, touched))
         .collect()
 }
 
-fn on_touched(finding: &Value, touched: &BTreeMap<String, Vec<(u64, u64)>>) -> bool {
+/// A finding the delta asks again: standing (not a false positive, nor set
+/// aside), and made by the previous run itself, since one it carried keeps
+/// the lines of an older HEAD; on a line the delta changed.
+fn asked_again(finding: &Value, touched: &Touched) -> bool {
     let (start, end) = lines(finding);
-    touched.get(text(finding, "file")).is_some_and(|ranges| {
-        ranges
-            .iter()
-            .any(|(first, last)| start <= *last as i64 && end >= *first as i64)
-    })
+    standing(finding)
+        && finding.get("carried_from").is_none()
+        && touched.get(text(finding, "file")).is_some_and(|ranges| {
+            ranges
+                .iter()
+                .any(|(first, last)| start <= *last as i64 && end >= *first as i64)
+        })
 }
 
 /// The blocking findings of a re-review that repeat one the previous run
@@ -934,8 +943,8 @@ fn push_range(ranges: &mut Vec<(u64, u64)>, line: u64) {
     }
 }
 
-/// `+c,d` of a hunk header: where the new side starts and how many lines.
-pub(crate) fn new_side(header: &str) -> Option<(u64, u64, u64)> {
+/// A hunk header's `-a,b +c,d`: each side's start and count.
+fn hunk(header: &str) -> Option<((u64, u64), (u64, u64))> {
     let ranges = header.strip_prefix("@@ ")?.split(" @@").next()?;
     let mut parts = ranges.split_whitespace();
     let count = |part: &str| -> Option<(u64, u64)> {
@@ -944,41 +953,52 @@ pub(crate) fn new_side(header: &str) -> Option<(u64, u64, u64)> {
             None => Some((part.parse().ok()?, 1)),
         }
     };
-    let (_, old) = count(parts.next()?.strip_prefix('-')?)?;
-    let (start, new) = count(parts.next()?.strip_prefix('+')?)?;
+    let old = count(parts.next()?.strip_prefix('-')?)?;
+    let new = count(parts.next()?.strip_prefix('+')?)?;
+    Some((old, new))
+}
+
+/// `+c,d` of a hunk header: where the new side starts and how many lines.
+pub(crate) fn new_side(header: &str) -> Option<(u64, u64, u64)> {
+    let ((_, old), (start, new)) = hunk(header)?;
     Some((start, old, new))
 }
 
-/// `-a,b` of a hunk header: where the old side starts and how many lines.
-fn old_side(header: &str) -> Option<(u64, u64)> {
-    let ranges = header.strip_prefix("@@ ")?.split(" @@").next()?;
-    let old = ranges.split_whitespace().next()?.strip_prefix('-')?;
-    match old.split_once(',') {
-        Some((start, count)) => Some((start.parse().ok()?, count.parse().ok()?)),
-        None => Some((old.parse().ok()?, 1)),
-    }
-}
-
-/// The lines each hunk of a unified diff spans on its old side, by the
+/// The lines a unified diff removes or rewrites on its old side, by the
 /// file's path there: what a finding made at BASE sat on when the delta
-/// changed it. A hunk that only adds spans the line it follows.
-pub fn touched(diff: &str) -> BTreeMap<String, Vec<(u64, u64)>> {
-    let mut files: BTreeMap<String, Vec<(u64, u64)>> = BTreeMap::new();
+/// changed it. Context lines are not; an insertion touches the line it
+/// follows.
+pub fn touched(diff: &str) -> Touched {
+    let mut files = Touched::new();
     let mut file: Option<String> = None;
-    let (mut old, mut new) = (0u64, 0u64);
+    // The next old-side line, and what the open hunk has left of each side.
+    let (mut at, mut old, mut new) = (0u64, 0u64, 0u64);
+    let mut mark = |file: &Option<String>, line: u64| {
+        let Some(file) = file else { return };
+        let ranges = files.entry(file.clone()).or_default();
+        let full = ranges.len() >= MOST_RANGES;
+        match ranges.last_mut() {
+            Some((_, last)) if line <= *last => {}
+            Some((_, last)) if *last + 1 == line => *last = line,
+            _ if !full => ranges.push((line, line)),
+            _ => {}
+        }
+    };
     for line in diff.lines() {
         if old > 0 || new > 0 {
             match line.chars().next() {
                 Some('+') => {
+                    mark(&file, at.saturating_sub(1).max(1));
                     new = new.saturating_sub(1);
                     continue;
                 }
                 Some('-') => {
-                    old = old.saturating_sub(1);
+                    mark(&file, at);
+                    (at, old) = (at + 1, old.saturating_sub(1));
                     continue;
                 }
                 Some(' ') | None => {
-                    (old, new) = (old.saturating_sub(1), new.saturating_sub(1));
+                    (at, old, new) = (at + 1, old.saturating_sub(1), new.saturating_sub(1));
                     continue;
                 }
                 Some('\\') => continue,
@@ -989,16 +1009,9 @@ pub fn touched(diff: &str) -> BTreeMap<String, Vec<(u64, u64)>> {
             file = None;
         } else if let Some(path) = line.strip_prefix("--- ") {
             file = path.strip_prefix("a/").map(str::to_owned);
-        } else if let (Some((_, from, to)), Some((start, count))) = (new_side(line), old_side(line))
-        {
-            (old, new) = (from, to);
-            if let Some(file) = &file {
-                let ranges = files.entry(file.clone()).or_default();
-                if ranges.len() < MOST_RANGES {
-                    let first = start.max(1);
-                    ranges.push((first, first + count.max(1) - 1));
-                }
-            }
+        } else if let Some(((start, from), (_, to))) = hunk(line) {
+            // `-k,0` is an insertion after line k.
+            (at, old, new) = (if from == 0 { start + 1 } else { start }, from, to);
         }
     }
     files

@@ -128,7 +128,8 @@ pub fn chosen(
     files: &[String],
     diff: &str,
 ) -> Option<Sized> {
-    if let Some(run) = previous.filter(|_| !review.scale_off) {
+    let off = review.scale_off && review.scale.is_none();
+    if let Some(run) = previous.filter(|_| !off) {
         return Some(Sized {
             one: true,
             why: format!("re-review of run {run} → one reviewer ({ALL_AXES})"),

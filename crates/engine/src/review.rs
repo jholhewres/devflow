@@ -942,7 +942,7 @@ pub struct Done {
     pub diffed: Option<BTreeMap<String, Diffed>>,
     /// A re-review's: the lines the delta changed at the previous HEAD, by
     /// file, whose carried findings were asked again.
-    pub touched: Option<BTreeMap<String, Vec<(u64, u64)>>>,
+    pub touched: Option<findings::Touched>,
     /// The findings on no line of HEAD, taken out with why.
     pub dropped: Vec<Value>,
     /// Which way `review.scale` sent the review; `None` with it off.
@@ -984,7 +984,7 @@ struct Record {
     judged: BTreeMap<String, Value>,
     previous: Option<String>,
     diffed: Option<BTreeMap<String, Diffed>>,
-    touched: Option<BTreeMap<String, Vec<(u64, u64)>>>,
+    touched: Option<findings::Touched>,
     scale: Option<Sized>,
     retro: bool,
 }
@@ -1033,7 +1033,7 @@ fn reviewed_anew(given: &Given) -> Result<(String, PathBuf, Record), String> {
             &previous.findings,
             &given.config.review.block_on,
             given.config.review.verify,
-            touched.as_ref().unwrap_or(&BTreeMap::new()),
+            touched.as_ref().unwrap_or(&findings::Touched::new()),
         )
         .into_iter()
         .cloned()
@@ -1533,7 +1533,7 @@ pub fn reviewed(given: &Given) -> Result<Done, String> {
             &given.config.review.block_on,
             given.config.review.verify,
             &previous.run,
-            record.touched.as_ref().unwrap_or(&BTreeMap::new()),
+            record.touched.as_ref().unwrap_or(&findings::Touched::new()),
         ));
     }
     let earlier = read_json(&path, FINDINGS);

@@ -82,6 +82,10 @@ fn scale_is_written_as_said() {
         config.to_json()["review"]["scale"],
         serde_json::json!(false)
     );
+    // Both set, the Scale wins everywhere.
+    config.review.scale = Some(crate::scale::Scale::default());
+    assert!(render(&config).contains("\n  scale: true\n"));
+    assert_eq!(config.to_json()["review"]["scale"]["small_lines"], 80);
 }
 
 #[test]
