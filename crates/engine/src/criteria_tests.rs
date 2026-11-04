@@ -82,3 +82,29 @@ fn a_line_ending_in_a_return_keeps_it() {
         Some("## Acceptance criteria\r\n- [x] one\r\n")
     );
 }
+
+#[test]
+fn the_checkboxes_outside_the_section_are_unread_by_the_heading_above_them() {
+    assert_eq!(
+        unread(BODY),
+        [
+            Unread {
+                heading: String::new(),
+                count: 1
+            },
+            Unread {
+                heading: "Verify".to_owned(),
+                count: 1
+            },
+        ]
+    );
+    let localized = "## Critérios de aceite\n- [ ] one\n- [x] two\n```\n- [ ] code\n```\n";
+    assert!(criteria(localized).is_empty());
+    assert_eq!(
+        unread(localized),
+        [Unread {
+            heading: "Critérios de aceite".to_owned(),
+            count: 2
+        }]
+    );
+}

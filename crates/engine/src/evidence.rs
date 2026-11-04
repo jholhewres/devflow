@@ -567,6 +567,9 @@ pub struct Evidence {
     pub tree: Option<Tree>,
     /// The run whose checks' results this one took, at the same tree.
     pub reused_from: Option<String>,
+    /// A card with no criteria read: the checkboxes it has under another
+    /// heading, the one holding the most.
+    pub criteria_unread: Option<crate::criteria::Unread>,
 }
 
 impl Evidence {
@@ -680,6 +683,7 @@ pub fn gathered(given: &Given) -> Result<Evidence, String> {
         .into_iter()
         .map(|one| plain(&one.text))
         .collect();
+    let criteria_unread = on_card.is_empty().then(|| most_unread(card.body)).flatten();
     let criteria: Vec<Seen> = asked
         .criteria
         .iter()
@@ -740,6 +744,7 @@ pub fn gathered(given: &Given) -> Result<Evidence, String> {
         pruned: Vec::new(),
         tree,
         reused_from: reusable.map(|(name, ..)| name),
+        criteria_unread,
     };
     let record = serde_json::to_string_pretty(&recorded(&evidence)).unwrap_or_default();
     std::fs::write(run.join("evidence.json"), record).map_err(|err| err.to_string())?;
@@ -747,6 +752,33 @@ pub fn gathered(given: &Given) -> Result<Evidence, String> {
         evidence.pruned = runs::prune(parent, runs::KEPT);
     }
     Ok(evidence)
+}
+
+/// The heading holding the most checkboxes that are not criteria, the first
+/// of those that hold as many.
+fn most_unread(body: &str) -> Option<crate::criteria::Unread> {
+    crate::criteria::unread(body)
+        .into_iter()
+        .rev()
+        .max_by_key(|group| group.count)
+}
+
+/// What a card with checkboxes under another heading is told.
+pub fn unread_said(said: &Dialect, unread: &crate::criteria::Unread) -> String {
+    let (item, heading) = (said.item, crate::criteria::HEADING);
+    let under = if unread.heading.is_empty() {
+        "under no heading".to_owned()
+    } else {
+        format!("under `## {}`", unread.heading)
+    };
+    format!(
+        "the {item} has no `## {heading}`; {} checkboxes {under} were not read as criteria",
+        unread.count
+    )
+}
+
+fn unread_json(unread: &crate::criteria::Unread) -> Value {
+    json!({ "heading": unread.heading, "count": unread.count })
 }
 
 /// The newest run of the card, when it was green at `tree`, passed every
@@ -946,6 +978,9 @@ pub fn recorded(evidence: &Evidence) -> Value {
     if let Some(from) = &evidence.reused_from {
         record["reused_from"] = json!(from);
     }
+    if let Some(unread) = &evidence.criteria_unread {
+        record["criteria_unread"] = unread_json(unread);
+    }
     record
 }
 
@@ -1051,6 +1086,10 @@ pub fn summary(evidence: &Evidence, attached: &Attached, under: &str) -> Value {
     if let Some(from) = &evidence.reused_from {
         said["reused_from"] = json!(from);
     }
+    if let Some(unread) = &evidence.criteria_unread {
+        said["criteria_unread"] = unread_json(unread);
+        said["criteria_unread"]["said"] = json!(unread_said(evidence.dialect, unread));
+    }
     said
 }
 
@@ -1106,6 +1145,9 @@ pub fn comment(evidence: &Evidence, links: &[(String, String)]) -> String {
             said(ran.verdict),
             tests_said(evidence.dialect, ran)
         ));
+    }
+    if let Some(unread) = &evidence.criteria_unread {
+        text.push_str(&format!("- {}\n", unread_said(evidence.dialect, unread)));
     }
     if !evidence.criteria.is_empty() {
         let green = evidence.criteria.iter().filter(|seen| seen.green()).count();

@@ -543,3 +543,34 @@ fn a_card_is_evidence_or_a_doc_by_its_kind_line_or_what_the_gate_was_told() {
     assert_eq!(told.kind.as_deref(), Some("doc"));
     assert!(asked(&json!({ "card": "c", "kind": "screenshots" })).is_err());
 }
+
+#[test]
+fn a_card_with_its_checkboxes_under_another_heading_does_not_pass() {
+    let config = config_with(false);
+    let mut run = green_run();
+    run["criteria"] = json!([]);
+    run["criteria_unread"] = json!({ "heading": "Critérios de aceite", "count": 2 });
+    let found = checked(&Looked {
+        dialect: &crate::Dialect::DEVFLOW,
+        config: &config,
+        card: "card_1",
+        criteria: &[],
+        run: Some(Run {
+            name: RUN,
+            evidence: &run,
+        }),
+        review: None,
+        changed: None,
+        stages: &[],
+        unreviewed: None,
+        no_code: false,
+    });
+    assert_eq!(found.missing.len(), 1, "{found:?}");
+    assert!(
+        found.missing[0].contains("rename `## Critérios de aceite` to `## Acceptance criteria`"),
+        "{found:?}"
+    );
+    assert!(!Gate::new(found, None, RUN).passed());
+    // With its criteria read, the same run's unread is not the gate's concern.
+    assert!(look(&config, Some(&green_run()), None).missing.is_empty());
+}

@@ -322,6 +322,9 @@ pub fn checked(looked: &Looked) -> Checked {
                 }
             }
             visual(said, config, run, &mut missing);
+            if looked.criteria.is_empty() {
+                unread(said, run, &mut missing);
+            }
             rows = looked
                 .criteria
                 .iter()
@@ -356,6 +359,30 @@ pub fn checked(looked: &Looked) -> Checked {
         missing,
         no_code: looked.no_code,
     }
+}
+
+/// A card whose checkboxes sit under another heading has no criteria the
+/// gate can hold it to: it does not pass until the heading is renamed.
+fn unread(said: &Dialect, run: &Run, missing: &mut Vec<String>) {
+    let seen = &run.evidence["criteria_unread"];
+    let Some(count) = seen["count"].as_u64().filter(|count| *count > 0) else {
+        return;
+    };
+    let unread = crate::criteria::Unread {
+        heading: word(seen, "heading").to_owned(),
+        count: usize::try_from(count).unwrap_or(usize::MAX),
+    };
+    let heading = crate::criteria::HEADING;
+    let fix = if unread.heading.is_empty() {
+        format!("put them under `## {heading}`")
+    } else {
+        format!("rename `## {}` to `## {heading}`", unread.heading)
+    };
+    missing.push(format!(
+        "{}: {fix} and run {} again",
+        crate::evidence::unread_said(said, &unread),
+        said.tools.evidence
+    ));
 }
 
 fn no_test(said: &Dialect) -> String {

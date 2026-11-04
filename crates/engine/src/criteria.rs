@@ -40,8 +40,40 @@ struct Found {
     criterion: Criterion,
 }
 
+/// Checkboxes outside every `## Acceptance criteria` section, by the
+/// nearest heading above them (empty when none is): none of them is read as
+/// a criterion.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Unread {
+    pub heading: String,
+    pub count: usize,
+}
+
+/// The checkboxes a body holds that are not criteria, a group per heading
+/// they sit under, in the order the headings come.
+pub fn unread(body: &str) -> Vec<Unread> {
+    let mut groups: Vec<Unread> = Vec::new();
+    for (heading, _) in scanned(body).into_iter().filter(|(_, read)| read.is_none()) {
+        match groups.iter_mut().find(|group| group.heading == heading) {
+            Some(group) => group.count += 1,
+            None => groups.push(Unread { heading, count: 1 }),
+        }
+    }
+    groups
+}
+
 fn boxes(body: &str) -> Vec<Found> {
+    scanned(body)
+        .into_iter()
+        .filter_map(|(_, read)| read)
+        .collect()
+}
+
+/// Every checkbox outside code, with the nearest heading above it, and as a
+/// criterion when it is under the heading.
+fn scanned(body: &str) -> Vec<(String, Option<Found>)> {
     let mut under: Option<usize> = None;
+    let mut nearest = String::new();
     let mut fenced = false;
     let mut found = Vec::new();
     for (line, text) in body.split('\n').enumerate() {
@@ -55,6 +87,7 @@ fn boxes(body: &str) -> Vec<Found> {
             continue;
         }
         if let Some((level, title)) = heading(text) {
+            nearest = title.to_owned();
             under = match under {
                 // A subheading stays inside the list's section.
                 Some(at) if level > at => Some(at),
@@ -62,15 +95,13 @@ fn boxes(body: &str) -> Vec<Found> {
             };
             continue;
         }
-        if under.is_none() {
-            continue;
-        }
         if let Some((mark, criterion)) = checkbox(text) {
-            found.push(Found {
+            let read = under.is_some().then_some(Found {
                 line,
                 mark,
                 criterion,
             });
+            found.push((nearest.clone(), read));
         }
     }
     found

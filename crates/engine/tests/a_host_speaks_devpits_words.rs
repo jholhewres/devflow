@@ -349,6 +349,7 @@ fn evidence_of(folder: &str) -> b::evidence::Evidence {
         pruned: Vec::new(),
         tree: None,
         reused_from: None,
+        criteria_unread: None,
     }
 }
 

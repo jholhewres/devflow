@@ -153,12 +153,23 @@ fn runs_of(root: &Path) -> runs::Runs {
 }
 
 fn run_of(root: &Path, config: &Config, asked: &Asked, title: &str, seconds: u64) -> Evidence {
+    let body = "## Acceptance criteria\n- [ ] rename changes the title\n- [ ] an empty title is refused\n- [ ] the old title is kept in history\n";
+    run_with(root, config, asked, title, seconds, body)
+}
+
+fn run_with(
+    root: &Path,
+    config: &Config,
+    asked: &Asked,
+    title: &str,
+    seconds: u64,
+    body: &str,
+) -> Evidence {
     let context = Context {
         item: "card_1".into(),
         item_title: title.into(),
         ..Context::default()
     };
-    let body = "## Acceptance criteria\n- [ ] rename changes the title\n- [ ] an empty title is refused\n- [ ] the old title is kept in history\n";
     gathered(&Given {
         dialect: &crate::Dialect::DEVFLOW,
         root,
@@ -722,4 +733,40 @@ fn a_link_in_a_reused_runs_folder_is_never_followed() {
     let copied = root.path().join(&again.folder).join("unit");
     assert!(copied.join("report.xml").is_file());
     assert!(!copied.join("up").exists() && !copied.join("everything").exists());
+}
+
+#[test]
+fn checkboxes_under_another_heading_are_named_and_counted_not_read() {
+    let root = tempfile::tempdir().expect("root");
+    let config = config(vec![check("unit", PASSING)]);
+    let body =
+        "## Critérios de aceite\n- [ ] rename changes the title\n- [ ] an empty title is refused\n";
+    let evidence = run_with(root.path(), &config, &nothing_asked(), "Rename", 0, body);
+    let unread = evidence.criteria_unread.as_ref().expect("unread");
+    assert_eq!(
+        (unread.heading.as_str(), unread.count),
+        ("Critérios de aceite", 2)
+    );
+    let line = "the item has no `## Acceptance criteria`; 2 checkboxes under `## Critérios de aceite` were not read as criteria";
+    let kept: Value = serde_json::from_str(
+        &std::fs::read_to_string(root.path().join(&evidence.folder).join("evidence.json"))
+            .expect("evidence.json"),
+    )
+    .expect("json");
+    assert_eq!(
+        kept["criteria_unread"],
+        json!({ "heading": "Critérios de aceite", "count": 2 })
+    );
+    let answered = summary(&evidence, &Attached::default(), "under");
+    assert_eq!(answered["criteria_unread"]["said"], line);
+    assert!(comment(&evidence, &[]).contains(line));
+
+    let read = run_of(root.path(), &config, &nothing_asked(), "Rename", 1);
+    assert_eq!(read.criteria_unread, None);
+    let kept = std::fs::read_to_string(root.path().join(&read.folder).join("evidence.json"))
+        .expect("evidence.json");
+    assert!(!kept.contains("criteria_unread"), "as before: {kept}");
+    assert!(summary(&read, &Attached::default(), "under")
+        .get("criteria_unread")
+        .is_none());
 }
