@@ -1729,3 +1729,25 @@ fn a_blocking_finding_that_comes_back_asks_for_a_design_decision() {
         .expect("next")
         .starts_with("Design decision: src/app.rs (security)"));
 }
+
+#[cfg(unix)]
+#[test]
+fn the_newest_review_says_what_it_spent_and_a_link_out_is_not_followed() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let root = dir.path();
+    let program = claude_printing(root, &answer("claude", "devflow-security", Vec::new()));
+    let config = config_with(
+        vec![reviewer(Agent::Claude, "devflow-security")],
+        Consolidate::Nothing,
+    );
+    let done = reviewed_with(root, &config, &program, FIRST_DIFF);
+    let runs = runs_of(root);
+    let outside = tempfile::tempdir().expect("tempdir");
+    std::os::unix::fs::symlink(outside.path(), runs.home.join("card_2")).expect("a link");
+
+    let said = spent_newest(&runs).expect("spent");
+
+    assert_eq!(said["card"], "card_1");
+    assert_eq!(said["run"], json!(done.stamp));
+    assert_eq!(said["spent"][0]["tokens"]["input"], 100);
+}

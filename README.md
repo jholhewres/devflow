@@ -59,9 +59,9 @@ The OpenRouter key is read from `OPENROUTER_API_KEY` or kept in
 printed. A project on devpit's Devflow works unchanged: its
 `.devpit/devflow/` is read where it is.
 
-Models: `models: economy` (the default when unset) runs the work and the
-reviewers on a small model and an analysis of a large or sensitive diff on a
-large one; `models: quality` runs everything large. A stage's own `model`
+Models: `models: economy` runs the work and the reviewers on a small model
+and an analysis of a large or sensitive diff on a large one; unset, only the
+work's session opens small; `models: quality` runs everything large. A stage's own `model`
 (`small`, `default`, `large` or a model id) and a reviewer's `model` win over
 the preset. A `devflow.yaml` that names no preset reviews as it did. `status`
 says the model of each stage (`models`) and what the newest review spent by

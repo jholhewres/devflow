@@ -1474,8 +1474,15 @@ pub fn reviewed(given: &Given) -> Result<Done, String> {
         .filter(|ran| ran.file.is_some())
         .map(Ran::source)
         .collect();
+    // The analysis adds to the axes' review; it answers for none of them.
+    let by_axes: Vec<Source> = record
+        .ran
+        .iter()
+        .filter(|ran| ran.file.is_some() && ran.stage.is_none())
+        .map(Ran::source)
+        .collect();
     let pending = pending(
-        &sources,
+        &by_axes,
         record.scale.as_ref().is_some_and(|scale| scale.one),
     );
     // The session's subagents read each persona as this project resolves it,
@@ -1952,16 +1959,16 @@ pub fn summary(done: &Done) -> Value {
 
 /// The newest review of any card under `runs` and what its readings spent.
 pub fn spent_newest(runs: &Runs) -> Option<Value> {
-    let (card, run) = std::fs::read_dir(&runs.home)
+    let (card, run, at) = std::fs::read_dir(&runs.home)
         .ok()?
         .filter_map(Result::ok)
-        .filter_map(|entry| {
-            let card = entry.file_name().into_string().ok()?;
-            let run = crate::runs::newest_with(&entry.path(), RECORD)?;
-            Some((card, run))
+        .filter_map(|entry| entry.file_name().into_string().ok())
+        .filter_map(|card| {
+            let (run, at) = runs.newest_with(&card, RECORD)?;
+            Some((card, run, at))
         })
-        .max_by_key(|(_, run)| crate::runs::seconds_of(run))?;
-    let record = read_json(&runs.home.join(&card).join(&run), RECORD)?;
+        .max_by_key(|(_, run, _)| crate::runs::seconds_of(run))?;
+    let record: Value = serde_json::from_str(&std::fs::read_to_string(at).ok()?).ok()?;
     let ran: Vec<Ran> = record["ran"]
         .as_array()?
         .iter()

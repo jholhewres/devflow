@@ -73,7 +73,14 @@ pub fn plan(config: &Config, agent: Agent) -> serde_json::Value {
     let stages: serde_json::Map<String, serde_json::Value> = crate::config::STAGES
         .iter()
         .chain(std::iter::once(&ANALYSIS))
-        .filter_map(|stage| Some(((*stage).to_owned(), stage_model(config, stage)?.into())))
+        .filter_map(|stage| {
+            let model = match *stage {
+                "review" => review_default(config),
+                ANALYSIS if !analysis_on(config) => None,
+                _ => stage_model(config, stage),
+            };
+            Some(((*stage).to_owned(), model?.into()))
+        })
         .collect();
     serde_json::json!({
         "preset": preset(config).word(),

@@ -59,9 +59,9 @@ A chave do OpenRouter vem de `OPENROUTER_API_KEY` ou fica em
 impressa. Um projeto no Devflow do devpit funciona sem mudança: o
 `.devpit/devflow/` é lido onde está.
 
-Modelos: `models: economy` (o padrão quando não dito) roda o trabalho e os
-revisores num modelo pequeno, e uma análise de diff grande ou sensível num
-modelo grande; `models: quality` roda tudo no grande. O `model` de uma etapa
+Modelos: `models: economy` roda o trabalho e os revisores num modelo
+pequeno, e uma análise de diff grande ou sensível num modelo grande; sem
+preset, só a sessão do trabalho abre no pequeno; `models: quality` roda tudo no grande. O `model` de uma etapa
 (`small`, `default`, `large` ou o id de um modelo) e o de um revisor vencem o
 preset. Um `devflow.yaml` sem preset revisa como antes. O `status` diz o
 modelo de cada etapa (`models`) e o que o review mais recente gastou por

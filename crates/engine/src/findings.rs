@@ -745,9 +745,11 @@ pub fn repeats(
         })
         .filter_map(|(at, finding)| {
             let was = earlier.iter().find(|was| {
-                ["file", "axis", "kind"]
+                ["file", "axis"]
                     .iter()
                     .all(|key| text(finding, key) == text(was, key))
+                    && (text(finding, "kind") == text(was, "kind")
+                        || [text(finding, "kind"), text(was, "kind")].contains(&""))
             })?;
             Some(json!({
                 "finding": at,
