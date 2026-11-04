@@ -165,6 +165,25 @@ pub fn dirty(root: &Path) -> Result<Vec<String>, GitError> {
     Ok(paths)
 }
 
+/// The untracked files git does not ignore.
+pub fn untracked(root: &Path) -> Result<Vec<String>, GitError> {
+    let raw = run(root, &["ls-files", "--others", "--exclude-standard", "-z"])?;
+    Ok(raw
+        .split('\0')
+        .filter(|path| !path.is_empty())
+        .map(str::to_owned)
+        .collect())
+}
+
+/// What the tracked files hold that `HEAD` does not, staged or not, as a
+/// diff: the untracked files are left out.
+pub fn tracked_diff(root: &Path) -> Result<String, GitError> {
+    run(
+        root,
+        &["diff", "--binary", "--no-ext-diff", "--no-textconv", "HEAD"],
+    )
+}
+
 /// Every file a commit since `since` (seconds since the epoch) touched.
 pub fn touched_since(root: &Path, since: u64) -> Vec<String> {
     let after = format!("--since=@{since}");

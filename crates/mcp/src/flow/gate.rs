@@ -17,8 +17,8 @@ use super::{as_engine, item_here, json_at, signed};
 use crate::project::Project;
 use crate::server::Server;
 
-/// The changed files a look at the checkout stats, at most.
-const MOST_LOOKED: usize = 5_000;
+/// devflow's own folders, which are never code.
+const OURS: [&str; 2] = [".devflow/", ".devpit/"];
 /// The file `start` names the item a session works on in.
 pub const CURRENT: &str = "current";
 
@@ -71,7 +71,17 @@ pub fn newest(runs: &Runs, item: &str, file: &str) -> Option<(String, Value)> {
 
 fn read(runs: &Runs, item: &str, config: &Config) -> Read {
     let root = runs.checkout.as_path();
-    let run = newest(runs, item, "evidence.json");
+    // Each proof is looked for again now: one written after the run counts.
+    let run = runs
+        .newest_with(item, "evidence.json")
+        .and_then(|(name, at)| {
+            let evidence = json_at(&at)?;
+            let folder = at.parent()?;
+            Some((
+                name,
+                devflow_engine::evidence::rechecked(&evidence, folder, root),
+            ))
+        });
     let review = newest(runs, item, "findings.json").map(|(name, value)| {
         let written = ["review.json", "findings.json"]
             .iter()
@@ -82,7 +92,6 @@ fn read(runs: &Runs, item: &str, config: &Config) -> Read {
             .map_or(name, runs::stamp);
         (written, value)
     });
-    let since = run.as_ref().and_then(|(name, _)| runs::seconds_of(name));
     let stages = config
         .own_on()
         .iter()
@@ -96,7 +105,12 @@ fn read(runs: &Runs, item: &str, config: &Config) -> Read {
         .as_ref()
         .and_then(|(_, findings)| unreviewed_since(root, findings));
     Read {
-        changed: changed_at(root, since),
+        changed: devflow_engine::fresh::changed_at(
+            root,
+            run.as_ref()
+                .map(|(name, evidence)| (name.as_str(), evidence)),
+            &OURS,
+        ),
         run,
         review,
         stages,
@@ -113,30 +127,6 @@ fn unreviewed_since(root: &Path, findings: &Value) -> Option<String> {
     let head = devflow_engine::git::head_of(root).ok()?;
     (read != head && devflow_engine::git::code_changed_between(root, read, &head).ok()?)
         .then(|| read.to_owned())
-}
-
-/// When the checkout's code last changed: the newest of the files git says
-/// differ from `HEAD` and those committed since the run began, by when each
-/// was written. devflow's own folders are not code.
-fn changed_at(root: &Path, since: Option<u64>) -> Option<String> {
-    let dirty = devflow_engine::git::dirty(root).ok()?;
-    let committed = since.map_or_else(Vec::new, |since| {
-        devflow_engine::git::touched_since(root, since)
-    });
-    let ours = [".devflow/", ".devpit/"];
-    dirty
-        .iter()
-        .chain(&committed)
-        .filter(|path| !ours.iter().any(|folder| path.starts_with(folder)))
-        .take(MOST_LOOKED)
-        .filter_map(|path| {
-            std::fs::symlink_metadata(root.join(path))
-                .ok()?
-                .modified()
-                .ok()
-        })
-        .max()
-        .map(runs::stamp)
 }
 
 fn looked<'a>(

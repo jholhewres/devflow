@@ -341,6 +341,8 @@ fn evidence_of(folder: &str) -> b::evidence::Evidence {
             exists: false,
         }),
         pruned: Vec::new(),
+        tree: None,
+        reused_from: None,
     }
 }
 

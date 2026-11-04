@@ -24,6 +24,7 @@ pub mod evidence;
 pub mod findings;
 pub mod flow;
 pub mod folder;
+pub mod fresh;
 pub mod fsguard;
 pub mod gate;
 pub mod git;

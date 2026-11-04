@@ -560,3 +560,120 @@ fn two_checks_with_the_same_exclusive_never_overlap() {
         assert_eq!(pair[1], format!("{name}-end"), "{markers}");
     }
 }
+
+fn git_in(root: &Path, args: &[&str]) {
+    let ran = std::process::Command::new("git")
+        .args([
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "commit.gpgsign=false",
+        ])
+        .args(args)
+        .current_dir(root)
+        .output()
+        .expect("git runs");
+    assert!(
+        ran.status.success(),
+        "{}",
+        String::from_utf8_lossy(&ran.stderr)
+    );
+}
+
+/// A checkout with one commit, its runs ignored as devpit's folder is.
+fn committed() -> tempfile::TempDir {
+    let root = tempfile::tempdir().expect("root");
+    git_in(root.path(), &["init", "-q"]);
+    std::fs::write(root.path().join(".gitignore"), "devpit-home/\nran.txt\n").expect("ignore");
+    std::fs::write(root.path().join("a.rs"), "fn a() {}\n").expect("a.rs");
+    git_in(root.path(), &["add", "."]);
+    git_in(root.path(), &["commit", "-qm", "a"]);
+    root
+}
+
+fn times_ran(root: &Path) -> usize {
+    std::fs::read_to_string(root.join("ran.txt")).map_or(0, |ran| ran.len())
+}
+
+#[test]
+fn a_green_run_at_the_same_commit_and_tree_is_reused_and_fresh_runs_the_checks() {
+    let root = committed();
+    let config = config(vec![check(
+        "unit",
+        &format!("printf x >> ran.txt; {PASSING}"),
+    )]);
+    let mapped = |more: Value| {
+        let mut asked = json!({ "card": "card_1", "criteria": [
+            { "criterion": "rename changes the title", "tests": ["cli.rename changes the title"] },
+        ] });
+        asked
+            .as_object_mut()
+            .expect("an object")
+            .extend(more.as_object().cloned().unwrap_or_default());
+        super::asked(&asked).expect("asked")
+    };
+    let first = run_of(root.path(), &config, &mapped(json!({})), "Rename", 0);
+    assert!(first.green() && first.reused_from.is_none());
+    let tree = first.tree.clone().expect("a tree");
+    assert_eq!(recorded(&first)["head"], json!(tree.head));
+
+    let again = run_of(root.path(), &config, &mapped(json!({})), "Rename", 1);
+    assert_eq!(times_ran(root.path()), 1, "the checks ran again");
+    assert_eq!(again.reused_from.as_deref(), Some(first.stamp.as_str()));
+    assert!(again.green() && again.criteria.iter().all(Seen::green));
+    let record = recorded(&again);
+    assert_eq!(record["reused_from"], json!(first.stamp));
+    assert_eq!(record["checks"][0]["tests"]["passed"], 2);
+    let folder = root.path().join(&again.folder);
+    assert!(folder.join("unit/report.xml").is_file() && folder.join("unit.log").is_file());
+    assert!(comment(&again, &[]).contains(&first.stamp));
+
+    let forced = run_of(
+        root.path(),
+        &config,
+        &mapped(json!({ "fresh": true })),
+        "Rename",
+        2,
+    );
+    assert_eq!((times_ran(root.path()), forced.reused_from), (2, None));
+
+    std::fs::write(root.path().join("a.rs"), "fn a() { 1; }\n").expect("an edit");
+    let edited = run_of(root.path(), &config, &mapped(json!({})), "Rename", 3);
+    assert_eq!((times_ran(root.path()), edited.reused_from), (3, None));
+}
+
+#[test]
+fn a_red_run_is_not_reused() {
+    let root = committed();
+    let config = config(vec![check(
+        "unit",
+        &format!("printf x >> ran.txt; {FAILING}"),
+    )]);
+    run_of(root.path(), &config, &nothing_asked(), "Rename", 0);
+    let again = run_of(root.path(), &config, &nothing_asked(), "Rename", 1);
+    assert_eq!((times_ran(root.path()), again.reused_from), (2, None));
+}
+
+#[test]
+fn the_gate_looks_for_a_proof_again_and_says_the_criterion_green_by_the_same_rule() {
+    let root = tempfile::tempdir().expect("root");
+    let config = config(vec![check("unit", PASSING)]);
+    let asked = asked(&json!({ "card": "card_1", "criteria": [
+        { "criterion": "rename changes the title", "tests": ["cli.rename changes the title"], "proof": { "kind": "screenshot", "path": "shots/dialog.png" } },
+        { "criterion": "an empty title is refused", "tests": ["nowhere"], "proof": { "kind": "screenshot", "path": "shots/dialog.png" } },
+    ] }))
+    .expect("asked");
+    let evidence = run_of(root.path(), &config, &asked, "Rename", 0);
+    let record = recorded(&evidence);
+    assert_eq!(record["criteria"][0]["green"], false);
+
+    std::fs::create_dir_all(root.path().join("shots")).expect("shots");
+    std::fs::write(root.path().join("shots/dialog.png"), "png").expect("written after the run");
+    let now = rechecked(&record, &root.path().join(&evidence.folder), root.path());
+    assert_eq!(now["criteria"][0]["green"], true);
+    assert_eq!(now["criteria"][0]["proof"]["exists"], true);
+    // A proof never excuses a test that was not found.
+    assert_eq!(now["criteria"][1]["green"], false);
+}

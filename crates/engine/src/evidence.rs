@@ -14,12 +14,16 @@ use serde_json::{json, Value};
 
 use crate::config::{Check, Config, Report as Format};
 use crate::dialect::Dialect;
+use crate::fresh::Tree;
 use crate::plan::PREFIX;
 use crate::runs::{self, Attached, Media, Runs};
 
 /// The fields the tool takes, as the execution and completion skills send
 /// them; `project` is an orchestrator's, as on every board tool.
 pub const FIELDS: [&str; 4] = ["card", "checks", "criteria", "red"];
+/// The field that runs the checks even when a green run of the same commit
+/// and tracked files could be reused.
+pub const FRESH: &str = "fresh";
 
 fn shape(said: &Dialect) -> String {
     format!(
@@ -92,6 +96,9 @@ pub struct Asked {
     pub criteria: Vec<Mapped>,
     #[serde(default)]
     pub red: Vec<Red>,
+    /// Run the checks even when a green run can be reused.
+    #[serde(default)]
+    pub fresh: bool,
 }
 
 /// The tool's input, refused with the shape it takes when it is not that.
@@ -104,9 +111,9 @@ pub fn asked_in(dialect: &Dialect, params: &Value) -> Result<Asked, String> {
     let params = &crate::work::as_card(params);
     let shape = shape(dialect);
     let extra = params.as_object().and_then(|fields| {
-        fields
-            .keys()
-            .find(|key| !FIELDS.contains(&key.as_str()) && key.as_str() != "project")
+        fields.keys().find(|key| {
+            !FIELDS.contains(&key.as_str()) && !["project", FRESH].contains(&key.as_str())
+        })
     });
     if let Some(extra) = extra {
         return Err(format!(
@@ -556,6 +563,10 @@ pub struct Evidence {
     pub spec: Option<Spec>,
     /// Older runs of the card removed to keep [`runs::KEPT`].
     pub pruned: Vec<String>,
+    /// The commit and tracked files the checks read; `None` outside git.
+    pub tree: Option<Tree>,
+    /// The run whose checks' results this one took, at the same tree.
+    pub reused_from: Option<String>,
 }
 
 impl Evidence {
@@ -636,6 +647,11 @@ pub fn gathered(given: &Given) -> Result<Evidence, String> {
         &config.stages.execution.checks,
         asked.checks.as_deref(),
     )?;
+    let tree = crate::fresh::tree_of(root);
+    let reusable = tree
+        .as_ref()
+        .filter(|_| !asked.fresh)
+        .and_then(|tree| reusable(kept, card.id, tree, &checks));
     let run = kept.fresh(card.id, *at)?;
     let folder = run.display().to_string();
     let started = Instant::now();
@@ -643,7 +659,9 @@ pub fn gathered(given: &Given) -> Result<Evidence, String> {
         .iter()
         .map(|check| {
             let left = budget.saturating_sub(started.elapsed());
-            if left < Duration::from_secs(1) {
+            if let Some((_, from, record)) = &reusable {
+                reused(check, from, record, &run, root)
+            } else if left < Duration::from_secs(1) {
                 Ran::not_run(
                     &check.name,
                     "the checks before it took all the time".to_owned(),
@@ -720,6 +738,8 @@ pub fn gathered(given: &Given) -> Result<Evidence, String> {
             .collect(),
         spec,
         pruned: Vec::new(),
+        tree,
+        reused_from: reusable.map(|(name, ..)| name),
     };
     let record = serde_json::to_string_pretty(&recorded(&evidence)).unwrap_or_default();
     std::fs::write(run.join("evidence.json"), record).map_err(|err| err.to_string())?;
@@ -727,6 +747,150 @@ pub fn gathered(given: &Given) -> Result<Evidence, String> {
         evidence.pruned = runs::prune(parent, runs::KEPT);
     }
     Ok(evidence)
+}
+
+/// The newest run of the card, when it was green at `tree` and passed every
+/// check in `checks`: its name, its folder and its evidence.json.
+fn reusable(
+    kept: &Runs,
+    card: &str,
+    tree: &Tree,
+    checks: &[&Check],
+) -> Option<(String, PathBuf, Value)> {
+    let (name, at) = kept.newest_with(card, "evidence.json")?;
+    let record: Value = serde_json::from_str(&std::fs::read_to_string(&at).ok()?).ok()?;
+    let passed = |wanted: &&Check| {
+        record["checks"].as_array().is_some_and(|ran| {
+            ran.iter()
+                .any(|one| one["name"] == wanted.name.as_str() && one["result"] == "passed")
+        })
+    };
+    let same = record["green"] == true
+        && Tree::of(&record).as_ref() == Some(tree)
+        && checks.iter().all(passed);
+    let folder = at.parent()?.to_path_buf();
+    same.then_some((name, folder, record))
+}
+
+fn words(value: &Value) -> Vec<String> {
+    value
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(str::to_owned)
+        .collect()
+}
+
+/// Copies `relative` from run `from` into run `to`, a folder whole; never
+/// through a link.
+fn copied(from: &Path, to: &Path, relative: &str) {
+    let (Ok(source), Ok(target)) = (
+        crate::fsguard::resolve(from, relative),
+        crate::fsguard::resolve_new(to, relative),
+    ) else {
+        return;
+    };
+    let Ok(kind) = std::fs::symlink_metadata(&source).map(|meta| meta.file_type()) else {
+        return;
+    };
+    if kind.is_file() {
+        if let Some(parent) = target.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let _ = std::fs::copy(&source, &target);
+    } else if kind.is_dir() {
+        let _ = std::fs::create_dir_all(&target);
+        for entry in std::fs::read_dir(&source).into_iter().flatten().flatten() {
+            if let Some(name) = entry.file_name().to_str() {
+                copied(from, to, &format!("{relative}/{name}"));
+            }
+        }
+    }
+}
+
+/// A check's result taken from run `from`, its folder, log and media copied
+/// into `run` and its report read again there: it is not run.
+fn reused(check: &Check, from: &Path, record: &Value, run: &Path, root: &Path) -> Ran {
+    let said = record["checks"]
+        .as_array()
+        .and_then(|ran| ran.iter().find(|one| one["name"] == check.name.as_str()))
+        .cloned()
+        .unwrap_or_default();
+    let log = said["log"].as_str().map(str::to_owned);
+    let (screenshots, video) = (words(&said["screenshots"]), words(&said["video"]));
+    for relative in std::iter::once(&check.name)
+        .chain(&log)
+        .chain(&screenshots)
+        .chain(&video)
+    {
+        copied(from, run, relative);
+    }
+    let printed = log
+        .as_ref()
+        .and_then(|log| std::fs::read_to_string(run.join(log)).ok());
+    Ran {
+        name: check.name.clone(),
+        verdict: Verdict::Passed,
+        exit_code: said["exit"]
+            .as_i64()
+            .and_then(|code| i32::try_from(code).ok()),
+        timed_out: false,
+        seconds: said["seconds"].as_f64().unwrap_or_default(),
+        reported: report::read_cases(Some(&run.join(&check.name)), printed.as_deref(), root),
+        log,
+        reports: words(&said["reports"]),
+        media: Media { screenshots, video },
+        tail: Vec::new(),
+        not_run: None,
+    }
+}
+
+/// How a test ended, from the word evidence.json says it with.
+fn outcome_from(word: &str) -> Option<Outcome> {
+    [Outcome::Passed, Outcome::Failed, Outcome::Skipped]
+        .into_iter()
+        .find(|outcome| outcome.word() == word)
+}
+
+/// `evidence` with each criterion's proof looked for again now, in `run`'s
+/// folder or the checkout, and its green said again by [`Seen::green`] from
+/// the tests it recorded: a proof written after the run counts.
+pub fn rechecked(evidence: &Value, run: &Path, root: &Path) -> Value {
+    let mut evidence = evidence.clone();
+    let Some(criteria) = evidence.get_mut("criteria").and_then(Value::as_array_mut) else {
+        return evidence;
+    };
+    for seen in criteria {
+        let proof = seen["proof"].as_object().and_then(|proof| {
+            let kind = proof.get("kind")?.as_str()?;
+            let kind = [ProofKind::Screenshot, ProofKind::E2e, ProofKind::Artifact]
+                .into_iter()
+                .find(|one| one.word() == kind)?;
+            let path = proof.get("path")?.as_str()?.to_owned();
+            Some(Proof { kind, path })
+        });
+        let there = proof.as_ref().map(|proof| proved(proof, run, root));
+        let again = Seen {
+            criterion: String::new(),
+            on_card: false,
+            tests: seen["tests"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|test| {
+                    let ended = test["result"].as_str().and_then(outcome_from);
+                    (String::new(), ended)
+                })
+                .collect(),
+            proof: proof.zip(there),
+        };
+        if let Some(there) = there {
+            seen["proof"]["exists"] = json!(there);
+        }
+        seen["green"] = json!(again.green());
+    }
+    evidence
 }
 
 fn outcome_word(ended: Option<Outcome>) -> &'static str {
@@ -744,6 +908,18 @@ fn counts(ran: &Ran) -> Value {
 
 /// `evidence.json`: everything the run showed, for the gate and the review.
 pub fn recorded(evidence: &Evidence) -> Value {
+    let mut record = record_of(evidence);
+    if let Some(tree) = &evidence.tree {
+        record["head"] = json!(tree.head);
+        record["tree"] = json!(tree.tracked);
+    }
+    if let Some(from) = &evidence.reused_from {
+        record["reused_from"] = json!(from);
+    }
+    record
+}
+
+fn record_of(evidence: &Evidence) -> Value {
     let dialect = evidence.dialect;
     json!({
         dialect.product: crate::skills::made_by_in(dialect, &["devflow-execution", "devflow-completion"]),
@@ -804,7 +980,7 @@ pub fn summary(evidence: &Evidence, attached: &Attached, under: &str) -> Value {
         .filter(|red| red.now == Some(Outcome::Passed))
         .count();
     let in_run = |file: &str| format!("{}/{file}", evidence.folder);
-    json!({
+    let mut said = json!({
         "card": evidence.card,
         "run": evidence.folder,
         "green": evidence.green(),
@@ -841,7 +1017,11 @@ pub fn summary(evidence: &Evidence, attached: &Attached, under: &str) -> Value {
         "spec": evidence.spec.as_ref().map(|spec| json!({ "path": spec.path, "exists": spec.exists })),
         "evidence": in_run("evidence.json"),
         "attached": { "under": under, "files": attached.names.len(), "left_out": attached.left_out },
-    })
+    });
+    if let Some(from) = &evidence.reused_from {
+        said["reused_from"] = json!(from);
+    }
+    said
 }
 
 /// A check's tests, as a person reads them.
@@ -884,6 +1064,11 @@ pub fn comment(evidence: &Evidence, links: &[(String, String)]) -> String {
         evidence.stamp
     );
     text.push('\n');
+    if let Some(from) = &evidence.reused_from {
+        text.push_str(&format!(
+            "- not run again: the results of run {from}, at the same commit and tracked files\n"
+        ));
+    }
     for ran in &evidence.checks {
         text.push_str(&format!(
             "- {}: {}, {}\n",
