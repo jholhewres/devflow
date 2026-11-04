@@ -105,7 +105,7 @@ fn a_node_project_runs_vitest_with_a_report_and_playwright_from_its_script() {
     assert!(open(&found).is_empty(), "{:?}", open(&found));
 
     let setup = recommended(&found);
-    let e2e = &setup.config.stages.execution.checks[1];
+    let e2e = &setup.config.stages.execution.release[0];
     assert_eq!(e2e.name, "e2e");
     assert_eq!(e2e.evidence, [Evidence::Screenshots, Evidence::Video]);
     assert_eq!(e2e.report, Report::Junit);
@@ -121,7 +121,7 @@ fn a_node_project_runs_vitest_with_a_report_and_playwright_from_its_script() {
     );
     assert_eq!(script.source.as_deref(), Some("playwright.config.ts"));
     // The project's own E2E suite stays where it is, and is still called.
-    let suite = &setup.config.stages.execution.checks[2];
+    let suite = &setup.config.stages.execution.release[1];
     assert_eq!(suite.name, "e2e-suite");
     assert!(setup
         .scripts

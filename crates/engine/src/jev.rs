@@ -101,13 +101,16 @@ pub fn decisions_state_in(
 }
 
 /// The rubric `stage`'s work is judged by: the one devflow.yaml names for
-/// it, else devpit's.
+/// it, else devpit's. A brief is judged only by one devflow.yaml names.
 pub fn rubric_for(config: &Config, stage: &str) -> Option<String> {
     if let Some(named) = config.decisions.rubrics.get(stage) {
         return Some(named.clone());
     }
     if stage == "completion" {
         return Some(config.stages.completion.gate.clone());
+    }
+    if stage == "briefing" {
+        return None;
     }
     STAGES
         .iter()
@@ -390,7 +393,21 @@ pub fn duplicate(said: &Said) -> bool {
 
 /// Why Jev holds a brief or a plan: acting, and the questions it failed.
 pub fn holds(said: &Said) -> Option<String> {
-    (said.acts() && said.outcome == "fail").then(|| {
+    said.acts().then(|| failing(said)).flatten()
+}
+
+/// [`holds`] for `stage` under `config`: a plan is only advised, never held,
+/// unless devflow.yaml names its rubric under `decisions.rubrics.plan`.
+pub fn holds_in(config: &Config, stage: &str, said: &Said) -> Option<String> {
+    if stage == "plan" && !config.decisions.rubrics.contains_key(stage) {
+        return None;
+    }
+    holds(said)
+}
+
+/// The questions Jev failed, said whether or not it holds the work.
+pub fn failing(said: &Said) -> Option<String> {
+    (said.skipped.is_none() && said.outcome == "fail").then(|| {
         format!(
             "Jev judged it failing on {} ({})",
             said.failing().join(", "),

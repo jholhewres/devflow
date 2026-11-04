@@ -48,6 +48,25 @@ fn checks(dialect: &Dialect, out: &mut String, indent: &str, checks: &[Check]) {
          {indent}checks:",
         dialect.product, dialect.work_item
     );
+    listed(out, indent, checks);
+}
+
+/// The release's checks, written only when there are some.
+fn release(dialect: &Dialect, out: &mut String, indent: &str, checks: &[Check]) {
+    if checks.is_empty() {
+        return;
+    }
+    let _ = writeln!(
+        out,
+        "{indent}# Run once for a release, never for each {}'s evidence nor by\n\
+         {indent}# the gate: {} runs one when `checks` names it.\n\
+         {indent}release:",
+        dialect.work_item, dialect.tools.evidence
+    );
+    listed(out, indent, checks);
+}
+
+fn listed(out: &mut String, indent: &str, checks: &[Check]) {
     for check in checks {
         let _ = writeln!(out, "{indent}  - name: {}", scalar(&check.name));
         let _ = writeln!(out, "{indent}    run: {}", scalar(&check.run));
@@ -82,6 +101,7 @@ fn stages_v1(dialect: &Dialect, out: &mut String, config: &Config) {
     let execution = &stages.execution;
     let _ = writeln!(out, "  execution:\n    enabled: {}", execution.enabled);
     checks(dialect, out, "    ", &execution.checks);
+    release(dialect, out, "    ", &execution.release);
     e2e_dir(out, &execution.e2e_dir);
     plain(out, "review", &stages.review);
     let _ = writeln!(
@@ -149,6 +169,7 @@ fn stage_fields(dialect: &Dialect, out: &mut String, config: &Config, step: &Ste
         }
         (Some("execution"), _) => {
             checks(dialect, out, "    ", &stages.execution.checks);
+            release(dialect, out, "    ", &stages.execution.release);
             e2e_dir(out, &stages.execution.e2e_dir);
         }
         (Some("completion"), _) => {

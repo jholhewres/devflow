@@ -14,6 +14,10 @@ use crate::detect::Detected;
 /// The persona the recommended reviewer takes.
 pub const SECURITY: &str = "devflow-security";
 
+/// The checks the recommended preset runs once for a release, not for each
+/// item: the E2E suites, too long to repeat on every evidence run.
+pub const RELEASE: [&str; 2] = ["e2e", "e2e-suite"];
+
 /// The agent CLIs, in the order a reviewer is picked from them.
 const REVIEWERS: [Agent; 5] = [
     Agent::Claude,
@@ -140,7 +144,7 @@ pub fn starting(preset: Preset, detected: &Detected) -> Config {
     if preset == Preset::Custom {
         return config;
     }
-    config.stages.execution.checks = checks(detected)
+    let (release, checks): (Vec<Check>, Vec<Check>) = checks(detected)
         .into_iter()
         .map(|proposed| Check {
             evidence: proposed.evidence,
@@ -150,7 +154,9 @@ pub fn starting(preset: Preset, detected: &Detected) -> Config {
             requires: None,
             exclusive: None,
         })
-        .collect();
+        .partition(|check| RELEASE.contains(&check.name.as_str()));
+    config.stages.execution.checks = checks;
+    config.stages.execution.release = release;
     let reviewer = REVIEWERS.into_iter().find(|agent| {
         detected
             .clis

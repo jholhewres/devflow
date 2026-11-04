@@ -196,6 +196,11 @@ fn judge(
     Some(jev.judge(&rubric, &state()))
 }
 
+/// Why Jev holds `stage`'s work, by devflow.yaml's word on whether it may.
+fn held(judged: Option<(&Config, &Jev)>, stage: &str, said: Option<&Said>) -> Option<String> {
+    rules::holds_in(judged?.0, stage, said?)
+}
+
 fn jev_said(brief: Option<&Said>, plan: Option<&Said>) -> Value {
     json!({ "brief": brief.map(Said::to_json), "plan": plan.map(Said::to_json) })
 }
@@ -254,7 +259,7 @@ fn planned(
             &brief::read(&epic_item.body).unwrap_or_default(),
         )
     });
-    if let Some(held) = brief.as_ref().and_then(rules::holds) {
+    if let Some(held) = held(judged, "briefing", brief.as_ref()) {
         return Err(format!(
             "{held}: write the brief's goal, out of scope and success with `brief` \
              (devflow-briefing), then plan again"
@@ -267,7 +272,7 @@ fn planned(
         let shown = slices_of(row);
         if row["edited"] == true || shown == slices {
             let plan = judge(judged, "plan", || rules::plan_state(&shown));
-            if let Some(held) = plan.as_ref().and_then(rules::holds) {
+            if let Some(held) = held(judged, "plan", plan.as_ref()) {
                 return Err(format!(
                     "{held}: nothing was made. Make each item a vertical slice with testable \
                      criteria and the items it waits on, then show the plan again"
@@ -286,9 +291,19 @@ fn planned(
         &json!({ "cards": slices, "edited": false, "created": null }),
     )?;
     let plan = judge(judged, "plan", || rules::plan_state(&slices));
-    let warning = plan.as_ref().and_then(rules::holds).map(|held| {
+    let warning = held(judged, "plan", plan.as_ref()).map(|held| {
         format!("{held}: applied as it is, nothing would be made; fix the items first")
     });
+    let advice = plan
+        .as_ref()
+        .filter(|_| warning.is_none())
+        .and_then(rules::failing)
+        .map(|failing| {
+            format!(
+                "{failing}: advice for the person with the plan; it holds nothing \
+                 unless devflow.yaml names decisions.rubrics.plan"
+            )
+        });
     let note = if apply {
         "Nothing was made: the person has not seen these items, so they are now the preview. \
          Show them, and apply once the person says yes to them."
@@ -308,6 +323,9 @@ fn planned(
     }
     if let Some(warning) = warning {
         said["warning"] = json!(warning);
+    }
+    if let Some(advice) = advice {
+        said["advice"] = json!(advice);
     }
     Ok(said)
 }

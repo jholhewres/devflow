@@ -199,21 +199,23 @@ pub fn setup(server: &Server, params: Value) -> Result<Value, String> {
     let apply = asked && moved.is_none();
     *shown = (!apply).then(|| proposal.clone());
     drop(shown);
-    let checks: Vec<Value> = proposal
-        .config
-        .stages
-        .execution
-        .checks
-        .iter()
+    let execution = &proposal.config.stages.execution;
+    let checks: Vec<Value> = execution
+        .every_check()
         .map(|check| {
             let script = proposal.scripts.iter().find(|one| one.name == check.name);
-            json!({
+            let release = execution.release.iter().any(|one| one.name == check.name);
+            let mut said = json!({
                 "name": check.name,
                 "run": check.run,
                 "command": script.map(|one| one.command.as_str()),
                 "source": script.and_then(|one| one.source.as_deref()),
                 "report": check.report,
-            })
+            });
+            if release {
+                said["release"] = json!(true);
+            }
+            said
         })
         .collect();
     let planned = setup::with_unused(&project.root, &proposal.config, proposal.files.clone());

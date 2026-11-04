@@ -237,6 +237,9 @@ pub(crate) fn step_json(config: &Config, step: &Step) -> Json {
         }
         (Some("execution"), _) => {
             item["checks"] = json!(stages.execution.checks);
+            if !stages.execution.release.is_empty() {
+                item["release"] = json!(stages.execution.release);
+            }
             item["e2e_dir"] = json!(stages.execution.e2e_dir);
         }
         (Some("completion"), _) => item["gate"] = json!(stages.completion.gate),

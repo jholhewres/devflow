@@ -15,6 +15,12 @@
 //! and rechecks carried findings, so its digest and size in the goldens are
 //! the new file's. devpit's own copy follows when it takes 0.2.2.
 //!
+//! Also on purpose (devpit #259, devflow 0.2.2): a file that does not say
+//! `review.consolidate` merges findings as they are, so `yaml-v1`, `yaml-v2`,
+//! `setup-yaml` and `setup-file…` say `consolidate: none`; and the
+//! recommended preset lists the E2E checks under `stages.execution.release`,
+//! so the last two carry that list after `unit` and `lint`.
+//!
 //! devpit's build sorts JSON keys; this one keeps them in the order written
 //! (`preserve_order`). JSON is compared after sorting its keys, which is the
 //! one difference that is not words.

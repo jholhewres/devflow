@@ -230,9 +230,8 @@ fn written(
             let had: Vec<String> = had
                 .stages
                 .execution
-                .checks
-                .into_iter()
-                .map(|check| check.name)
+                .every_check()
+                .map(|check| check.name.clone())
                 .collect();
             setup::scripted_new_in(layout.dir, config, &had)
         }

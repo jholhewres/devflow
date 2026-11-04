@@ -144,7 +144,7 @@ fn project(root: &Path, consent: &Consent) -> Vec<Said> {
                 )),
             }
             let path = std::env::var_os("PATH").unwrap_or_default();
-            for check in &config.stages.execution.checks {
+            for check in config.stages.execution.every_check() {
                 match devflow_engine::available::why_not(&project.root, &path, &check.run) {
                     None => said.push(ok(format!("check `{}` can run", check.name))),
                     Some(why) => said.push(bad(format!("check `{}`: {why}", check.name))),

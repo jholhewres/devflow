@@ -645,11 +645,8 @@ pub fn gathered(given: &Given) -> Result<Evidence, String> {
         at,
     } = given;
     let (root, budget, redact) = (*root, *budget, *redact);
-    let checks = chosen_in(
-        dialect,
-        &config.stages.execution.checks,
-        asked.checks.as_deref(),
-    )?;
+    let runnable = config.stages.execution.runnable(asked.checks.as_deref());
+    let checks = chosen_in(dialect, &runnable, asked.checks.as_deref())?;
     let tree = crate::fresh::tree_of(root);
     let reusable = tree
         .as_ref()

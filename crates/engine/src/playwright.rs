@@ -36,8 +36,7 @@ pub fn wanted(config: &Config, detected: &Detected) -> bool {
         || config
             .stages
             .execution
-            .checks
-            .iter()
+            .every_check()
             .any(|check| check.run.contains(TOOL))
 }
 

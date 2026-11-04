@@ -35,7 +35,8 @@ fn the_rubrics_devpit_ships_name_themselves_and_threshold_every_question() {
 fn each_stage_is_judged_by_devpits_rubric_unless_devflow_yaml_names_its_own() {
     let mut config = Config::default();
     assert_eq!(rubric_for(&config, "review").as_deref(), Some(FINDING));
-    assert_eq!(rubric_for(&config, "briefing").as_deref(), Some(BRIEF));
+    // A brief is judged only by a rubric the file names.
+    assert_eq!(rubric_for(&config, "briefing"), None);
     assert_eq!(rubric_for(&config, "plan").as_deref(), Some(PLAN));
     assert_eq!(rubric_for(&config, "completion").as_deref(), Some(DONE));
     assert_eq!(rubric_for(&config, "context"), None);
@@ -47,6 +48,11 @@ fn each_stage_is_judged_by_devpits_rubric_unless_devflow_yaml_names_its_own() {
         rubric_for(&config, "review").as_deref(),
         Some("acme-finding")
     );
+    config
+        .decisions
+        .rubrics
+        .insert("briefing".into(), BRIEF.into());
+    assert_eq!(rubric_for(&config, "briefing").as_deref(), Some(BRIEF));
 }
 
 #[test]
@@ -168,6 +174,22 @@ fn a_duplicate_and_a_failing_plan_hold_only_in_enforce() {
         "{held}"
     );
     assert_eq!(Said::of(&enforced.to_json()), Some(enforced));
+}
+
+#[test]
+fn a_failing_plan_is_advice_unless_the_file_names_its_rubric() {
+    let verdicts = json!({ "testable": { "verdict": "fail", "value": 0.2 } });
+    let enforced = said(Mode::Enforce, verdicts.clone(), json!({}));
+    let mut config = Config::default();
+    assert_eq!(holds_in(&config, "plan", &enforced), None);
+    let advice = failing(&enforced).expect("said even when not held");
+    assert!(advice.contains("testable"), "{advice}");
+    assert!(failing(&said(Mode::Shadow, verdicts, json!({}))).is_some());
+    // A brief judged by a rubric the file names still holds in enforce.
+    assert!(holds_in(&config, "briefing", &enforced).is_some());
+    config.decisions.rubrics.insert("plan".into(), PLAN.into());
+    assert_eq!(holds_in(&config, "plan", &enforced), holds(&enforced));
+    assert!(holds_in(&config, "plan", &enforced).is_some());
 }
 
 #[test]

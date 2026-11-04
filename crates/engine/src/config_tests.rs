@@ -124,13 +124,13 @@ fn a_reviewer_names_a_known_cli_and_a_persona() {
 }
 
 #[test]
-fn several_reviewers_are_consolidated_by_jev_unless_the_file_says_otherwise() {
+fn several_reviewers_are_merged_as_they_are_unless_the_file_says_otherwise() {
     assert_eq!(
         parse("version: 1\n").expect("valid").review.consolidate,
-        Consolidate::Jev
+        Consolidate::Nothing
     );
-    let read = parse("version: 1\nreview:\n  consolidate: none\n").expect("valid");
-    assert_eq!(read.review.consolidate, Consolidate::Nothing);
+    let read = parse("version: 1\nreview:\n  consolidate: jev\n").expect("valid");
+    assert_eq!(read.review.consolidate, Consolidate::Jev);
     let wrong = refused("version: 1\nreview:\n  consolidate: vote\n");
     assert_eq!(wrong.field, "review.consolidate");
     assert!(
@@ -289,4 +289,66 @@ fn nothing_said_of_models_leaves_the_json_as_it_was() {
     let json = Config::default().to_json().to_string();
     assert!(!json.contains("model"), "{json}");
     assert!(!json.contains("analysis"), "{json}");
+}
+
+#[test]
+fn release_checks_are_read_beside_the_items_and_never_share_a_name() {
+    let text = "version: 1\nstages:\n  execution:\n    checks:\n      - name: unit\n        run: make test\n        report: cargo\n    release:\n      - name: e2e\n        run: make e2e\n        report: junit\n";
+    let read = parse(text).expect("valid");
+    let execution = &read.stages.execution;
+    assert_eq!(execution.checks.len(), 1);
+    assert_eq!(execution.release[0].name, "e2e");
+    let names: Vec<&str> = execution
+        .every_check()
+        .map(|one| one.name.as_str())
+        .collect();
+    assert_eq!(names, ["unit", "e2e"]);
+    // A release check is run only when asked for by name.
+    let run = |named: Option<&[String]>| -> Vec<String> {
+        execution
+            .runnable(named)
+            .into_iter()
+            .map(|one| one.name)
+            .collect()
+    };
+    assert_eq!(run(None), ["unit"]);
+    assert_eq!(run(Some(&["e2e".to_owned()])), ["unit", "e2e"]);
+    let rendered = crate::render::render(&read);
+    assert!(
+        rendered.contains("    release:\n      - name: e2e\n"),
+        "{rendered}"
+    );
+    assert_eq!(
+        parse(&rendered).expect("valid").stages.execution,
+        *execution
+    );
+    let twice = refused(&text.replace("name: e2e", "name: unit"));
+    assert_eq!(twice.field, "stages.execution.release.0.name");
+}
+
+#[test]
+fn a_devflow_yaml_of_v0_2_1_reads_as_it_did() {
+    let read = parse(
+        "version: 1\nstages:\n  execution:\n    checks:\n      - name: unit\n        run: make test\n        report: cargo\n      - name: e2e\n        run: make e2e\n        report: junit\nreview:\n  consolidate: jev\ndecisions:\n  use: true\n  mode: enforce\n  rubrics:\n    briefing: devflow-brief\n    plan: devflow-plan\n",
+    )
+    .expect("valid");
+    assert_eq!(read.review.consolidate, Consolidate::Jev);
+    let names: Vec<&str> = read
+        .stages
+        .execution
+        .checks
+        .iter()
+        .map(|one| one.name.as_str())
+        .collect();
+    assert_eq!(names, ["unit", "e2e"]);
+    assert!(read.stages.execution.release.is_empty());
+    assert_eq!(
+        crate::jev::rubric_for(&read, "briefing").as_deref(),
+        Some("devflow-brief")
+    );
+    assert_eq!(
+        crate::jev::rubric_for(&read, "plan").as_deref(),
+        Some("devflow-plan")
+    );
+    assert!(!crate::render::render(&read).contains("release:"));
 }

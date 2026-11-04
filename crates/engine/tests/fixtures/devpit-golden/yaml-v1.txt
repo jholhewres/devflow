@@ -37,7 +37,7 @@ review:
   block_on: [critical, high]
   # How several reviewers' findings become one: jev (Decisions, else a
   # model pass), agent (one model pass) or none (merged as they are).
-  consolidate: jev
+  consolidate: none
 
 # Decisions (Jev) answers typed questions about the gates. shadow logs
 # them; enforce blocks, and waits for the person's click in the app.

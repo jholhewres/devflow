@@ -161,7 +161,8 @@ fn scripted_but(
     had: &[String],
 ) -> (Config, Vec<Script>) {
     let mut scripts = Vec::new();
-    for check in &mut config.stages.execution.checks {
+    let execution = &mut config.stages.execution;
+    for check in execution.checks.iter_mut().chain(&mut execution.release) {
         let run = script_run_in(dir, &check.name);
         if check.run == run || had.contains(&check.name) {
             continue;
@@ -349,8 +350,7 @@ pub fn with_unused_in(
             let run = config
                 .stages
                 .execution
-                .checks
-                .iter()
+                .every_check()
                 .any(|check| check.run.contains(&format!("scripts/{file}")));
             let planned = files.iter().any(|one| one.path == path);
             (!run && !planned).then_some(Planned {

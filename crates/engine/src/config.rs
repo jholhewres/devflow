@@ -250,6 +250,10 @@ pub struct Approved {
 pub struct Execution {
     pub enabled: bool,
     pub checks: Vec<Check>,
+    /// Checks run once for a release, not for each item's evidence: a long
+    /// E2E suite. Read and run by name, never by the gate.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub release: Vec<Check>,
     pub e2e_dir: String,
     /// The model it runs on, a tier (`small`, `default`, `large`) or an id;
     /// the preset's when not said.
@@ -359,6 +363,7 @@ impl Default for Config {
                 execution: Execution {
                     enabled: true,
                     checks: Vec::new(),
+                    release: Vec::new(),
                     e2e_dir: default_e2e_dir(),
                     model: None,
                 },
@@ -375,7 +380,7 @@ impl Default for Config {
             review: Review {
                 reviewers: Vec::new(),
                 block_on: vec![Severity::Critical, Severity::High],
-                consolidate: Consolidate::Jev,
+                consolidate: Consolidate::Nothing,
                 scale: None,
                 scale_off: false,
                 verify: Verify::Off,
@@ -388,6 +393,24 @@ impl Default for Config {
             },
             models: None,
         }
+    }
+}
+
+impl Execution {
+    /// Every check: each item's, then the release's.
+    pub fn every_check(&self) -> impl Iterator<Item = &Check> {
+        self.checks.iter().chain(&self.release)
+    }
+
+    /// The checks an evidence run picks from: each item's, and the
+    /// release's that `named` asks for.
+    pub fn runnable(&self, named: Option<&[String]>) -> Vec<Check> {
+        let named = named.unwrap_or_default();
+        self.checks
+            .iter()
+            .chain(self.release.iter().filter(|one| named.contains(&one.name)))
+            .cloned()
+            .collect()
     }
 }
 
@@ -958,18 +981,31 @@ fn stages(node: &Node, path: &str) -> Result<Stages, Invalid> {
 pub(crate) fn execution_in(fields: &mut Fields) -> Result<Execution, Invalid> {
     let enabled = boolean(fields.get("enabled"), true)?;
     let mut checks: Vec<Check> = Vec::new();
-    if let Some((node, path)) = fields.get("checks") {
+    let mut release: Vec<Check> = Vec::new();
+    // One name per check, across both lists: a check's script is its name.
+    for key in ["checks", "release"] {
+        let Some((node, path)) = fields.get(key) else {
+            continue;
+        };
         for (index, item) in items(node, &path)?.iter().enumerate() {
             let at = format!("{path}.{index}");
             let made = check(item, &at)?;
-            if checks.iter().any(|one| one.name == made.name) {
+            if checks
+                .iter()
+                .chain(&release)
+                .any(|one| one.name == made.name)
+            {
                 return Err(Invalid::at(
                     item.line(),
                     &format!("{at}.name"),
                     &format!("a check called `{}` is already listed", made.name),
                 ));
             }
-            checks.push(made);
+            if key == "checks" {
+                checks.push(made);
+            } else {
+                release.push(made);
+            }
         }
     }
     let e2e_dir = match fields.get("e2e_dir") {
@@ -980,6 +1016,7 @@ pub(crate) fn execution_in(fields: &mut Fields) -> Result<Execution, Invalid> {
     Ok(Execution {
         enabled,
         checks,
+        release,
         e2e_dir,
         model,
     })

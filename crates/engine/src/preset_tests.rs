@@ -53,27 +53,49 @@ fn the_recommended_setup_is_built_from_what_was_detected() {
     assert_eq!(starting(Preset::Custom, &detected()).review.scale, None);
     assert_eq!(config.stages.briefing.approve, Approve::Person);
     assert_eq!(config.stages.plan.approve, Approve::Person);
-    let checks = &config.stages.execution.checks;
-    let ran: Vec<(&str, &str)> = checks
-        .iter()
-        .map(|check| (check.name.as_str(), check.run.as_str()))
-        .collect();
-    // With Playwright the E2E check runs Devflow's specs, and the project's
-    // own E2E command is still called.
+    let ran = |checks: &[crate::config::Check]| -> Vec<(String, String)> {
+        checks
+            .iter()
+            .map(|check| (check.name.clone(), check.run.clone()))
+            .collect()
+    };
     assert_eq!(
-        ran,
+        ran(&config.stages.execution.checks),
+        [("unit".to_owned(), "make test".to_owned())]
+    );
+    // The E2E suites run once for a release, not on each item's evidence:
+    // with Playwright the E2E check runs Devflow's specs, and the project's
+    // own E2E command is still called.
+    let release = &config.stages.execution.release;
+    assert_eq!(
+        ran(release),
         [
-            ("unit", "make test"),
             (
-                "e2e",
-                "pnpm exec playwright test --config .devflow/playwright.config.ts"
+                "e2e".to_owned(),
+                "pnpm exec playwright test --config .devflow/playwright.config.ts".to_owned()
             ),
-            ("e2e-suite", "pnpm run e2e"),
+            ("e2e-suite".to_owned(), "pnpm run e2e".to_owned()),
         ]
     );
-    assert_eq!(checks[1].report, Report::Junit);
-    assert_eq!(checks[1].evidence, [Evidence::Screenshots, Evidence::Video]);
-    assert!(checks[2].evidence.is_empty());
+    assert_eq!(release[0].report, Report::Junit);
+    assert_eq!(
+        release[0].evidence,
+        [Evidence::Screenshots, Evidence::Video]
+    );
+    assert!(release[1].evidence.is_empty());
+    assert_eq!(
+        starting(Preset::Custom, &detected())
+            .stages
+            .execution
+            .release,
+        []
+    );
+    // A new file merges reviewers' findings as they are, and judges no brief.
+    assert_eq!(
+        config.review.consolidate,
+        crate::config::Consolidate::Nothing
+    );
+    assert_eq!(crate::jev::rubric_for(&config, "briefing"), None);
     // Claude is signed out, so the reviewer is the next CLI that may review.
     assert_eq!(
         config.review.reviewers,
@@ -97,13 +119,14 @@ fn without_playwright_the_projects_e2e_command_is_the_e2e_check() {
         run: None,
     };
     let config = starting(Preset::Recommended, &found);
-    let e2e = &config.stages.execution.checks[1];
+    let e2e = &config.stages.execution.release[0];
     assert_eq!(
         (e2e.name.as_str(), e2e.run.as_str()),
         ("e2e", "pnpm run e2e")
     );
     assert_eq!(e2e.evidence, [Evidence::Screenshots]);
-    assert_eq!(config.stages.execution.checks.len(), 2);
+    assert_eq!(config.stages.execution.release.len(), 1);
+    assert_eq!(config.stages.execution.checks.len(), 1);
 }
 
 #[test]

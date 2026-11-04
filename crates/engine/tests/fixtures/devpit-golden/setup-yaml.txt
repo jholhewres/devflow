@@ -29,15 +29,18 @@ stages:
       - name: unit
         run: sh .devpit/devflow/scripts/check-unit.sh
         report: vitest
+      - name: lint
+        run: sh .devpit/devflow/scripts/check-lint.sh
+        report: none
+    # Run once for a release, never for each card's evidence nor by
+    # the gate: devpit_devflow_evidence runs one when `checks` names it.
+    release:
       - name: e2e
         run: sh .devpit/devflow/scripts/check-e2e.sh
         report: junit
         evidence: [screenshots, video]
       - name: e2e-suite
         run: sh .devpit/devflow/scripts/check-e2e-suite.sh
-        report: none
-      - name: lint
-        run: sh .devpit/devflow/scripts/check-lint.sh
         report: none
   - uses: builtin/review
     enabled: true
@@ -52,7 +55,7 @@ review:
   block_on: [critical, high]
   # How several reviewers' findings become one: jev (Decisions, else a
   # model pass), agent (one model pass) or none (merged as they are).
-  consolidate: jev
+  consolidate: none
   # A diff of at most small_lines changed lines that touches no
   # sensitive path, and any re-review, is read by one devflow-all reviewer.
   scale: true
