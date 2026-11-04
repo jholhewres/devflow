@@ -1555,6 +1555,18 @@ pub fn reviewed(given: &Given) -> Result<Done, String> {
         if record.retro {
             findings_json["mode"] = json!("retro");
         }
+        let repeats = previous.as_ref().map_or_else(Vec::new, |previous| {
+            findings::repeats(
+                &merged,
+                &previous.findings,
+                &given.config.review.block_on,
+                given.config.review.verify,
+                &previous.run,
+            )
+        });
+        if !repeats.is_empty() {
+            findings_json["repeats"] = json!(repeats);
+        }
         findings_json
     });
     if let Some(findings_json) = &findings_json {
@@ -1866,6 +1878,25 @@ pub fn summary(done: &Done) -> Value {
             "Verify (devflow-review): run the PoC of findings {places} of {}/{FINDINGS} where there is an environment, then call {review} with this {item}, run \"{}\" and verified: one {{ finding, result, evidence }} each.",
             done.folder, done.stamp
         )
+    } else if let Some(repeats) = findings
+        .and_then(|findings| findings["repeats"].as_array())
+        .filter(|repeats| verdict == Some("request_changes") && !repeats.is_empty())
+    {
+        let places: Vec<String> = repeats
+            .iter()
+            .map(|one| {
+                format!(
+                    "{} ({})",
+                    one["file"].as_str().unwrap_or_default(),
+                    one["axis"].as_str().unwrap_or_default()
+                )
+            })
+            .collect();
+        format!(
+            "Design decision: {} blocked again where run \"{}\" blocked, so another round of execution would go the same way. Put the choice to the person (devflow-review) before fixing; the gate still holds.",
+            places.join(", "),
+            repeats[0]["run"].as_str().unwrap_or_default()
+        )
     } else if verdict == Some("request_changes") {
         format!(
             "Back to execution with the blocking findings (devflow-execution); once fixed, review again with previous \"{}\".",
@@ -1908,6 +1939,9 @@ pub fn summary(done: &Done) -> Value {
     }
     if let Some(scale) = &done.scale {
         answer["scale"] = json!(scale.why);
+    }
+    if let Some(repeats) = findings.and_then(|findings| findings.get("repeats")) {
+        answer["repeats"] = repeats.clone();
     }
     let spent = spent(&done.ran);
     if !spent.is_empty() {

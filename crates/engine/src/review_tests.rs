@@ -1647,3 +1647,85 @@ fn reviewers_without_a_preset_review_as_they_did() {
         .get("repeats")
         .is_none());
 }
+
+/// A re-review whose high falls where the previous run's high was, on the
+/// same axis, asks for a design decision; a high elsewhere does not.
+#[cfg(unix)]
+#[test]
+fn a_blocking_finding_that_comes_back_asks_for_a_design_decision() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let root = dir.path();
+    // Every axis read headless, so nothing is left to the session.
+    let persona = "devflow-all";
+    let config = config_with(vec![reviewer(Agent::Claude, persona)], Consolidate::Nothing);
+    let first = fake_cli(
+        root,
+        "claude-first",
+        &answer(
+            "claude",
+            persona,
+            vec![finding("src/app.rs", 1, "high", "Shell injection in open")],
+        ),
+        "{}",
+        "0",
+    );
+    let before = reviewed_with(root, &config, &first, FIRST_DIFF);
+    let previous = previous_of(&runs_of(root), "card_1", &before.stamp).expect("its run");
+    let mut other_file = finding("src/web.rs", 1, "high", "Open redirect");
+    other_file["axis"] = json!("security");
+    let again = fake_cli(
+        root,
+        "claude-again",
+        &answer(
+            "claude",
+            persona,
+            vec![
+                finding(
+                    "src/app.rs",
+                    1,
+                    "high",
+                    "Link reaches a shell through sh -c",
+                ),
+                other_file,
+            ],
+        ),
+        "{}",
+        "0",
+    );
+    let reach = move |_: Agent| Ok(again.clone());
+    let files = vec!["src/app.rs".to_owned(), "src/web.rs".to_owned()];
+    let delta = "--- a/src/app.rs\n+++ b/src/app.rs\n@@ -1 +1 @@\n-os.system(f\"xdg-open {link}\")\n+os.system(\"xdg-open \" + quote(link))\n--- a/src/web.rs\n+++ b/src/web.rs\n@@ -0,0 +1 @@\n+redirect(next)\n";
+    let mut asked = fresh();
+    asked.previous = Some(before.stamp.clone());
+    let after = Ran {
+        root,
+        config: &config,
+        asked,
+        reach: &reach,
+        jev: None,
+    }
+    .review_of(
+        Git {
+            base: &previous.head,
+            head: "3333333333333333",
+            files: &files,
+            diff: delta,
+        },
+        Some(&previous),
+    )
+    .expect("the re-review");
+
+    let found = after.findings.as_ref().expect("findings.json");
+    assert!(crate::findings::problems(found).is_empty());
+    assert_eq!(found["verdict"], "request_changes", "the gate still holds");
+    let repeats = found["repeats"].as_array().expect("repeats");
+    assert_eq!(repeats.len(), 1, "{repeats:?}");
+    assert_eq!(repeats[0]["file"], "src/app.rs");
+    assert_eq!(repeats[0]["run"], json!(before.stamp));
+    let said = summary(&after);
+    assert_eq!(said["repeats"], json!(repeats));
+    assert!(said["next"]
+        .as_str()
+        .expect("next")
+        .starts_with("Design decision: src/app.rs (security)"));
+}

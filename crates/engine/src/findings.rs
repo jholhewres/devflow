@@ -726,6 +726,40 @@ pub fn carried_over(
     }
 }
 
+/// The blocking findings of a re-review that repeat one the previous run
+/// blocked on: the same file, axis and kind. One more round of execution
+/// went there already, so the next step is a design decision.
+pub fn repeats(
+    findings: &[Value],
+    previous: &[Value],
+    block_on: &[Severity],
+    verify: Verify,
+    run: &str,
+) -> Vec<Value> {
+    let earlier = blocking(previous, block_on, verify);
+    findings
+        .iter()
+        .enumerate()
+        .filter(|(_, finding)| {
+            finding.get("carried_from").is_none() && blocks(finding, block_on, verify)
+        })
+        .filter_map(|(at, finding)| {
+            let was = earlier.iter().find(|was| {
+                ["file", "axis", "kind"]
+                    .iter()
+                    .all(|key| text(finding, key) == text(was, key))
+            })?;
+            Some(json!({
+                "finding": at,
+                "file": text(finding, "file"),
+                "axis": text(finding, "axis"),
+                "run": run,
+                "was": text(was, "title"),
+            }))
+        })
+        .collect()
+}
+
 pub fn verdict(findings: &[Value], block_on: &[Severity], verify: Verify) -> &'static str {
     if blocking(findings, block_on, verify).is_empty() {
         "approve"
