@@ -80,6 +80,20 @@ fn status_names_the_projects_configuration() {
 }
 
 #[test]
+fn a_tools_answer_is_compact_json_that_reads_as_its_structured_content() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("devflow.yaml"), "version: 2\n").unwrap();
+    let said = answer(
+        r#"{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"status"}}"#,
+        dir.path(),
+    );
+    let text = said["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(!text.contains('\n'));
+    let read: Value = serde_json::from_str(text).unwrap();
+    assert_eq!(read, said["result"]["structuredContent"]);
+}
+
+#[test]
 fn an_unknown_tool_is_the_tools_error_not_the_protocols() {
     let dir = tempfile::tempdir().unwrap();
     let said = answer(

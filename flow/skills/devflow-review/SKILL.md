@@ -201,6 +201,19 @@ one winner across axes. On `approve`, the next stage is the completion
 (`devflow-completion`); on `request_changes`, execution again, with the blocking
 findings. End the turn.
 
+**An approval closes the review.** Findings below `review.block_on` are not
+fixed in this item: they go under `Left` in the handoff, or into a new item
+when the person says yes. A fix moves HEAD, the gate then asks for another
+review, and that round finds new nits of its own. To fix one anyway, the
+person asks for it.
+
+**A blocking finding that comes back is a design question.** When a
+re-review reports again a blocking finding of the previous run, on the same
+file and axis (the reviewer says it repeats, or only the variant changed),
+do not patch it a third time. Stop and ask the person to choose the design
+that removes the class (a structural control in place of another pattern,
+say), and quote both findings.
+
 Done when the reply names the verdict and each axis's worst finding (or
 "none"), and no file in the repo changed.
 

@@ -168,8 +168,10 @@ fn call(params: &Value, server: &Server) -> Value {
         .cloned()
         .unwrap_or_else(|| json!({}));
     match (tool.call)(server, arguments) {
+        // Compact: the text is read by a model, and indentation is a fifth of
+        // a pretty answer's tokens.
         Ok(answer) => json!({
-            "content": [{ "type": "text", "text": serde_json::to_string_pretty(&answer).unwrap_or_default() }],
+            "content": [{ "type": "text", "text": answer.to_string() }],
             "structuredContent": answer,
             "isError": false,
         }),
