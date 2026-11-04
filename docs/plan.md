@@ -136,6 +136,19 @@ itself keeps what its people already see:
   `evidence::Given`, `review::Personas`, `folder::Layout`, `runs::Runs`, the
   `_in` functions); `Dialect::DEVFLOW` is devflow's own.
 
+## A model per stage
+
+0.2.1 adds to 0.2.0's API, nothing changes for a host that says nothing new:
+
+- A stage names its `model` (a tier, `small`/`default`/`large`, or an id), and
+  `models: economy|quality` picks them all; `models::session_model` is what a
+  host opens a card's session with.
+- `review.analysis` reads a large or sensitive diff on a large model before the
+  reviewers, and its findings go to the gate like theirs.
+- A review records the tokens, cost and time of each reading, and `status`
+  says what the newest one spent.
+- A blocking finding that comes back in a re-review asks for a design decision.
+
 ## Release
 
 `VERSION` is the one version. `cargo xtask version-sync` writes it into the
