@@ -116,6 +116,7 @@ fn step(node: &Node, path: &str, stages: &mut Stages) -> Result<Step, Invalid> {
         "execution" => stages.execution = execution_in(&mut fields)?,
         "completion" => {
             stages.completion.enabled = boolean(fields.get("enabled"), true)?;
+            stages.completion.model = crate::config::model(fields.get("model"))?;
             stages.completion.gate = match fields.get("gate") {
                 Some((node, path)) => match gate(node, &path)? {
                     StageGate::Rubric(rubric) => rubric,
@@ -133,6 +134,7 @@ fn step(node: &Node, path: &str, stages: &mut Stages) -> Result<Step, Invalid> {
         stage => {
             let on = boolean(fields.get("enabled"), true)?;
             stages.switch(stage, on);
+            stages.set_model(stage, crate::config::model(fields.get("model"))?);
         }
     }
     fields.done()?;
@@ -249,6 +251,9 @@ pub(crate) fn step_json(config: &Config, step: &Step) -> Json {
             }
         }
         _ => {}
+    }
+    if let Some(model) = step.builtin().and_then(|stage| stages.model(stage)) {
+        item["model"] = json!(model);
     }
     item
 }

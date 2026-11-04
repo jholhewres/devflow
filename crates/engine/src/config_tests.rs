@@ -246,3 +246,43 @@ fn a_card_releases_the_cards_waiting_on_it_once_done_unless_the_plan_says_its_ga
     let told = unread("version: 1\nstages:\n  briefing:\n    unblock_on: gate\n");
     assert_eq!(told[0].field, "stages.briefing.unblock_on");
 }
+
+#[test]
+fn a_stage_names_its_model_in_either_version_and_keeps_it_in_json() {
+    let one =
+        parse("version: 1\nstages:\n  execution:\n    model: small\n  review:\n    model: large\n")
+            .expect("valid");
+    assert_eq!(one.stages.execution.model.as_deref(), Some("small"));
+    assert_eq!(one.stages.review.model.as_deref(), Some("large"));
+    let two = parse(
+        "version: 2\nmodels: quality\nstages:\n  - uses: builtin/plan\n    model: claude-opus-5-5\n  - uses: builtin/context\n    model: small\n  - uses: builtin/completion\n    model: default\n",
+    )
+    .expect("valid");
+    assert_eq!(two.stages.plan.model.as_deref(), Some("claude-opus-5-5"));
+    assert_eq!(two.stages.context.model.as_deref(), Some("small"));
+    assert_eq!(two.stages.completion.model.as_deref(), Some("default"));
+    assert_eq!(two.models, Some(Models::Quality));
+    let json = two.to_json();
+    assert_eq!(json["models"], "quality");
+    assert_eq!(json["stages"][0]["model"], "claude-opus-5-5");
+    assert_eq!(from_json(&json), Ok(two));
+}
+
+#[test]
+fn a_model_that_is_not_a_word_is_refused_at_its_line_and_field() {
+    let wrong = refused("version: 2\nstages:\n  - uses: builtin/execution\n    model: [small]\n");
+    assert_eq!(wrong.field, "stages.execution.model");
+    assert_eq!(wrong.line, Some(4));
+    let preset = refused("version: 2\nmodels: cheap\n");
+    assert_eq!(preset.field, "models");
+    assert!(preset.message.contains("economy"), "{}", preset.message);
+    let analysis = refused("version: 2\nreview:\n  analysis:\n    enabled: maybe\n");
+    assert_eq!(analysis.field, "review.analysis.enabled");
+}
+
+#[test]
+fn nothing_said_of_models_leaves_the_json_as_it_was() {
+    let json = Config::default().to_json().to_string();
+    assert!(!json.contains("model"), "{json}");
+    assert!(!json.contains("analysis"), "{json}");
+}

@@ -11,16 +11,17 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
 
-use crate::agents::{self as reviewing, Cli};
+use crate::agents::{self as reviewing, Cli, Tokens};
 use serde_json::{json, Value};
 
 use crate::brief::Brief;
-use crate::config::{Agent, Config, Consolidate, Reviewer, Verify};
+use crate::config::{Agent, Config, Consolidate, Verify};
 use crate::dialect::Dialect;
 use crate::evidence::Card;
 use crate::findings::{self, Diffed, Source};
 use crate::jev::{self, Said};
 use crate::layers::Team;
+use crate::models::{self, Reader};
 use crate::plan::PREFIX;
 use crate::runs::Runs;
 use crate::scale::{self, Sized};
@@ -674,15 +675,26 @@ pub struct Ran {
     pub findings: usize,
     /// Why it gave no answer.
     pub reason: Option<String>,
+    /// The stage it read for when not the review's: `analysis`.
+    pub stage: Option<String>,
+    /// The tokens its turn spent, when its CLI says.
+    pub tokens: Option<Tokens>,
 }
 
 impl Ran {
     fn to_json(&self) -> Value {
-        json!({
+        let mut json = json!({
             "agent": self.agent, "persona": self.persona, "model": self.model, "by": self.by,
             "duration_ms": self.duration_ms, "cost_usd": self.cost_usd, "file": self.file,
             "findings": self.findings, "reason": self.reason,
-        })
+        });
+        if let Some(stage) = &self.stage {
+            json["stage"] = json!(stage);
+        }
+        if let Some(tokens) = &self.tokens {
+            json["tokens"] = json!(tokens);
+        }
+        json
     }
 
     fn of(value: &Value, by: &str) -> Option<Ran> {
@@ -700,6 +712,8 @@ impl Ran {
                 .and_then(Value::as_u64)
                 .unwrap_or_default() as usize,
             reason: text("reason"),
+            stage: text("stage"),
+            tokens: value.get("tokens").and_then(Tokens::of),
         })
     }
 
@@ -1044,7 +1058,8 @@ fn reviewed_anew(given: &Given) -> Result<(String, PathBuf, Record), String> {
     // An answer that is not findings keeps what was said: "invalid JSON" with
     // nothing to read was every review of the first real project.
     type Unread = (String, Option<reviewing::Reviewed>);
-    let one = |reviewer: &Reviewer| -> Result<(Value, reviewing::Reviewed), Unread> {
+    let one = |reader: &Reader| -> Result<(Value, reviewing::Reviewed), Unread> {
+        let reviewer = &reader.reviewer;
         let persona = persona_text(given.root, given.personas, &reviewer.persona)
             .map_err(|why| (why, None))?;
         let agent = reviewer.agent.word();
@@ -1074,11 +1089,13 @@ fn reviewed_anew(given: &Given) -> Result<(String, PathBuf, Record), String> {
         .scale
         .as_ref()
         .map(|scale| scale::sized(scale, git.files, git.diff));
-    let reviewers = scale::reviewers(
-        &given.config.review,
+    let readers = models::readers(
+        given.config,
         scale.as_ref().is_some_and(|scale| scale.one),
+        git.files,
+        git.diff,
     );
-    let outcomes = in_parallel(&reviewers, &one);
+    let outcomes = in_parallel(&readers, &one);
     let mut record = Record {
         base: git.base.to_owned(),
         head: git.head.to_owned(),
@@ -1099,7 +1116,8 @@ fn reviewed_anew(given: &Given) -> Result<(String, PathBuf, Record), String> {
         scale,
         retro: given.retro,
     };
-    for (reviewer, outcome) in reviewers.iter().zip(outcomes) {
+    for (reader, outcome) in readers.iter().zip(outcomes) {
+        let reviewer = &reader.reviewer;
         let mut ran = Ran {
             agent: reviewer.agent.word().to_owned(),
             persona: reviewer.persona.clone(),
@@ -1110,6 +1128,8 @@ fn reviewed_anew(given: &Given) -> Result<(String, PathBuf, Record), String> {
             file: None,
             findings: 0,
             reason: None,
+            stage: (reader.stage != "review").then(|| reader.stage.to_owned()),
+            tokens: None,
         };
         match outcome
             .unwrap_or_else(|| Err(("its turn stopped before it answered".to_owned(), None)))
@@ -1120,6 +1140,7 @@ fn reviewed_anew(given: &Given) -> Result<(String, PathBuf, Record), String> {
                 write(&path, &file, &pretty(&answer))?;
                 ran.duration_ms = Some(said.duration_ms);
                 ran.cost_usd = said.cost_usd;
+                ran.tokens = said.tokens;
                 ran.findings = answer["findings"].as_array().map_or(0, Vec::len);
                 ran.file = Some(file);
                 record.answers.push(answer);
@@ -1130,6 +1151,7 @@ fn reviewed_anew(given: &Given) -> Result<(String, PathBuf, Record), String> {
                 write(&path, &file, &(given.redact)(&said.text))?;
                 ran.duration_ms = Some(said.duration_ms);
                 ran.cost_usd = said.cost_usd;
+                ran.tokens = said.tokens;
                 ran.reason = Some(format!("{why}; what it said is in {file}"));
             }
         }
@@ -1217,6 +1239,8 @@ fn reviewed_again(given: &Given, run: &str) -> Result<(String, PathBuf, Record),
             file: Some(file),
             findings: answer["findings"].as_array().map_or(0, Vec::len),
             reason: None,
+            stage: None,
+            tokens: None,
         });
         record.answers.push(answer);
     }
@@ -1857,12 +1881,18 @@ pub fn summary(done: &Done) -> Value {
         "base": done.base,
         "head": done.head,
         "packet": packet,
-        "reviewers": done.ran.iter().map(|ran| json!({
-            "agent": ran.agent, "persona": ran.persona, "by": ran.by,
-            "result": if ran.file.is_some() { "answered" } else { "skipped" },
-            "findings": ran.findings, "duration_ms": ran.duration_ms, "cost_usd": ran.cost_usd,
-            "reason": ran.reason,
-        })).collect::<Vec<_>>(),
+        "reviewers": done.ran.iter().map(|ran| {
+            let mut said = json!({
+                "agent": ran.agent, "persona": ran.persona, "by": ran.by,
+                "result": if ran.file.is_some() { "answered" } else { "skipped" },
+                "findings": ran.findings, "duration_ms": ran.duration_ms, "cost_usd": ran.cost_usd,
+                "reason": ran.reason,
+            });
+            if let Some(stage) = &ran.stage {
+                said["stage"] = json!(stage);
+            }
+            said
+        }).collect::<Vec<_>>(),
         "consolidation": consolidation_json(&done.consolidated),
         "verdict": verdict,
         "findings": list.iter().map(|finding| findings::line_of(finding, done.verify).trim_start_matches("- ").to_owned()).collect::<Vec<_>>(),
@@ -1879,7 +1909,64 @@ pub fn summary(done: &Done) -> Value {
     if let Some(scale) = &done.scale {
         answer["scale"] = json!(scale.why);
     }
+    let spent = spent(&done.ran);
+    if !spent.is_empty() {
+        answer["spent"] = json!(spent);
+    }
     answer
+}
+
+/// The newest review of any card under `runs` and what its readings spent.
+pub fn spent_newest(runs: &Runs) -> Option<Value> {
+    let (card, run) = std::fs::read_dir(&runs.home)
+        .ok()?
+        .filter_map(Result::ok)
+        .filter_map(|entry| {
+            let card = entry.file_name().into_string().ok()?;
+            let run = crate::runs::newest_with(&entry.path(), RECORD)?;
+            Some((card, run))
+        })
+        .max_by_key(|(_, run)| crate::runs::seconds_of(run))?;
+    let record = read_json(&runs.home.join(&card).join(&run), RECORD)?;
+    let ran: Vec<Ran> = record["ran"]
+        .as_array()?
+        .iter()
+        .filter_map(|one| Ran::of(one, "devflow"))
+        .collect();
+    Some(json!({ "card": card, "run": run, "spent": spent(&ran) }))
+}
+
+/// What the headless readings spent, by stage, agent and model: time, cost
+/// and tokens, each summed over the readings that said it.
+pub fn spent(ran: &[Ran]) -> Vec<Value> {
+    type Sum = (usize, u64, Option<f64>, Option<Tokens>);
+    let mut by: BTreeMap<(String, String, String), Sum> = BTreeMap::new();
+    for one in ran.iter().filter(|one| one.duration_ms.is_some()) {
+        let stage = one.stage.clone().unwrap_or_else(|| "review".to_owned());
+        let model = Agent::of(&one.agent)
+            .and_then(|agent| model_for(agent, one.model.as_deref()))
+            .or_else(|| one.model.clone())
+            .unwrap_or_else(|| "default".to_owned());
+        let sum = by.entry((stage, one.agent.clone(), model)).or_default();
+        sum.0 += 1;
+        sum.1 += one.duration_ms.unwrap_or_default();
+        if let Some(cost) = one.cost_usd {
+            sum.2 = Some(sum.2.unwrap_or_default() + cost);
+        }
+        if let Some(tokens) = one.tokens {
+            sum.3.get_or_insert_with(Tokens::default).add(tokens);
+        }
+    }
+    by.into_iter()
+        .map(
+            |((stage, agent, model), (readings, duration_ms, cost_usd, tokens))| {
+                json!({
+                    "stage": stage, "agent": agent, "model": model, "readings": readings,
+                    "duration_ms": duration_ms, "cost_usd": cost_usd, "tokens": tokens,
+                })
+            },
+        )
+        .collect()
 }
 
 #[cfg(test)]

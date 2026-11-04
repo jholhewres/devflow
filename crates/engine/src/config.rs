@@ -117,6 +117,12 @@ words!(
     Consolidate { Jev = "jev", Agent = "agent", Nothing = "none" }
 );
 words!(
+    /// Which model each stage runs on when devflow.yaml names none: `economy`
+    /// runs the work and the review small and the analysis large; `quality`
+    /// runs everything large.
+    Models { Economy = "economy", Quality = "quality" }
+);
+words!(
     /// Whether the session runs the PoC of each critical and high: not
     /// asked, asked, or asked with an unconfirmed high counted as medium.
     Verify { Off = "off", Advise = "advise", Required = "required" }
@@ -143,6 +149,9 @@ pub struct Config {
     pub flow: Vec<Step>,
     pub review: Review,
     pub decisions: Decisions,
+    /// The models preset; `economy` when not said.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub models: Option<Models>,
     /// Fields a later layer may not change, by dotted path.
     #[serde(skip)]
     pub locked: Vec<String>,
@@ -214,6 +223,10 @@ pub struct Stages {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Stage {
     pub enabled: bool,
+    /// The model it runs on, a tier (`small`, `default`, `large`) or an id;
+    /// the preset's when not said.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -227,6 +240,10 @@ pub struct Approved {
     /// not said.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unblock_on: Option<UnblockOn>,
+    /// The model it runs on, a tier (`small`, `default`, `large`) or an id;
+    /// the preset's when not said.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -234,6 +251,10 @@ pub struct Execution {
     pub enabled: bool,
     pub checks: Vec<Check>,
     pub e2e_dir: String,
+    /// The model it runs on, a tier (`small`, `default`, `large`) or an id;
+    /// the preset's when not said.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -258,6 +279,10 @@ pub struct Check {
 pub struct Completion {
     pub enabled: bool,
     pub gate: String,
+    /// The model it runs on, a tier (`small`, `default`, `large`) or an id;
+    /// the preset's when not said.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -272,6 +297,17 @@ pub struct Review {
     pub scale: Option<Scale>,
     #[serde(skip_serializing_if = "Verify::off")]
     pub verify: Verify,
+    /// One more reading before the review's, on a large model, of a diff
+    /// past `scale`'s small; not said, it is on only with `models` said.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub analysis: Option<Analysis>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Analysis {
+    pub enabled: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -299,6 +335,7 @@ impl Default for Config {
             approve: Approve::Person,
             publish: None,
             unblock_on: None,
+            model: None,
         };
         Config {
             version: VERSION,
@@ -308,17 +345,25 @@ impl Default for Config {
             locked: Vec::new(),
             stages: Stages {
                 briefing: approved.clone(),
-                context: Stage { enabled: true },
+                context: Stage {
+                    enabled: true,
+                    model: None,
+                },
                 plan: approved,
                 execution: Execution {
                     enabled: true,
                     checks: Vec::new(),
                     e2e_dir: default_e2e_dir(),
+                    model: None,
                 },
-                review: Stage { enabled: true },
+                review: Stage {
+                    enabled: true,
+                    model: None,
+                },
                 completion: Completion {
                     enabled: true,
                     gate: GATE.to_owned(),
+                    model: None,
                 },
             },
             review: Review {
@@ -327,12 +372,14 @@ impl Default for Config {
                 consolidate: Consolidate::Jev,
                 scale: None,
                 verify: Verify::Off,
+                analysis: None,
             },
             decisions: Decisions {
                 use_: false,
                 mode: Mode::Shadow,
                 rubrics: BTreeMap::new(),
             },
+            models: None,
         }
     }
 }
@@ -359,6 +406,27 @@ impl Stages {
             "execution" => self.execution.enabled = on,
             "review" => self.review.enabled = on,
             "completion" => self.completion.enabled = on,
+            _ => {}
+        }
+    }
+
+    /// The `model` the built-in `stage` says, a tier or an id.
+    pub fn model(&self, stage: &str) -> Option<&str> {
+        match stage {
+            "briefing" => self.briefing.model.as_deref(),
+            "context" => self.context.model.as_deref(),
+            "plan" => self.plan.model.as_deref(),
+            "execution" => self.execution.model.as_deref(),
+            "review" => self.review.model.as_deref(),
+            "completion" => self.completion.model.as_deref(),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn set_model(&mut self, stage: &str, model: Option<String>) {
+        match stage {
+            "context" => self.context.model = model,
+            "review" => self.review.model = model,
             _ => {}
         }
     }
@@ -751,6 +819,10 @@ fn read(dialect: &crate::Dialect, root: &Node, from_file: bool) -> Result<Config
         Some((node, path)) => decisions(node, &path)?,
         None => defaults.decisions,
     };
+    let models = match fields.get("models") {
+        Some((node, path)) => Some(word(node, &path, Models::of, Models::ALL, Models::word)?),
+        None => None,
+    };
     fields.done()?;
     Ok(Config {
         version,
@@ -760,18 +832,31 @@ fn read(dialect: &crate::Dialect, root: &Node, from_file: bool) -> Result<Config
         flow,
         review,
         decisions,
+        models,
         locked,
     })
 }
 
 fn stage(field: Option<(&Node, String)>) -> Result<Stage, Invalid> {
     let Some((node, path)) = field else {
-        return Ok(Stage { enabled: true });
+        return Ok(Stage {
+            enabled: true,
+            model: None,
+        });
     };
     let mut fields = Fields::of(node, &path)?;
     let enabled = boolean(fields.get("enabled"), true)?;
+    let model = model(fields.get("model"))?;
     fields.done()?;
-    Ok(Stage { enabled })
+    Ok(Stage { enabled, model })
+}
+
+/// A stage's `model`: a tier or a model id.
+pub(crate) fn model(field: Option<(&Node, String)>) -> Result<Option<String>, Invalid> {
+    match field {
+        Some((node, path)) => Ok(Some(text(node, &path, 100)?)),
+        None => Ok(None),
+    }
 }
 
 /// An approved stage's own fields; `publish` only where `plan` says it.
@@ -795,11 +880,13 @@ pub(crate) fn approved_in(fields: &mut Fields, plan: bool) -> Result<Approved, I
         )?),
         None => None,
     };
+    let model = model(fields.get("model"))?;
     Ok(Approved {
         enabled,
         approve,
         publish,
         unblock_on,
+        model,
     })
 }
 
@@ -836,8 +923,13 @@ fn stages(node: &Node, path: &str) -> Result<Stages, Invalid> {
                 Some((node, path)) => name(node, &path)?,
                 None => GATE.to_owned(),
             };
+            let model = model(fields.get("model"))?;
             fields.done()?;
-            Completion { enabled, gate }
+            Completion {
+                enabled,
+                gate,
+                model,
+            }
         }
         None => Config::default().stages.completion,
     };
@@ -874,10 +966,12 @@ pub(crate) fn execution_in(fields: &mut Fields) -> Result<Execution, Invalid> {
         Some((node, path)) => inside(node, &path)?,
         None => default_e2e_dir(),
     };
+    let model = model(fields.get("model"))?;
     Ok(Execution {
         enabled,
         checks,
         e2e_dir,
+        model,
     })
 }
 
@@ -987,6 +1081,10 @@ pub(crate) fn review(node: &Node, path: &str) -> Result<Review, Invalid> {
         Some((node, path)) => word(node, &path, Verify::of, Verify::ALL, Verify::word)?,
         None => Verify::Off,
     };
+    let analysis = match fields.get("analysis") {
+        Some((node, path)) => Some(analysis(node, &path)?),
+        None => None,
+    };
     fields.done()?;
     Ok(Review {
         reviewers,
@@ -994,7 +1092,24 @@ pub(crate) fn review(node: &Node, path: &str) -> Result<Review, Invalid> {
         consolidate,
         scale,
         verify,
+        analysis,
     })
+}
+
+/// `analysis: true` or `false`, or a map of `enabled` and `model`.
+fn analysis(node: &Node, path: &str) -> Result<Analysis, Invalid> {
+    if matches!(node.value, Value::Scalar(..)) {
+        let enabled = boolean(Some((node, path.to_owned())), false)?;
+        return Ok(Analysis {
+            enabled,
+            model: None,
+        });
+    }
+    let mut fields = Fields::of(node, path)?;
+    let enabled = boolean(fields.get("enabled"), true)?;
+    let model = model(fields.get("model"))?;
+    fields.done()?;
+    Ok(Analysis { enabled, model })
 }
 
 /// `scale: true` for the defaults, `false` for off, or a map of either field.

@@ -1506,3 +1506,144 @@ fn a_turn_starts_its_cli_on_the_tiers_model() {
     let argv = std::fs::read_to_string(&seen).expect("the CLI ran");
     assert!(argv.contains("--model sonnet"), "{argv}");
 }
+
+/// A Claude Code that keeps the arguments of each turn and prints its result
+/// object, with what the turn spent.
+fn claude_printing(dir: &Path, answer: &Value) -> String {
+    let path = dir.join("claude-printing");
+    let printed = json!({
+        "type": "result", "subtype": "success", "is_error": false,
+        "result": answer.to_string(), "total_cost_usd": 0.25,
+        "usage": {
+            "input_tokens": 100, "output_tokens": 20,
+            "cache_read_input_tokens": 1000, "cache_creation_input_tokens": 50,
+        },
+    });
+    let script = format!(
+        "#!/bin/sh\ncat > /dev/null\necho \"$*\" >> \"$(dirname \"$0\")/args\"\ncat <<'EOF'\n{printed}\nEOF\n"
+    );
+    written_apart(&path, &script);
+    path.display().to_string()
+}
+
+fn args_in(root: &Path) -> String {
+    std::fs::read_to_string(root.join("args")).unwrap_or_default()
+}
+
+fn reviewed_with(root: &Path, config: &Config, program: &str, diff: &str) -> Done {
+    let program = program.to_owned();
+    let reach = move |_: Agent| Ok(program.clone());
+    let files = vec!["src/app.rs".to_owned()];
+    Ran {
+        root,
+        config,
+        asked: fresh(),
+        reach: &reach,
+        jev: None,
+    }
+    .review_of(git(&files, diff), None)
+    .expect("reviewed")
+}
+
+#[cfg(unix)]
+#[test]
+fn the_analysis_reads_a_large_diff_on_a_large_model_and_its_findings_reach_the_gate() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let root = dir.path();
+    let high = finding("src/app.rs", 3, "high", "Shell injection in open");
+    let program = claude_printing(root, &answer("claude", "devflow-all", vec![high]));
+    let mut config = config_with(
+        vec![reviewer(Agent::Claude, "devflow-security")],
+        Consolidate::Nothing,
+    );
+    config.models = Some(crate::config::Models::Economy);
+
+    let done = reviewed_with(root, &config, &program, &added("src/app.rs", 200));
+
+    let args = args_in(root);
+    assert_eq!(args.lines().count(), 2, "{args}");
+    assert!(
+        args.contains("--model sonnet"),
+        "the reviewer runs small: {args}"
+    );
+    assert!(
+        args.contains("--model opus"),
+        "the analysis runs large: {args}"
+    );
+    let analysis: Vec<&super::Ran> = done
+        .ran
+        .iter()
+        .filter(|ran| ran.stage.as_deref() == Some("analysis"))
+        .collect();
+    assert_eq!(analysis.len(), 1);
+    assert_eq!(analysis[0].persona, "devflow-all");
+    let tokens = analysis[0].tokens.expect("its tokens");
+    assert_eq!(
+        (tokens.input, tokens.output, tokens.cache_read),
+        (100, 20, 1000)
+    );
+    let found = done.findings.as_ref().expect("findings.json");
+    assert_eq!(found["verdict"], "request_changes", "the gate reads it");
+    assert!(found["reviewers"]
+        .as_array()
+        .expect("reviewers")
+        .iter()
+        .any(|one| one["stage"] == "analysis"));
+    let said = summary(&done);
+    let spent = said["spent"].as_array().expect("spent");
+    let by_stage = |stage: &str| {
+        spent
+            .iter()
+            .find(|one| one["stage"] == stage)
+            .unwrap_or_else(|| panic!("{stage} in {spent:?}"))
+    };
+    assert_eq!(by_stage("analysis")["model"], "opus");
+    assert_eq!(by_stage("review")["model"], "sonnet");
+    assert_eq!(by_stage("analysis")["tokens"]["cache_write"], 50);
+    assert_eq!(by_stage("review")["cost_usd"], 0.25);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_small_diff_skips_the_analysis() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let root = dir.path();
+    let program = claude_printing(root, &answer("claude", "devflow-security", Vec::new()));
+    let mut config = config_with(
+        vec![reviewer(Agent::Claude, "devflow-security")],
+        Consolidate::Nothing,
+    );
+    config.models = Some(crate::config::Models::Economy);
+
+    let done = reviewed_with(root, &config, &program, &added("src/app.rs", 5));
+
+    assert_eq!(args_in(root).lines().count(), 1);
+    assert!(!args_in(root).contains("opus"));
+    assert!(done.ran.iter().all(|ran| ran.stage.is_none()));
+}
+
+/// A devflow.yaml from before the presets: its reviewers run on the CLI's
+/// own model and no analysis is added, however large the diff.
+#[cfg(unix)]
+#[test]
+fn reviewers_without_a_preset_review_as_they_did() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let root = dir.path();
+    let program = claude_printing(root, &answer("claude", "devflow-security", Vec::new()));
+    let config = crate::config::parse(
+        "version: 2\nreview:\n  reviewers:\n    - agent: claude\n      persona: devflow-security\n",
+    )
+    .expect("valid");
+
+    let done = reviewed_with(root, &config, &program, &added("src/app.rs", 200));
+
+    let args = args_in(root);
+    assert_eq!(args.lines().count(), 1, "{args}");
+    assert!(!args.contains("--model"), "{args}");
+    assert_eq!(done.ran[0].model, None);
+    assert!(done
+        .findings
+        .expect("findings.json")
+        .get("repeats")
+        .is_none());
+}

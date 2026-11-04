@@ -31,6 +31,7 @@ pub mod home;
 pub mod jev;
 pub mod layers;
 pub mod locate;
+pub mod models;
 mod node;
 pub mod pinning;
 pub mod plan;

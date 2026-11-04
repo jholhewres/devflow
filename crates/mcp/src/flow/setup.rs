@@ -90,6 +90,10 @@ pub fn status_of(project: &Project, server: &Server) -> Value {
             said["config"] = config.to_json();
             let unread = devflow_engine::config::unread(text);
             said["unread"] = json!(unread);
+            said["models"] = devflow_engine::models::plan(config, Agent::Claude);
+            if let Some(spent) = devflow_engine::review::spent_newest(&project.runs()) {
+                said["spent"] = spent;
+            }
             let waiting = (!switched_on).then(|| {
                 format!(
                     "devflow is set up here but not switched on: the person runs `{ENABLE}` in a \

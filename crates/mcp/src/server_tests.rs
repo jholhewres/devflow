@@ -77,6 +77,10 @@ fn status_names_the_projects_configuration() {
     assert_eq!(said["result"]["isError"], false);
     assert_eq!(said["result"]["structuredContent"]["state"], "disabled");
     assert_eq!(said["result"]["structuredContent"]["file"], "devflow.yaml");
+    let models = &said["result"]["structuredContent"]["models"];
+    assert_eq!(models["preset"], "economy");
+    assert_eq!(models["session"], "sonnet");
+    assert_eq!(models["analysis"], false);
 }
 
 #[test]

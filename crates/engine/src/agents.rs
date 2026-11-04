@@ -30,6 +30,10 @@ pub trait ReviewAgent: Sync {
     fn signed_out(&self, said: &str) -> bool {
         signed_out(said)
     }
+    /// The tokens it spent, when its output says.
+    fn tokens_of(&self, _stdout: &str) -> Option<Tokens> {
+        None
+    }
 }
 
 /// The agent CLIs a review runs on.
@@ -95,6 +99,10 @@ impl ReviewAgent for Cli {
     fn answer_of(&self, stdout: &str) -> Result<(String, Option<f64>), String> {
         answer_of(*self, stdout)
     }
+
+    fn tokens_of(&self, stdout: &str) -> Option<Tokens> {
+        tokens_of(*self, stdout)
+    }
 }
 
 /// What one review is run with.
@@ -116,6 +124,51 @@ pub struct Reviewed {
     pub text: String,
     pub cost_usd: Option<f64>,
     pub duration_ms: u64,
+    pub tokens: Option<Tokens>,
+}
+
+/// The tokens one turn spent, as its CLI counts them.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]
+pub struct Tokens {
+    pub input: u64,
+    pub output: u64,
+    pub cache_read: u64,
+    pub cache_write: u64,
+}
+
+impl Tokens {
+    pub fn add(&mut self, other: Tokens) {
+        self.input += other.input;
+        self.output += other.output;
+        self.cache_read += other.cache_read;
+        self.cache_write += other.cache_write;
+    }
+
+    pub fn of(value: &Value) -> Option<Tokens> {
+        let count = |key: &str| value.get(key).and_then(Value::as_u64).unwrap_or(0);
+        value.is_object().then(|| Tokens {
+            input: count("input"),
+            output: count("output"),
+            cache_read: count("cache_read"),
+            cache_write: count("cache_write"),
+        })
+    }
+}
+
+/// The tokens Claude Code's or Cursor's result object counts in `usage`.
+pub fn tokens_of(cli: Cli, stdout: &str) -> Option<Tokens> {
+    if !matches!(cli, Cli::Claude | Cli::Cursor) {
+        return None;
+    }
+    let printed = serde_json::from_str(stdout.trim()).ok().map(last_result)?;
+    let usage = printed.get("usage").filter(|usage| usage.is_object())?;
+    let count = |key: &str| usage.get(key).and_then(Value::as_u64).unwrap_or(0);
+    Some(Tokens {
+        input: count("input_tokens"),
+        output: count("output_tokens"),
+        cache_read: count("cache_read_input_tokens"),
+        cache_write: count("cache_creation_input_tokens"),
+    })
 }
 
 /// Why a reviewer gave no answer.
@@ -377,6 +430,7 @@ pub fn review(asked: &Review<'_>) -> Result<Reviewed, Unreviewed> {
         text,
         cost_usd,
         duration_ms,
+        tokens: agent.tokens_of(&stdout),
     })
 }
 

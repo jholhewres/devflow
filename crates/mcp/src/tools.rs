@@ -23,7 +23,7 @@ fn item_field() -> Value {
 pub static TOOLS: [Tool; 18] = [
     Tool {
         name: "status",
-        description: "devflow in this project: its state (no file, disabled, active or invalid, with the line and field of the error), what was detected with the file each fact came from (test, E2E and lint commands, Playwright or Cypress, the agent CLIs installed, a Decisions key, the glossary and ADRs), the checks it recommends, the decisions detection left open, the current devflow.yaml, and `next`, the step that comes next. Read it first.",
+        description: "devflow in this project: its state (no file, disabled, active or invalid, with the line and field of the error), what was detected with the file each fact came from (test, E2E and lint commands, Playwright or Cypress, the agent CLIs installed, a Decisions key, the glossary and ADRs), the checks it recommends, the decisions detection left open, the current devflow.yaml, the model each stage runs on (`models`), what the newest review's readings spent by stage and model (`spent`), and `next`, the step that comes next. Read it first.",
         input: || json!({ "type": "object", "properties": {} }),
         call: setup::status,
     },

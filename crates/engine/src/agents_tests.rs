@@ -189,3 +189,20 @@ fn a_claude_reviewer_loads_no_mcp_server_and_has_a_last_turn() {
     let why = answer_of(Cli::Claude, ran_out).expect_err("no answer");
     assert!(why.contains("turns"), "{why}");
 }
+
+#[test]
+fn claude_codes_result_says_the_tokens_its_turn_spent() {
+    let printed = r#"{"type":"result","result":"{}","usage":{"input_tokens":7,"output_tokens":3,"cache_read_input_tokens":900,"cache_creation_input_tokens":40}}"#;
+    let tokens = tokens_of(Cli::Claude, printed).expect("its usage");
+    assert_eq!(
+        (
+            tokens.input,
+            tokens.output,
+            tokens.cache_read,
+            tokens.cache_write
+        ),
+        (7, 3, 900, 40)
+    );
+    assert_eq!(tokens_of(Cli::Codex, printed), None);
+    assert_eq!(tokens_of(Cli::Claude, "plain text"), None);
+}
