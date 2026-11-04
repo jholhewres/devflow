@@ -149,6 +149,25 @@ itself keeps what its people already see:
   says what the newest one spent.
 - A blocking finding that comes back in a re-review asks for a design decision.
 
+## Leaner by default
+
+0.2.2 adds to 0.2.1's API; a devflow.yaml that names its choices runs as
+before, and only the defaults change:
+
+- The gate looks for each proof again, and an evidence run at the same tree
+  is reused (`fresh`); a re-review is read once and rechecks the carried
+  findings its delta touched.
+- Checkboxes under a heading other than `## Acceptance criteria` are named
+  and counted in the evidence (`criteria_unread`), and the gate asks for the
+  heading to be renamed.
+- `stages.execution.release` lists checks run once for a release, by name,
+  never by the gate; the recommended preset puts the E2E suites there.
+- `review.consolidate` is `none` unless the file says otherwise; a brief is
+  judged only by a rubric `decisions.rubrics.briefing` names; the plan's
+  rubric advises and holds only when `decisions.rubrics.plan` names it
+  (`jev::holds_in`). A host still calling `jev::holds` for a plan holds it
+  as before.
+
 ## Release
 
 `VERSION` is the one version. `cargo xtask version-sync` writes it into the
