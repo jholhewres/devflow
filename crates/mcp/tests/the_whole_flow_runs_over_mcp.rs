@@ -196,7 +196,11 @@ fn an_item_goes_from_brief_to_done_on_its_evidence() {
         "evidence",
         json!({
             "item": item,
-            "criteria": [{ "criterion": "rename changes the title", "tests": ["rename.renames_the_title"] }],
+            "criteria": [{
+                "criterion": "rename changes the title",
+                "tests": ["rename.renames_the_title"],
+                "proof": { "kind": "screenshot", "path": "shots/rename.png" },
+            }],
         }),
     );
     assert!(evidence.to_string().contains("passed"), "{evidence}");
@@ -249,6 +253,12 @@ fn an_item_goes_from_brief_to_done_on_its_evidence() {
         "{reviewed}"
     );
 
+    // The proof is taken after the run and the review: the gate looks again.
+    let held = mcp.call("gate", json!({ "item": item }));
+    assert_eq!(held["result"], "failed", "{held}");
+    assert!(held.to_string().contains("shots/rename.png"), "{held}");
+    std::fs::create_dir_all(root.join("shots")).unwrap();
+    std::fs::write(root.join("shots/rename.png"), "png").unwrap();
     let gate = mcp.call("gate", json!({ "item": item }));
     assert_eq!(gate["result"], "passed", "{gate}");
     let finished = mcp.call("finish", json!({ "item": item, "note": "Renamed." }));

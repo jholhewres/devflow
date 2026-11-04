@@ -645,6 +645,26 @@ fn a_green_run_at_the_same_commit_and_tree_is_reused_and_fresh_runs_the_checks()
 }
 
 #[test]
+fn a_new_untracked_source_after_a_green_run_runs_the_checks_again() {
+    let root = committed();
+    let config = config(vec![check(
+        "unit",
+        &format!("printf x >> ran.txt; {PASSING}"),
+    )]);
+    let first = run_of(root.path(), &config, &nothing_asked(), "Rename", 0);
+    let source = root.path().join("b.rs");
+    std::fs::write(&source, "fn b() {}\n").expect("a new source");
+    std::fs::File::options()
+        .write(true)
+        .open(&source)
+        .and_then(|file| file.set_modified(UNIX_EPOCH + Duration::from_secs(1_791_729_005 + 30)))
+        .expect("written after the first run");
+    let again = run_of(root.path(), &config, &nothing_asked(), "Rename", 60);
+    assert!(first.green());
+    assert_eq!((times_ran(root.path()), again.reused_from), (2, None));
+}
+
+#[test]
 fn a_red_run_is_not_reused() {
     let root = committed();
     let config = config(vec![check(
@@ -658,7 +678,7 @@ fn a_red_run_is_not_reused() {
 
 #[test]
 fn the_gate_looks_for_a_proof_again_and_says_the_criterion_green_by_the_same_rule() {
-    let root = tempfile::tempdir().expect("root");
+    let root = committed();
     let config = config(vec![check("unit", PASSING)]);
     let asked = asked(&json!({ "card": "card_1", "criteria": [
         { "criterion": "rename changes the title", "tests": ["cli.rename changes the title"], "proof": { "kind": "screenshot", "path": "shots/dialog.png" } },
@@ -676,4 +696,30 @@ fn the_gate_looks_for_a_proof_again_and_says_the_criterion_green_by_the_same_rul
     assert_eq!(now["criteria"][0]["proof"]["exists"], true);
     // A proof never excuses a test that was not found.
     assert_eq!(now["criteria"][1]["green"], false);
+    // A run that recorded no tree, as v0.2.1 wrote it, is read as written.
+    let mut before = record.clone();
+    for key in ["head", "tree"] {
+        before.as_object_mut().expect("an object").remove(key);
+    }
+    let folder = root.path().join(&evidence.folder);
+    assert_eq!(rechecked(&before, &folder, root.path()), before);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_link_in_a_reused_runs_folder_is_never_followed() {
+    let root = committed();
+    let config = config(vec![check(
+        "unit",
+        &format!("printf x >> ran.txt; {PASSING}"),
+    )]);
+    let first = run_of(root.path(), &config, &nothing_asked(), "Rename", 0);
+    let unit = root.path().join(&first.folder).join("unit");
+    std::os::unix::fs::symlink("..", unit.join("up")).expect("a loop");
+    std::os::unix::fs::symlink("/", unit.join("everything")).expect("out");
+    let again = run_of(root.path(), &config, &nothing_asked(), "Rename", 1);
+    assert_eq!(again.reused_from.as_deref(), Some(first.stamp.as_str()));
+    let copied = root.path().join(&again.folder).join("unit");
+    assert!(copied.join("report.xml").is_file());
+    assert!(!copied.join("up").exists() && !copied.join("everything").exists());
 }

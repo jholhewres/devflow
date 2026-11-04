@@ -175,13 +175,37 @@ pub fn untracked(root: &Path) -> Result<Vec<String>, GitError> {
         .collect())
 }
 
-/// What the tracked files hold that `HEAD` does not, staged or not, as a
-/// diff: the untracked files are left out.
-pub fn tracked_diff(root: &Path) -> Result<String, GitError> {
-    run(
-        root,
-        &["diff", "--binary", "--no-ext-diff", "--no-textconv", "HEAD"],
-    )
+/// A print of what the tracked files hold that `HEAD` does not, staged or
+/// not: the SHA-256 of that diff, read as git writes it and never held
+/// whole. The untracked files are left out.
+pub fn tracked_print(root: &Path) -> Result<String, GitError> {
+    use sha2::{Digest, Sha256};
+    let args = ["diff", "--binary", "--no-ext-diff", "--no-textconv", "HEAD"];
+    let failed = |stderr: String| GitError::Failed {
+        command: args.join(" "),
+        stderr,
+    };
+    let mut child = crate::env::command("git")
+        .arg("-C")
+        .arg(root)
+        .args(args)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map_err(|err| match err.kind() {
+            std::io::ErrorKind::NotFound => GitError::Missing,
+            _ => failed(err.to_string()),
+        })?;
+    let mut hasher = Sha256::new();
+    let copied = child
+        .stdout
+        .take()
+        .map(|mut out| std::io::copy(&mut out, &mut hasher));
+    let status = child.wait().map_err(|err| failed(err.to_string()))?;
+    match copied {
+        Some(Ok(_)) if status.success() => Ok(format!("sha256:{:x}", hasher.finalize())),
+        _ => Err(failed(format!("exited {status}"))),
+    }
 }
 
 /// Every file a commit since `since` (seconds since the epoch) touched.

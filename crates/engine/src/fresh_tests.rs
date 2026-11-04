@@ -128,3 +128,16 @@ fn outside_git_nothing_can_be_told() {
     assert_eq!(tree_of(root.path()), None);
     assert_eq!(changed_at(root.path(), None, &[]), None);
 }
+
+#[test]
+fn a_tracked_edit_the_run_read_still_makes_an_older_review_old() {
+    let root = repo();
+    let review = runs::stamp(SystemTime::now() - Duration::from_secs(60));
+    std::fs::write(root.path().join("a.rs"), "fn a() { 2; }\n").expect("an edit after the review");
+    let (_, evidence) = run_here(root.path());
+    let name = runs::stamp(SystemTime::now() + Duration::from_secs(100));
+    let changed = changed_at(root.path(), Some((&name, &evidence)), &[]);
+    assert!(old(changed.clone(), &review), "{changed:?}");
+    assert!(!old(changed, &name));
+    assert!(holds(root.path(), &name, &evidence, &[]));
+}

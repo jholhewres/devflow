@@ -4,10 +4,9 @@
 //! file was written, as it was.
 
 use std::path::Path;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, UNIX_EPOCH};
 
 use serde_json::Value;
-use sha2::{Digest, Sha256};
 
 use crate::git;
 use crate::runs;
@@ -42,11 +41,9 @@ impl Tree {
 
 /// The checkout's tree now; `None` outside git or before its first commit.
 pub fn tree_of(root: &Path) -> Option<Tree> {
-    let head = git::head_of(root).ok()?;
-    let diff = git::tracked_diff(root).ok()?;
     Some(Tree {
-        head,
-        tracked: format!("sha256:{:x}", Sha256::digest(diff.as_bytes())),
+        head: git::head_of(root).ok()?,
+        tracked: git::tracked_print(root).ok()?,
     })
 }
 
@@ -65,9 +62,10 @@ fn proofs(evidence: &Value) -> Vec<String> {
 /// When the checkout's code last changed, as a run's stamp, for the gate's
 /// `changed`; `None` when git cannot tell. `ours` are the folders that are
 /// never code. With the run's recorded tree, a commit or a tracked edit since
-/// makes the run old whatever the clocks say, and of the untracked files
-/// only those that are not a criterion's proof count, by when each was
-/// written.
+/// makes the run old whatever the clocks say; a tracked edit the run read is
+/// placed no later than the run, so a review older than it is still old; and
+/// of the untracked files only those that are not a criterion's proof count,
+/// by when each was written.
 pub fn changed_at(root: &Path, run: Option<(&str, &Value)>, ours: &[&str]) -> Option<String> {
     let newest = |paths: Vec<&String>| {
         paths
@@ -83,35 +81,52 @@ pub fn changed_at(root: &Path, run: Option<(&str, &Value)>, ours: &[&str]) -> Op
             .max()
     };
     let since = run.and_then(|(name, _)| runs::seconds_of(name));
-    let everything = || -> Option<Option<SystemTime>> {
-        let dirty = git::dirty(root).ok()?;
+    let dirty = git::dirty(root).ok()?;
+    let everything = || {
         let committed = since.map_or_else(Vec::new, |since| git::touched_since(root, since));
-        Some(newest(dirty.iter().chain(&committed).collect()))
+        newest(dirty.iter().chain(&committed).collect())
     };
     let recorded = run.and_then(|(_, evidence)| Some((Tree::of(evidence)?, evidence)));
     let Some((recorded, evidence)) = recorded else {
-        return everything()?.map(runs::stamp);
+        return everything().map(runs::stamp);
     };
     let now = tree_of(root)?;
+    let at_run = since.map(|since| UNIX_EPOCH + Duration::from_secs(since));
     if now == recorded {
         let proofs = proofs(evidence);
         let untracked = git::untracked(root).ok()?;
-        return newest(
+        let tracked: Vec<&String> = dirty
+            .iter()
+            .filter(|path| !untracked.contains(path))
+            .collect();
+        let read = newest(tracked).map(|written| at_run.map_or(written, |run| written.min(run)));
+        let loose = newest(
             untracked
                 .iter()
                 .filter(|path| !proofs.contains(path))
                 .collect(),
-        )
-        .map(runs::stamp);
+        );
+        return [read, loose].into_iter().flatten().max().map(runs::stamp);
     }
     // The code changed: a stamp after the run, even within its second.
     let just_after = since.map(|since| UNIX_EPOCH + Duration::from_secs(since + 1));
-    let seen = everything().flatten();
-    [seen, just_after]
+    [everything(), just_after]
         .into_iter()
         .flatten()
         .max()
         .map(runs::stamp)
+}
+
+/// Whether the run `name`, with its `evidence`, still holds for the
+/// checkout: nothing [`changed_at`] counts came after it.
+pub fn holds(root: &Path, name: &str, evidence: &Value, ours: &[&str]) -> bool {
+    let second = |stamp: &str| runs::seconds_of(stamp);
+    match changed_at(root, Some((name, evidence)), ours) {
+        None => true,
+        Some(changed) => {
+            matches!((second(&changed), second(name)), (Some(changed), Some(run)) if changed <= run)
+        }
+    }
 }
 
 #[cfg(test)]

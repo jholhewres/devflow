@@ -651,7 +651,7 @@ pub fn gathered(given: &Given) -> Result<Evidence, String> {
     let reusable = tree
         .as_ref()
         .filter(|_| !asked.fresh)
-        .and_then(|tree| reusable(kept, card.id, tree, &checks));
+        .and_then(|tree| reusable(root, kept, card.id, tree, &checks));
     let run = kept.fresh(card.id, *at)?;
     let folder = run.display().to_string();
     let started = Instant::now();
@@ -749,25 +749,39 @@ pub fn gathered(given: &Given) -> Result<Evidence, String> {
     Ok(evidence)
 }
 
-/// The newest run of the card, when it was green at `tree` and passed every
-/// check in `checks`: its name, its folder and its evidence.json.
+/// The newest run of the card, when it was green at `tree`, passed every
+/// check in `checks` and no untracked file but a proof was written since:
+/// its name, its folder and its evidence.json.
 fn reusable(
+    root: &Path,
     kept: &Runs,
     card: &str,
     tree: &Tree,
     checks: &[&Check],
 ) -> Option<(String, PathBuf, Value)> {
     let (name, at) = kept.newest_with(card, "evidence.json")?;
-    let record: Value = serde_json::from_str(&std::fs::read_to_string(&at).ok()?).ok()?;
+    let record: Value = serde_json::from_slice(&within(&at, MOST_RECORD)?).ok()?;
     let passed = |wanted: &&Check| {
         record["checks"].as_array().is_some_and(|ran| {
             ran.iter()
                 .any(|one| one["name"] == wanted.name.as_str() && one["result"] == "passed")
         })
     };
+    let home = kept
+        .home
+        .strip_prefix(root)
+        .ok()
+        .and_then(Path::to_str)
+        .filter(|home| !home.is_empty())
+        .map(|home| format!("{home}/"));
+    let ours: Vec<&str> = [".devflow/", ".devpit/"]
+        .into_iter()
+        .chain(home.as_deref())
+        .collect();
     let same = record["green"] == true
         && Tree::of(&record).as_ref() == Some(tree)
-        && checks.iter().all(passed);
+        && checks.iter().all(passed)
+        && crate::fresh::holds(root, &name, &record, &ours);
     let folder = at.parent()?.to_path_buf();
     same.then_some((name, folder, record))
 }
@@ -782,15 +796,25 @@ fn words(value: &Value) -> Vec<String> {
         .collect()
 }
 
-/// Copies `relative` from run `from` into run `to`, a folder whole; never
-/// through a link.
+/// The evidence.json of a run read for reuse, at most.
+const MOST_RECORD: u64 = 4 * 1024 * 1024;
+
+/// The file `path`, when it is at most `ceiling` bytes.
+fn within(path: &Path, ceiling: u64) -> Option<Vec<u8>> {
+    let file = std::fs::File::open(path).ok()?;
+    crate::fsguard::read_within(file, ceiling).ok()?
+}
+
+/// Copies `relative` from run `from` into run `to`, a folder whole; a link
+/// is never copied nor followed.
 fn copied(from: &Path, to: &Path, relative: &str) {
-    let (Ok(source), Ok(target)) = (
-        crate::fsguard::resolve(from, relative),
-        crate::fsguard::resolve_new(to, relative),
-    ) else {
+    if crate::fsguard::resolve(from, relative).is_err() {
+        return;
+    }
+    let Ok(target) = crate::fsguard::resolve_new(to, relative) else {
         return;
     };
+    let source = from.join(relative);
     let Ok(kind) = std::fs::symlink_metadata(&source).map(|meta| meta.file_type()) else {
         return;
     };
@@ -828,7 +852,9 @@ fn reused(check: &Check, from: &Path, record: &Value, run: &Path, root: &Path) -
     }
     let printed = log
         .as_ref()
-        .and_then(|log| std::fs::read_to_string(run.join(log)).ok());
+        .and_then(|log| crate::fsguard::resolve(run, log).ok())
+        .and_then(|at| within(&at, report::MOST_REPORT))
+        .map(|raw| String::from_utf8_lossy(&raw).into_owned());
     Ran {
         name: check.name.clone(),
         verdict: Verdict::Passed,
@@ -855,9 +881,13 @@ fn outcome_from(word: &str) -> Option<Outcome> {
 
 /// `evidence` with each criterion's proof looked for again now, in `run`'s
 /// folder or the checkout, and its green said again by [`Seen::green`] from
-/// the tests it recorded: a proof written after the run counts.
+/// the tests it recorded: a proof written after the run counts. A run that
+/// recorded no tree (before v0.2.2) is judged as it was written.
 pub fn rechecked(evidence: &Value, run: &Path, root: &Path) -> Value {
     let mut evidence = evidence.clone();
+    if Tree::of(&evidence).is_none() {
+        return evidence;
+    }
     let Some(criteria) = evidence.get_mut("criteria").and_then(Value::as_array_mut) else {
         return evidence;
     };
