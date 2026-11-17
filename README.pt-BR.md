@@ -67,6 +67,24 @@ preset. Um `devflow.yaml` sem preset revisa como antes. O `status` diz o
 modelo de cada etapa (`models`) e o que o review mais recente gastou por
 etapa e modelo (`spent`).
 
+Segurança: `review.attack` (`off` se não disser; `sensitive`, `per-item` ou
+`release`) faz o `devflow-security` tentar explorar a mudança, e só um
+achado confirmado por um teste de exploração segura o trabalho; o resto vira
+acompanhamento. Itens do plano que cruzam uma fronteira de confiança dizem
+seus casos de abuso, cada um um critério provado por teste. Um check com
+`report: sarif` lê o SARIF de qualquer analisador estático (semgrep, gosec,
+trivy, gitleaks…) como achados, que nunca seguram nada. As instâncias que um
+ataque pode alcançar quem libera é você:
+
+```sh
+devflow config set review.attack sensitive
+devflow config set security.targets '["http://localhost:8080"]'   # pede confirmação de cada alvo
+```
+
+Só loopback, `localhost`, `host.docker.internal` e nomes de serviço do
+docker são aceitos; nunca o host de outra pessoa. O devflow não isola o
+shell do próprio agente: veja o [SECURITY.md](SECURITY.md).
+
 Mais: [integrações](docs/integrations.md) · [plano](docs/plan.md) ·
 [contribuir](CONTRIBUTING.md).
 

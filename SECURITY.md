@@ -31,6 +31,26 @@ Worth knowing before you run it, and worth keeping in mind when reviewing:
   diff.
 - It **posts to a pull request** only after the person said yes to that exact
   draft.
+- With `review.attack` on, a reviewer **tries to exploit the change**: it
+  reads the checkout, runs its tests, and may send requests to the targets
+  in force, `DEVFLOW_SECURITY_TARGETS`. A target is in force only when
+  `security.targets` lists it and the person confirmed it on a terminal
+  (`devflow config set security.targets`), and only the project's own
+  instances are accepted: loopback, `localhost`, `host.docker.internal`, or a
+  docker service's name, each of whose addresses (as a check resolves it,
+  search domains included, and as the name alone) is this machine's or a
+  private network's.
+  A way to make a third party's host a target, or to record a PoC against
+  one, is a vulnerability.
+- It **reads static analysers' SARIF** from a check's report folder; a
+  location outside the project's root is left out unread, and the report is
+  kept without the code and file contents it quotes. A rule's message may
+  still quote what it matched.
+- It **does not sandbox the agent's own shell.** The session that builds the
+  work, and a reviewer's CLI, run with your permissions and their own
+  settings: devflow gives the targets in force and asks that nothing else be
+  reached, but it cannot stop a command an agent runs. Keep the reviewer
+  CLIs' own permission settings as tight as you keep the session's.
 
 ## Scope
 

@@ -197,6 +197,44 @@ step.
 Done when every standing critical and high has a `verified` result, or
 `review.verify` is `off`.
 
+### 5b. Prove the attack's findings
+
+With `review.attack` on in `devflow.yaml` (`sensitive`, `per-item`, or
+`release` asked by name with `"attack": true`), `devflow-security` also reads
+the change as an attacker: from its threat model it tries to exploit each
+boundary and sends each hypothesis it reproduced as a finding whose `poc` is
+an **exploit test**. Those findings carry `origin: attack`, and only proof
+lets one hold the item. The answer's `next` names them by their place in
+`findings.json`. For each:
+
+1. Write its exploit test into the project, from its `poc`, at the seam the
+   hole is reached through. Run it: red is the hole, shown.
+2. Record it: call `evidence` with the test and its failing line in `red`.
+3. Call `review` with `run` and `verified`, naming the test:
+
+```json
+{ "item": "<item id>", "run": "<the run>", "verified": [{ "finding": 2, "result": "confirmed", "evidence": "<the run where it went red>", "test": "<the exploit test, as the runner names it>" }] }
+```
+
+A confirmed finding in `review.block_on` then blocks, execution fixes it,
+and its test stays: the gate wants every confirmed exploit test green in the
+newest evidence run, after the fix and in every review after it. A finding
+you could not reproduce is `not_run` or `refuted`, or left without a run: it
+is **unconfirmed**, followed up under `left` in the answer and `Left` in the
+handoff, and holds nothing.
+
+A PoC that needs the running application runs only against a target in
+force: a URL in `devflow.yaml`'s `security.targets` that the person
+confirmed on their terminal (`devflow config set security.targets`), which
+devflow gives the checks and the reader as `$DEVFLOW_SECURITY_TARGETS`. Name
+the one you reached as `target` in `verified`; any other is refused. Never
+send a request to another host, a third party's least of all, and never work
+around a model refusing a step, by rewording it or by switching to another
+model: a refused step is `not_run`, said why.
+
+Done when each attack finding has an exploit test seen red and a confirmed
+`verified` naming it, or stays unconfirmed with its reason.
+
 ### 6. Hand back, then stop
 
 Reply with the verdict and the worst finding **within each axis**; never pick
@@ -204,8 +242,10 @@ one winner across axes. On `approve`, the next stage is the completion
 (`devflow-completion`); on `request_changes`, execution again, with the blocking
 findings. End the turn.
 
-**An approval closes the review.** Findings below `review.block_on` are not
-fixed in this item: they go under `Left` in the handoff, or into a new item
+**An approval closes the review.** Findings below `review.block_on`, the
+attack's unconfirmed ones and what a static analyser reported (a check with
+`report: sarif`) are not fixed in this item: they go under `Left` in the
+handoff, or into a new item
 when the person says yes. A fix moves HEAD, the gate then asks for another
 review, and that round finds new nits of its own. To fix one anyway, the
 person asks for it.

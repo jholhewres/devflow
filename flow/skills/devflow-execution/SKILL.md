@@ -67,6 +67,14 @@ it guards until it goes red, then restore the code.
 | Tautological | the expected value is computed the way the code computes it | a literal from the item or a worked example |
 | Horizontal slicing | every test written first, then every line of code | one test, its code, the next test |
 
+An **abuse case** (a checkbox that starts `Abuse case:`) is a criterion like
+any other, written from the attacker's side: the test sends what the case
+says (the forged token, the `../` path, the oversized body) and asserts it is
+refused. It goes red first, against the code before the guard, and that
+failing line goes into `red`; the guard turns it green, and the test is the
+proof. A case you cannot make fail never showed the hole was there: say so
+rather than map a test that passed on its first run.
+
 Done when each criterion's test was seen red, with its failing line kept, and
 is now green, and the verify command passes.
 

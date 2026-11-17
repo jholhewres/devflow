@@ -116,7 +116,7 @@ Call `handoff` with the item and a `note` of four lines:
 ```json
 {
   "item": "<item id>",
-  "note": "Done: <commits (sha, subject) and what now works>\nLeft: <findings below block_on, NOTICED BUT NOT TOUCHING, anything not done>\nTest: <the commands that prove it: verify command, E2E spec path>\nRisks: <decisions taken, assumptions, what could break>"
+  "note": "Done: <commits (sha, subject) and what now works>\nLeft: <findings below block_on, the attack's unconfirmed findings, what a static analyser reported, NOTICED BUT NOT TOUCHING, anything not done>\nTest: <the commands that prove it: verify command, E2E spec path>\nRisks: <decisions taken, assumptions, what could break>"
 }
 ```
 

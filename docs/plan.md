@@ -168,6 +168,62 @@ before, and only the defaults change:
   (`jev::holds_in`). A host still calling `jev::holds` for a plan holds it
   as before.
 
+## Security that proves
+
+The next release adds to 0.2.2's API; a devflow.yaml that says nothing new
+runs as before, and `models: quality` switches none of it on:
+
+- A plan item that crosses a trust boundary (a file `review.scale.sensitive`
+  matches, or `boundary: true`) names its abuse cases in `abuse`; they become
+  `Abuse case:` checkboxes the gate holds the item to, and one with none is
+  flagged in the plan's answer (`unguarded`, `plan::unguarded`), never
+  refused.
+- `review.attack: off | sensitive | per-item | release` (`off` unless said;
+  a map takes `run` and `model`, `large` unless said, as the other stages'
+  models are said) adds a reading by `devflow-security` that tries to
+  exploit the change (`models::ATTACK`). Its findings carry `origin:
+  attack` and hold the item only once the session's run confirmed them with
+  an exploit test (`verified.test`); unconfirmed, they are followed up under
+  `left`. Each confirmed exploit stays in `findings.json`'s `exploits`, and
+  the gate wants its test green in the newest run. A release's attack runs
+  by name: the review tool's `attack: true` (`models::attack_asked`).
+- `report: sarif` reads any static analyser's SARIF 2.1.0 as evidence: each
+  result a finding at its file and line (`Reported.found`), judged by the
+  report and never the exit code, and never a hold. A location outside the
+  project is left out unread, and the report is kept without the code and
+  file contents it quotes, where a secret scanner puts the secret.
+- `security.targets` lists the project's own running instances an attack
+  may reach: loopback, `localhost`, `host.docker.internal` or a docker
+  service's one-label name. Every address a name resolves to, as a check
+  would ask for it and, for a one-label name, also alone, must be this
+  machine's or a private network's (a cloud's metadata service excluded),
+  within a few seconds; a name the person did not confirm is never sent to
+  the resolver. One is in force only once the person confirmed it with
+  `devflow config set security.targets` (kept in `consent.json`, like
+  `enabled`); the MCP `set` refuses it. The targets in force reach checks
+  and readers only as `DEVFLOW_SECURITY_TARGETS` (and `DEVPIT_…`), through
+  the environment a host builds (`security::with_targets`), and a PoC run
+  that names another target is refused.
+- Public structs gained fields: `plan::Slice` (`abuse`, `boundary`; it now
+  derives `Default`), `config::Config` (`security`), `config::Review`
+  (`attack`), `runner::report::Reported` (`found`), and `config::Report`
+  has a `Sarif` word. `Ask`, `runner::Context`,
+  `evidence::{Ran, Evidence, Given}`, `review::{Asked, Given}` and
+  `gate::Looked` are as they were.
+- **Migration.** A host that builds `plan::Slice` field by field stops
+  compiling until it ends the literal with `..Default::default()`: devpit's
+  `slice_of` (`apps/desktop/src/devflow_plan.rs`) takes that one line when it
+  updates the engine, and its plan window then carries a slice's `abuse`
+  and `boundary` through an edit instead of dropping them. A host that
+  matches `config::Report` exhaustively adds the `Sarif` arm. Nothing else
+  changes for a host that says nothing new.
+- Out of scope, and not up for debate: no step works around a model's
+  refusal, a weaker model included; a third party's host is never a target.
+  Next: fuzzing, and gosec/govulncheck, gitleaks, trivy and `npm audit` as
+  checks; any of them that writes SARIF is evidence already. Also next: the
+  addresses a confirmed target resolved to kept with the person's yes, so a
+  later answer of the network's resolver cannot move it.
+
 ## Release
 
 `VERSION` is the one version. `cargo xtask version-sync` writes it into the

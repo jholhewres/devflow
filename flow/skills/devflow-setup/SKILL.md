@@ -155,6 +155,27 @@ to read test by test (`junit`, `vitest`, `jest`, `cargo`, `go`); one that writes
 none, and leaves it out or says `none`, is judged by its exit code: 0 passed,
 127 not run (its command was not found), anything else failed.
 
+`report: sarif` is a static analyser's: any tool that writes SARIF 2.1.0
+(semgrep, gosec, trivy, gitleaks, CodeQL, …), such as
+`semgrep --config p/default --sarif --error -o "$DEVFLOW_REPORT_DIR/semgrep.sarif"`.
+It is judged by its report, never its exit code (`--error` exits 1 for the
+very findings it was asked for): a report read passes, none is inconclusive,
+and a tool that says its own run failed fails. Each result becomes a finding
+at its file and line, named in the evidence and the review's packet, and
+never holds the item. A location outside the project is left out unread,
+and the report is kept without the code each result quotes. A rule's
+message may still quote what it matched: run a secret scanner with its own
+redaction too (`gitleaks --redact`).
+
+`review.attack` (`off` unless said; `sensitive`, `per-item` or `release`, or
+`{ run: per-item, model: large }`) adds `devflow-security`'s attack to the
+review: only a finding an exploit test confirmed holds the item.
+`security.targets` lists the project's own running instances it may send
+requests to (loopback, `localhost`, `host.docker.internal` or a docker
+service's name); like `enabled`, it is the person's: `set` refuses it and the
+person runs `devflow config set security.targets '["http://localhost:8080"]'`
+in a terminal, which shows each target and asks them to confirm it.
+
 Two optional fields keep a check off what it shares. `requires` is a probe run
 first, such as `pg_isready -q`: when it fails the check is not run rather than
 red, since what it needs is down, not the code. `exclusive` names a lock, such

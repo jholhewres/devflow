@@ -67,6 +67,23 @@ the preset. A `devflow.yaml` that names no preset reviews as it did. `status`
 says the model of each stage (`models`) and what the newest review spent by
 stage and model (`spent`).
 
+Security: `review.attack` (`off` unless set; `sensitive`, `per-item` or
+`release`) has `devflow-security` try to exploit the change, and only a
+finding an exploit test confirmed holds the work; the rest is followed up.
+Plan items that cross a trust boundary name their abuse cases, each a
+criterion proven by a test. A check with `report: sarif` reads any static
+analyser's SARIF (semgrep, gosec, trivy, gitleaks…) as findings, never a
+hold. The running instances an attack may reach are yours to allow:
+
+```sh
+devflow config set review.attack sensitive
+devflow config set security.targets '["http://localhost:8080"]'   # asks you to confirm each
+```
+
+Only loopback, `localhost`, `host.docker.internal` and docker service names
+are accepted; never someone else's host. devflow does not sandbox the
+agent's own shell: see [SECURITY.md](SECURITY.md).
+
 More: [integrations](docs/integrations.md) · [plan](docs/plan.md) ·
 [contributing](CONTRIBUTING.md).
 

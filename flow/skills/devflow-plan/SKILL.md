@@ -76,14 +76,27 @@ Out of scope is.
 | `files` | the files it likely touches, at most five, taken from the context |
 | `verify` | one command, from the repo's own tooling, that proves the criteria |
 | `depends_on` | the keys of the items that block it; empty starts at once. A work item that already exists, such as another epic's, is named by its id as `#42` |
+| `abuse` | for an item that crosses a trust boundary: how it could be abused, one case per line (below) |
+| `boundary` | `true` when the item crosses a trust boundary its files do not show |
 
 Build `verify` from the test command in the context. An item that adds
 behaviour narrows it to the tests that item adds (a test file or a test name),
 so its result speaks for that item alone; an item that changes no behaviour (a
 prefactor, docs, a contract) runs the whole suite.
 
-Done when every item has all seven fields, every `depends_on` key exists, and
-the edges form no cycle.
+An item **crosses a trust boundary** when data someone else wrote reaches it:
+a request, an upload, a webhook, a login, a token, a path, a query, a
+command line, model output. Its files usually say so (devflow matches them
+against `review.scale.sensitive`, the auth, route, migration and secret
+paths); when they do not, set `boundary: true`. Such an item names its
+**abuse cases** in `abuse`: what an attacker sends and what must happen
+instead, each one testable, such as "a token signed with another key is
+refused with 401" or "a path with `../` is refused before it is opened".
+They become checkboxes beside the criteria, prefixed `Abuse case:`, and the
+gate holds the item to them like to any other criterion.
+
+Done when every item has its seven fields, every boundary item names its abuse
+cases, every `depends_on` key exists, and the edges form no cycle.
 
 ### 5. Preview, then stop
 
@@ -99,6 +112,7 @@ nothing:
       "title": "<behaviour>",
       "build": "<what works end to end when this lands>",
       "criteria": ["<testable condition>", "<testable condition>"],
+      "abuse": ["<what an attacker sends, and that it is refused>"],
       "files": ["<path>", "<path>"],
       "verify": "<command>",
       "depends_on": []
@@ -107,8 +121,12 @@ nothing:
 }
 ```
 
+The answer lists in `unguarded` each boundary item that names no abuse case:
+add them and preview again, or tell the person why that item has none. It is
+a warning, never a refusal.
+
 Show the person the breakdown as a numbered list: title, blocked by, what it
-delivers. Ask whether the granularity is right, whether each edge really
+delivers, and the abuse cases of each boundary item. Ask whether the granularity is right, whether each edge really
 gates, and whether any item should merge or split. Ask them to approve with an
 explicit yes here. End the turn.
 
