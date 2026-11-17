@@ -983,9 +983,11 @@ pub fn model_said(text: &str) -> Result<&str, String> {
     if id {
         Ok(said)
     } else {
+        let (last, rest) = TIERS.split_last().unwrap_or((&"", &[]));
         Err(format!(
-            "`{said}` is not a model: a tier (small, default or large) or a model id such as \
-             claude-opus-5-5, of letters, digits and . _ : / @ [ ] -, starting with a letter or a digit"
+            "`{said}` is not a model: a tier ({} or {last}) or a model id such as \
+             claude-opus-5-5, of letters, digits and . _ : / @ [ ] -, starting with a letter or a digit",
+            rest.join(", ")
         ))
     }
 }

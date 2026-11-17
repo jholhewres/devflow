@@ -100,27 +100,33 @@ fn each_stage_and_reviewer_says_its_model_and_where_it_came_from() {
             .unwrap_or_else(|| panic!("{stage} {who:?}: {rows:#?}"))
     };
     let plan = row("plan", None);
-    assert_eq!((plan.said.as_deref(), plan.from), (Some("large"), "stage"));
+    assert_eq!(
+        (plan.said.as_deref(), plan.from),
+        (Some("large"), From::Stage)
+    );
     assert_eq!(plan.runs_on.as_deref(), Some("opus"));
     let execution = row("execution", None);
     assert_eq!(
         (execution.said.as_deref(), execution.from),
-        (Some("small"), "preset")
+        (Some("small"), From::Preset)
     );
     let briefing = row("briefing", None);
-    assert_eq!((briefing.said.as_deref(), briefing.from), (None, "default"));
+    assert_eq!(
+        (briefing.said.as_deref(), briefing.from),
+        (None, From::Default)
+    );
     let security = row("review", Some("claude devflow-security"));
     assert_eq!(
         (security.said.as_deref(), security.from),
-        (Some("claude-opus-5-5"), "reviewer")
+        (Some("claude-opus-5-5"), From::Reviewer)
     );
     // Before any preset is said, a reviewer naming none runs on its CLI's default.
     let spec = row("review", Some("codex devflow-spec"));
-    assert_eq!((spec.said.as_deref(), spec.from), (None, "default"));
+    assert_eq!((spec.said.as_deref(), spec.from), (None, From::Default));
     let attack = row("attack", None);
     assert_eq!(
         (attack.said.as_deref(), attack.from),
-        (Some("large"), "preset")
+        (Some("large"), From::Preset)
     );
     assert!(
         rows.iter().all(|row| row.stage != "analysis"),

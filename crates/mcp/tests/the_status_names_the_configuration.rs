@@ -67,3 +67,38 @@ fn the_status_lists_each_stages_model_and_where_it_came_from() {
     );
     assert_eq!(line("briefing"), ["briefing", "-", "default"]);
 }
+
+#[test]
+fn a_tier_a_cli_has_no_model_for_says_it_runs_on_that_clis_default() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(
+        dir.path().join("devflow.yaml"),
+        "version: 2\nreview:\n  reviewers:\n    - { agent: codex, persona: devflow-spec, model: large }\n",
+    )
+    .unwrap();
+    let out = devflow(&["status", "--root", dir.path().to_str().unwrap()]);
+    let said = String::from_utf8(out.stdout).unwrap();
+    let row = said
+        .lines()
+        .find(|line| line.contains("[codex devflow-spec]"))
+        .unwrap_or_else(|| panic!("no codex row in:\n{said}"));
+    assert!(row.contains("large (the CLI's default)"), "{row}");
+    assert!(said.contains("the session on claude"), "{said}");
+}
+
+#[test]
+fn a_model_that_reads_as_a_flag_gets_devflows_own_refusal() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("devflow.yaml"), "version: 2\n").unwrap();
+    let out = devflow(&[
+        "config",
+        "set",
+        "stages.execution.model",
+        "-x",
+        "--root",
+        dir.path().to_str().unwrap(),
+    ]);
+    let said = String::from_utf8(out.stderr).unwrap();
+    assert_eq!(out.status.code(), Some(1), "{said}");
+    assert!(said.contains("`-x` is not a model"), "{said}");
+}

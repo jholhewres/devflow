@@ -83,7 +83,12 @@ enum Configuring {
     /// Print the configuration that applies, or one field by its dotted path.
     Get { path: Option<String> },
     /// Change one field by its dotted path, after your yes.
-    Set { path: String, value: String },
+    Set {
+        path: String,
+        /// The value, which may start with `-`: devflow says why it is refused.
+        #[arg(allow_hyphen_values = true)]
+        value: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -227,8 +232,9 @@ fn status(root: &std::path::Path) -> ExitCode {
     }
     if let Some(rows) = said["models"]["origins"].as_array() {
         println!(
-            "Models (preset {}, the session on claude):",
-            said["models"]["preset"].as_str().unwrap_or("economy")
+            "Models (preset {}, the session on {}):",
+            said["models"]["preset"].as_str().unwrap_or_default(),
+            said["models"]["agent"].as_str().unwrap_or_default()
         );
         for line in models_table(rows) {
             println!("  {line}");
@@ -251,9 +257,11 @@ fn models_table(rows: &[serde_json::Value]) -> Vec<String> {
                 None => text(row, "stage"),
             };
             let said = row["said"].as_str().unwrap_or("-");
-            let model = match row["runs_on"].as_str().filter(|on| *on != said) {
-                Some(on) => format!("{said} ({on})"),
-                None => said.to_owned(),
+            let model = match (row["runs_on"].as_str(), said) {
+                (Some(on), _) if on != said => format!("{said} ({on})"),
+                // A tier this CLI has no model for leaves it on its own default.
+                (None, "small" | "large") => format!("{said} (the CLI's default)"),
+                _ => said.to_owned(),
             };
             [stage, model, text(row, "from")]
         })

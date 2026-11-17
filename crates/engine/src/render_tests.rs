@@ -53,6 +53,15 @@ fn full() -> Config {
     config.decisions.use_ = true;
     config.decisions.mode = Mode::Enforce;
     config.decisions.rubrics = BTreeMap::from([("completion".into(), "devflow-done".into())]);
+    config.stages.plan.model = Some("large".into());
+    config.stages.execution.model = Some("small".into());
+    config.stages.review.model = Some("claude-opus-5-5".into());
+    config.stages.completion.model = Some("default".into());
+    config.models = Some(crate::config::Models::Quality);
+    config.review.analysis = Some(crate::config::Analysis {
+        enabled: true,
+        model: Some("large".into()),
+    });
     config
 }
 
@@ -62,7 +71,14 @@ fn what_is_written_reads_back_the_same() {
     scaled.review.scale = Some(crate::scale::Scale::default());
     let mut off = Config::default();
     off.review.scale_off = true;
-    for config in [Config::default(), full(), scaled, off] {
+    let mut v1 = full();
+    v1.version = crate::config::V1;
+    let mut no_analysis = Config::default();
+    no_analysis.review.analysis = Some(crate::config::Analysis {
+        enabled: false,
+        model: None,
+    });
+    for config in [Config::default(), full(), v1, scaled, off, no_analysis] {
         let text = render(&config);
         assert_eq!(parse(&text), Ok(config.clone()), "{text}");
         assert_eq!(crate::config::from_json(&config.to_json()), Ok(config));

@@ -20,6 +20,13 @@ pub fn render_in(dialect: &Dialect, config: &Config) -> String {
     out.push('\n');
     out.push_str(dialect.yaml_enabled);
     let _ = writeln!(out, "enabled: {}", config.enabled);
+    if let Some(models) = config.models {
+        out.push_str(
+            "\n# The models preset: economy runs the work and the review small and an\n\
+             # analysis large; quality runs everything large. A stage's own model wins.\n",
+        );
+        let _ = writeln!(out, "models: {}", models.word());
+    }
     if config.version == V1 {
         stages_v1(dialect, &mut out, config);
     } else {
@@ -115,6 +122,7 @@ fn stages_v1(dialect: &Dialect, out: &mut String, config: &Config) {
     checks(dialect, out, "    ", &execution.checks);
     release(dialect, out, "    ", &execution.release);
     e2e_dir(out, &execution.e2e_dir);
+    model(out, execution.model.as_deref());
     plain(out, "review", &stages.review);
     let _ = writeln!(
         out,
@@ -122,6 +130,14 @@ fn stages_v1(dialect: &Dialect, out: &mut String, config: &Config) {
         stages.completion.enabled,
         scalar(&stages.completion.gate)
     );
+    model(out, stages.completion.model.as_deref());
+}
+
+/// A built-in stage's own `model`, when it says one.
+fn model(out: &mut String, model: Option<&str>) {
+    if let Some(model) = model {
+        let _ = writeln!(out, "    model: {}", scalar(model));
+    }
 }
 
 fn extends(out: &mut String, config: &Config) {
@@ -157,6 +173,9 @@ fn stages_v2(dialect: &Dialect, out: &mut String, config: &Config) {
         let _ = writeln!(out, "  - uses: {}", scalar(&step.uses));
         let _ = writeln!(out, "    enabled: {}", config.is_on(step));
         stage_fields(dialect, out, config, step);
+        if let Some(stage) = step.builtin() {
+            model(out, config.stages.model(stage));
+        }
     }
 }
 
@@ -262,6 +281,25 @@ fn review(dialect: &Dialect, out: &mut String, config: &Config) {
         );
         let _ = writeln!(out, "  verify: {}", config.review.verify.word());
     }
+    if let Some(analysis) = &config.review.analysis {
+        out.push_str(
+            "  # One more reading, on a large model, of a diff past scale's small or\n  \
+             # on a sensitive path.\n",
+        );
+        match &analysis.model {
+            None => {
+                let _ = writeln!(out, "  analysis: {}", analysis.enabled);
+            }
+            Some(model) => {
+                let _ = writeln!(
+                    out,
+                    "  analysis:\n    enabled: {}\n    model: {}",
+                    analysis.enabled,
+                    scalar(model)
+                );
+            }
+        }
+    }
     if let Some(attack) = &config.review.attack {
         out.push_str(
             "  # The attack: devflow-security tries to exploit the change, and only a\n  \
@@ -312,6 +350,7 @@ fn review(dialect: &Dialect, out: &mut String, config: &Config) {
 
 fn plain(out: &mut String, name: &str, stage: &Stage) {
     let _ = writeln!(out, "  {name}:\n    enabled: {}", stage.enabled);
+    model(out, stage.model.as_deref());
 }
 
 fn approved(out: &mut String, name: &str, stage: &Approved) {
@@ -327,6 +366,7 @@ fn approved(out: &mut String, name: &str, stage: &Approved) {
     if let Some(unblock_on) = stage.unblock_on {
         let _ = writeln!(out, "    unblock_on: {}", unblock_on.word());
     }
+    model(out, stage.model.as_deref());
 }
 /// A string as YAML: plain when it reads back as the same string, double
 /// quoted otherwise.

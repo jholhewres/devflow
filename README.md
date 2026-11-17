@@ -70,7 +70,8 @@ write. To plan and review on a large model and execute on a small one:
 ```sh
 devflow config set stages.plan.model large
 devflow config set stages.execution.model small
-devflow config set review.reviewers.devflow-security.model large   # a reviewer, by its persona
+devflow config set stages.review.model large   # every reviewer that names no model of its own
+devflow config set review.reviewers.devflow-spec.model claude-opus-5-5   # one reviewer, by its persona
 devflow status   # each stage's and reviewer's model, and where it came from
 ```
 

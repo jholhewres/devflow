@@ -232,16 +232,10 @@ pub(crate) fn set_path(
                 let slot = match part.parse::<usize>() {
                     Ok(slot) => Some(slot),
                     Err(_) => only_named(items, part).map_err(|places| {
-                        let places: Vec<String> =
-                            places.iter().map(|at| format!("{shown}.{at}")).collect();
                         Invalid::at(
                             None,
                             &parts[..=index].join("."),
-                            &format!(
-                                "{} items of {shown} are `{part}`: name one by its place, {}",
-                                places.len(),
-                                places.join(" or ")
-                            ),
+                            &twice(&shown, part, &places),
                         )
                     })?,
                 };
@@ -289,19 +283,45 @@ pub(crate) fn set_path(
     Ok(whole)
 }
 
-/// The value at a dotted path, or null.
-pub fn value_at<'a>(whole: &'a Value, path: &str) -> &'a Value {
-    path.split('.')
-        .try_fold(whole, |at, part| match at {
-            Value::Object(fields) => fields.get(part),
-            Value::Array(items) => items.get(
-                part.parse::<usize>()
-                    .ok()
-                    .or_else(|| named_in(items, part))?,
-            ),
+/// The value at a dotted path, null where nothing is; or why a name in it
+/// is two items of a list, which a read refuses as a write does.
+pub fn find<'a>(whole: &'a Value, path: &str) -> Result<&'a Value, String> {
+    let parts: Vec<&str> = path.split('.').map(str::trim).collect();
+    let mut at = whole;
+    for (index, part) in parts.iter().enumerate() {
+        let next = match at {
+            Value::Object(fields) => fields.get(*part),
+            Value::Array(items) => {
+                let slot = match part.parse::<usize>() {
+                    Ok(slot) => Some(slot),
+                    Err(_) => only_named(items, part)
+                        .map_err(|places| twice(&parts[..index].join("."), part, &places))?,
+                };
+                slot.and_then(|slot| items.get(slot))
+            }
             _ => None,
-        })
-        .unwrap_or(&Value::Null)
+        };
+        match next {
+            Some(next) => at = next,
+            None => return Ok(&Value::Null),
+        }
+    }
+    Ok(at)
+}
+
+/// The value at a dotted path, or null: also where a name is two items.
+pub fn value_at<'a>(whole: &'a Value, path: &str) -> &'a Value {
+    find(whole, path).unwrap_or(&Value::Null)
+}
+
+/// Why a name that is two or more items of the list at `shown` is refused.
+fn twice(shown: &str, part: &str, places: &[usize]) -> String {
+    let places: Vec<String> = places.iter().map(|at| format!("{shown}.{at}")).collect();
+    format!(
+        "{} items of {shown} are `{part}`: name one by its place, {}",
+        places.len(),
+        places.join(" or ")
+    )
 }
 
 /// The stage's name, for an item of version 2's list: what follows the last
@@ -311,13 +331,9 @@ pub(crate) fn stage_name(item: &Value) -> Option<&str> {
     Some(uses.rsplit('/').next().unwrap_or(uses))
 }
 
-/// Where the item called `name` is in a list: a stage by its name or what
-/// it uses, so `stages.plan.approve` means the same in either version; a
-/// reviewer by its persona; a check by its name.
-pub(crate) fn named_in(items: &[Value], name: &str) -> Option<usize> {
-    items.iter().position(|item| called(item, name))
-}
-
+/// Whether a list's item is the one called `name`: a stage by its name or
+/// what it uses, so `stages.plan.approve` means the same in either version;
+/// a reviewer by its persona; a check by its name.
 fn called(item: &Value, name: &str) -> bool {
     stage_name(item) == Some(name)
         || ["uses", "persona", "name"]
@@ -325,7 +341,8 @@ fn called(item: &Value, name: &str) -> bool {
             .any(|key| item.get(*key).and_then(Value::as_str) == Some(name))
 }
 
-/// [`named_in`], or every place `name` is when it is more than one.
+/// Where the item [`called`] `name` is, or every place it is when it is
+/// more than one.
 fn only_named(items: &[Value], name: &str) -> Result<Option<usize>, Vec<usize>> {
     let places: Vec<usize> = (0..items.len())
         .filter(|at| called(&items[*at], name))

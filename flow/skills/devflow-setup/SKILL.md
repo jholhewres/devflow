@@ -170,7 +170,10 @@ redaction too (`gitleaks --redact`).
 A stage's `model` (`stages.<stage>.model`) and a reviewer's
 (`review.reviewers.<persona>.model`) are a tier, `small`, `default` or `large`,
 or a model id; `set` refuses anything else with what to write, and `status`
-lists each one's model and where it came from (`models.origins`).
+lists each one's model and where it came from (`models.origins`). A path names
+an item of a list by its place, or by its name: a stage by its name, a
+reviewer by its persona, a check by its `name`; a name two items share is
+refused, with their places.
 
 `review.attack` (`off` unless said; `sensitive`, `per-item` or `release`, or
 `{ run: per-item, model: large }`) adds `devflow-security`'s attack to the

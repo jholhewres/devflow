@@ -197,3 +197,24 @@ fn a_change_lists_each_field_that_differs() {
         .any(|one| one.path == "stages.briefing.approve"));
     assert!(created.iter().all(|one| one.before.is_null()));
 }
+
+#[test]
+fn a_path_naming_two_items_is_refused_when_read_as_when_written() {
+    let whole = json!({ "review": { "reviewers": [
+        { "agent": "claude", "persona": "devflow-all" },
+        { "agent": "codex", "persona": "devflow-all", "model": "gpt-5" },
+    ] } });
+    let read = find(&whole, "review.reviewers.devflow-all.model").expect_err("two");
+    assert!(
+        read.contains("review.reviewers.0 or review.reviewers.1"),
+        "{read}"
+    );
+    assert_eq!(
+        value_at(&whole, "review.reviewers.devflow-all.model"),
+        &Value::Null
+    );
+    assert_eq!(
+        find(&whole, "review.reviewers.1.model"),
+        Ok(&json!("gpt-5"))
+    );
+}

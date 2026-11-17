@@ -265,8 +265,9 @@ fn a_model_is_set_by_stage_and_by_reviewer_and_a_wrong_one_is_refused() {
         "version: 2\nstages:\n  - uses: builtin/plan\n  - uses: builtin/execution\nreview:\n  reviewers:\n    - { agent: claude, persona: devflow-security }\n    - { agent: codex, persona: devflow-spec }\n",
     );
     let plan = set(&state, "stages.plan.model", &json!("large")).expect("a stage");
+    let written = parse(&plan.yaml).expect("the file written");
     assert_eq!(
-        plan.config.stages.plan.model.as_deref(),
+        written.stages.plan.model.as_deref(),
         Some("large"),
         "{}",
         plan.yaml
@@ -293,15 +294,18 @@ fn a_model_is_set_by_stage_and_by_reviewer_and_a_wrong_one_is_refused() {
     assert!(case.message.contains("`large`"), "{case}");
     let flag = set(&state, "stages.execution.model", &json!("-x")).expect_err("a flag");
     assert!(flag.message.contains("small, default or large"), "{flag}");
-    let stage = set(&state, "stages.nada.model", &json!("small")).expect_err("no such stage");
-    assert!(stage.message.contains("no stage called `nada`"), "{stage}");
+    let stage = set(&state, "stages.nowhere.model", &json!("small")).expect_err("no such stage");
+    assert!(
+        stage.message.contains("no stage called `nowhere`"),
+        "{stage}"
+    );
     let persona = set(
         &state,
-        "review.reviewers.devflow-nada.model",
+        "review.reviewers.devflow-nobody.model",
         &json!("small"),
     )
     .expect_err("no such reviewer");
-    assert!(persona.message.contains("`devflow-nada`"), "{persona}");
+    assert!(persona.message.contains("`devflow-nobody`"), "{persona}");
 
     let twice = valid(
         "version: 2\nreview:\n  reviewers:\n    - { agent: claude, persona: devflow-all }\n    - { agent: codex, persona: devflow-all }\n",
@@ -313,4 +317,50 @@ fn a_model_is_set_by_stage_and_by_reviewer_and_a_wrong_one_is_refused() {
     )
     .expect_err("two reviewers read as devflow-all");
     assert!(which.message.contains("review.reviewers.1"), "{which}");
+}
+
+#[test]
+fn a_model_written_by_hand_survives_a_change_that_lays_the_file_out_again() {
+    let state = valid(
+        "version: 2\nstages:\n  - uses: builtin/plan\n    model: large\n  - uses: builtin/execution\nmodels: quality\nreview:\n  analysis: { model: claude-opus-5-5 }\n  reviewers:\n    - { agent: claude, persona: devflow-security }\n",
+    );
+    let changed = set(
+        &state,
+        "review.reviewers.devflow-security.model",
+        &json!("small"),
+    )
+    .expect("a reviewer's model");
+    let written = parse(&changed.yaml).expect("the file written");
+    assert_eq!(
+        written.stages.plan.model.as_deref(),
+        Some("large"),
+        "{}",
+        changed.yaml
+    );
+    assert_eq!(
+        written.models,
+        Some(crate::config::Models::Quality),
+        "{}",
+        changed.yaml
+    );
+    assert_eq!(
+        written.review.analysis.and_then(|one| one.model).as_deref(),
+        Some("claude-opus-5-5"),
+        "{}",
+        changed.yaml
+    );
+}
+
+#[test]
+fn a_check_is_named_by_its_name_in_a_path() {
+    let state = valid(
+        "version: 2\nstages:\n  - uses: builtin/execution\n    checks:\n      - { name: unit, run: make test }\n",
+    );
+    let changed = set(
+        &state,
+        "stages.execution.checks.unit.run",
+        &json!("cargo test"),
+    )
+    .expect("a check by its name");
+    assert_eq!(changed.config.stages.execution.checks[0].run, "cargo test");
 }

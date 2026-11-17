@@ -53,7 +53,10 @@ pub fn get(root: &Path, path: Option<&str>) -> ExitCode {
     };
     let json = config.to_json();
     let value = match path {
-        Some(path) => preset::value_at(&json, path).clone(),
+        Some(path) => match preset::find(&json, path) {
+            Ok(value) => value.clone(),
+            Err(why) => return failed(&why),
+        },
         None => json,
     };
     match value {

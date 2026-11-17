@@ -27,9 +27,27 @@ pub fn tier(models: Models, stage: &str) -> Option<&'static str> {
     }
 }
 
-/// What `stage` runs on as devflow.yaml says it, a tier or an id: its own
-/// `model`, else the preset's tier.
-pub fn stage_model(config: &Config, stage: &str) -> Option<String> {
+/// Where a model a stage or a reviewer runs on came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum From {
+    /// The stage's own `model`.
+    Stage,
+    /// The reviewer's own `model`.
+    Reviewer,
+    /// The tier the models preset gives it.
+    Preset,
+    /// Nothing said: the CLI's own default.
+    Default,
+}
+
+/// A model as devflow.yaml comes to it, a tier or an id, and where it came
+/// from; `None` leaves the CLI's default.
+pub type Resolved = (Option<String>, From);
+
+/// What `stage` runs on as devflow.yaml says it: its own `model`, else the
+/// preset's tier, else the CLI's default.
+pub fn resolved(config: &Config, stage: &str) -> Resolved {
     let own = match stage {
         ANALYSIS => config
             .review
@@ -43,8 +61,17 @@ pub fn stage_model(config: &Config, stage: &str) -> Option<String> {
             .and_then(|attack| attack.model.as_deref()),
         _ => config.stages.model(stage),
     };
-    own.or_else(|| tier(preset(config), stage))
-        .map(str::to_owned)
+    match (own, tier(preset(config), stage)) {
+        (Some(own), _) => (Some(own.to_owned()), From::Stage),
+        (None, Some(tier)) => (Some(tier.to_owned()), From::Preset),
+        (None, None) => (None, From::Default),
+    }
+}
+
+/// What `stage` runs on as devflow.yaml says it, a tier or an id: its own
+/// `model`, else the preset's tier.
+pub fn stage_model(config: &Config, stage: &str) -> Option<String> {
+    resolved(config, stage).0
 }
 
 /// The model a card's session opens on with `agent`: the execution's.
@@ -110,38 +137,60 @@ pub fn attack_asked(config: &Config) -> Result<Config, String> {
 /// the preset's once a preset or the analysis is written. Otherwise none, so
 /// a devflow.yaml from before the presets reviews as it did.
 pub fn review_default(config: &Config) -> Option<String> {
+    review_resolved(config).0
+}
+
+/// [`review_default`], with where it came from.
+fn review_resolved(config: &Config) -> Resolved {
     if let Some(model) = &config.stages.review.model {
-        return Some(model.clone());
+        return (Some(model.clone()), From::Stage);
     }
-    (config.models.is_some() || analysis_on(config))
-        .then(|| tier(preset(config), "review").map(str::to_owned))
+    match (config.models.is_some() || analysis_on(config))
+        .then(|| tier(preset(config), "review"))
         .flatten()
+    {
+        Some(tier) => (Some(tier.to_owned()), From::Preset),
+        None => (None, From::Default),
+    }
+}
+
+/// What a reviewer runs on: its own `model`, else [`review_default`].
+fn reviewer_resolved(config: &Config, reviewer: &Reviewer) -> Resolved {
+    match &reviewer.model {
+        Some(model) => (Some(model.clone()), From::Reviewer),
+        None => review_resolved(config),
+    }
+}
+
+/// The agent the extra readings run on: the first reviewer's, Claude Code
+/// with none.
+fn first_agent(config: &Config) -> Agent {
+    config
+        .review
+        .reviewers
+        .first()
+        .map_or(Agent::Claude, |first| first.agent)
 }
 
 /// The models each stage runs on as devflow.yaml says them, and what the
 /// card's session and the analysis open with on `agent`.
 pub fn plan(config: &Config, agent: Agent) -> serde_json::Value {
-    let stages: serde_json::Map<String, serde_json::Value> = crate::config::STAGES
+    let origins = origins(config, agent);
+    // The stages map is the rows' own, so what it says is what status lists.
+    let stages: serde_json::Map<String, serde_json::Value> = origins
         .iter()
-        .chain([&ANALYSIS, &ATTACK])
-        .filter_map(|stage| {
-            let model = match *stage {
-                "review" => review_default(config),
-                ANALYSIS if !analysis_on(config) => None,
-                ATTACK if attack_run(config) == AttackRun::Off => None,
-                _ => stage_model(config, stage),
-            };
-            Some(((*stage).to_owned(), model?.into()))
-        })
+        .filter(|row| row.who.is_none())
+        .filter_map(|row| Some((row.stage.clone(), row.said.clone()?.into())))
         .collect();
     let mut plan = serde_json::json!({
         "preset": preset(config).word(),
         "said": config.models.is_some(),
+        "agent": agent.word(),
         "stages": stages,
         "session": session_model(config, agent),
         "review_default": review_default(config),
         "analysis": analysis_on(config),
-        "origins": origins(config, agent),
+        "origins": origins,
     });
     if attack_run(config) != AttackRun::Off {
         plan["attack"] = attack_run(config).word().into();
@@ -160,9 +209,7 @@ pub struct Origin {
     pub said: Option<String>,
     /// What that is on the row's CLI ([`crate::review::model_for`]).
     pub runs_on: Option<String>,
-    /// `stage` (its own `model`), `reviewer` (the reviewer's), `preset`
-    /// (the models preset's tier) or `default` (the CLI's own).
-    pub from: &'static str,
+    pub from: From,
 }
 
 /// What each built-in stage, each reviewer, the analysis and the attack run
@@ -170,72 +217,47 @@ pub struct Origin {
 /// session's CLI; a reviewer's row is on its own, and the analysis's and
 /// the attack's on the first reviewer's.
 pub fn origins(config: &Config, agent: Agent) -> Vec<Origin> {
-    let row =
-        |stage: &str, who: Option<String>, on: Agent, said: (Option<String>, &'static str)| {
-            Origin {
-                stage: stage.to_owned(),
-                who,
-                runs_on: crate::review::model_for(on, said.0.as_deref()),
-                said: said.0,
-                from: said.1,
-            }
-        };
-    let preset_tier = |stage: &str| -> (Option<String>, &'static str) {
-        match tier(preset(config), stage) {
-            Some(tier) => (Some(tier.to_owned()), "preset"),
-            None => (None, "default"),
-        }
+    let row = |stage: &str, who: Option<String>, on: Agent, (said, from): Resolved| Origin {
+        stage: stage.to_owned(),
+        who,
+        runs_on: crate::review::model_for(on, said.as_deref()),
+        said,
+        from,
     };
-    let review = match &config.stages.review.model {
-        Some(model) => (Some(model.clone()), "stage"),
-        None => match review_default(config) {
-            Some(tier) => (Some(tier), "preset"),
-            None => (None, "default"),
-        },
-    };
-    let first = config
-        .review
-        .reviewers
-        .first()
-        .map_or(Agent::Claude, |first| first.agent);
     let mut rows: Vec<Origin> = crate::config::STAGES
         .iter()
         .map(|stage| {
-            let said = match (*stage, config.stages.model(stage)) {
-                ("review", _) => review.clone(),
-                (_, Some(model)) => (Some(model.to_owned()), "stage"),
-                (_, None) => preset_tier(stage),
+            let said = match *stage {
+                "review" => review_resolved(config),
+                _ => resolved(config, stage),
             };
             row(stage, None, agent, said)
         })
         .collect();
     for reviewer in &config.review.reviewers {
-        let said = match &reviewer.model {
-            Some(model) => (Some(model.clone()), "reviewer"),
-            None => review.clone(),
-        };
         let who = format!("{} {}", reviewer.agent.word(), reviewer.persona);
-        rows.push(row("review", Some(who), reviewer.agent, said));
+        rows.push(row(
+            "review",
+            Some(who),
+            reviewer.agent,
+            reviewer_resolved(config, reviewer),
+        ));
     }
-    let own = |model: Option<&String>, stage: &str| match model {
-        Some(model) => (Some(model.clone()), "stage"),
-        None => preset_tier(stage),
-    };
     if analysis_on(config) {
-        let model = config
-            .review
-            .analysis
-            .as_ref()
-            .and_then(|one| one.model.as_ref());
-        rows.push(row(ANALYSIS, None, first, own(model, ANALYSIS)));
+        rows.push(row(
+            ANALYSIS,
+            None,
+            first_agent(config),
+            resolved(config, ANALYSIS),
+        ));
     }
     if attack_run(config) != AttackRun::Off {
-        let model = config
-            .review
-            .attack
-            .as_ref()
-            .and_then(|one| one.model.as_ref());
-        rows.push(row(ATTACK, None, first, own(model, ATTACK)));
+        rows.push(row(
+            ATTACK,
+            None,
+            first_agent(config),
+            resolved(config, ATTACK),
+        ));
     }
     rows
 }
@@ -253,25 +275,17 @@ pub struct Reader {
 /// [`attack_on`]. The analysis reads every axis and the attack security,
 /// each on the first reviewer's agent (Claude Code with none).
 pub fn readers(config: &Config, one: bool, files: &[String], diff: &str) -> Vec<Reader> {
-    let default = review_default(config);
     let mut readers: Vec<Reader> = scale::reviewers(&config.review, one)
         .into_iter()
         .map(|mut reviewer| {
-            if reviewer.model.is_none() {
-                reviewer.model.clone_from(&default);
-            }
+            reviewer.model = reviewer_resolved(config, &reviewer).0;
             Reader {
                 reviewer,
                 stage: "review",
             }
         })
         .collect();
-    // The extra readings run on the first reviewer's agent, Claude Code with none.
-    let agent = config
-        .review
-        .reviewers
-        .first()
-        .map_or(Agent::Claude, |first| first.agent);
+    let agent = first_agent(config);
     let extra = |persona: &str, stage: &'static str| Reader {
         reviewer: Reviewer {
             agent,
