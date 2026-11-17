@@ -134,6 +134,13 @@ impl Verify {
     }
 }
 
+words!(
+    /// When the attack's reading runs: never, on a diff `review.scale` does
+    /// not call small (past its lines, or a sensitive path), on every
+    /// review, or only for a release, asked by name.
+    AttackRun { Off = "off", Sensitive = "sensitive", PerItem = "per-item", Release = "release" }
+);
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Config {
     pub version: u64,
@@ -311,11 +318,24 @@ pub struct Review {
     /// past `scale`'s small; not said, it is on only with `models` said.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub analysis: Option<Analysis>,
+    /// The attack's reading: `devflow-security` trying to exploit the
+    /// change. Off unless said; `models` never switches it on.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attack: Option<Attack>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Analysis {
     pub enabled: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+}
+
+/// `review.attack`: a word, or a map of `run` and `model`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Attack {
+    pub run: AttackRun,
+    /// A tier (`small`, `default`, `large`) or an id; `large` when not said.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
 }
@@ -385,6 +405,7 @@ impl Default for Config {
                 scale_off: false,
                 verify: Verify::Off,
                 analysis: None,
+                attack: None,
             },
             decisions: Decisions {
                 use_: false,
@@ -1136,6 +1157,10 @@ pub(crate) fn review(node: &Node, path: &str) -> Result<Review, Invalid> {
         Some((node, path)) => Some(analysis(node, &path)?),
         None => None,
     };
+    let attack = match fields.get("attack") {
+        Some((node, path)) => Some(attack(node, &path)?),
+        None => None,
+    };
     fields.done()?;
     Ok(Review {
         reviewers,
@@ -1145,7 +1170,35 @@ pub(crate) fn review(node: &Node, path: &str) -> Result<Review, Invalid> {
         scale_off,
         verify,
         analysis,
+        attack,
     })
+}
+
+/// `attack: off|sensitive|per-item|release`, or a map of `run` and `model`.
+fn attack(node: &Node, path: &str) -> Result<Attack, Invalid> {
+    let run =
+        |node: &Node, path: &str| word(node, path, AttackRun::of, AttackRun::ALL, AttackRun::word);
+    if matches!(node.value, Value::Scalar(..)) {
+        return Ok(Attack {
+            run: run(node, path)?,
+            model: None,
+        });
+    }
+    let mut fields = Fields::of(node, path)?;
+    let line = fields.line;
+    let said = match fields.get("run") {
+        Some((node, path)) => run(node, &path)?,
+        None => {
+            return Err(Invalid::at(
+                line,
+                &joined(path, "run"),
+                "say when the attack runs: off, sensitive, per-item or release",
+            ))
+        }
+    };
+    let model = model(fields.get("model"))?;
+    fields.done()?;
+    Ok(Attack { run: said, model })
 }
 
 /// `analysis: true` or `false`, or a map of `enabled` and `model`.

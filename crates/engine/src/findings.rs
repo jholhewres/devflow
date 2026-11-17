@@ -34,7 +34,7 @@ pub const REQUIRED: [&str; 9] = [
 ];
 
 /// Everything a finding may carry: the schema allows nothing else.
-pub const FIELDS: [&str; 22] = [
+pub const FIELDS: [&str; 23] = [
     "file",
     "line",
     "end_line",
@@ -57,10 +57,11 @@ pub const FIELDS: [&str; 22] = [
     "anchor",
     "verified",
     "impact",
+    "origin",
 ];
 
 /// What devpit sets on a finding, never a reviewer.
-const DEVPITS: [&str; 8] = [
+const DEVPITS: [&str; 9] = [
     "found_by",
     "agreement",
     "false_positive",
@@ -69,7 +70,17 @@ const DEVPITS: [&str; 8] = [
     "carried_from",
     "anchor",
     "verified",
+    "origin",
 ];
+
+/// Where a finding came from when not a reviewer's opinion: the attack's
+/// reading, which only proof lets block. A static analyser's results stay
+/// in the evidence (`checks[].findings`), never here.
+pub const ORIGINS: [&str; 1] = [ATTACK];
+/// A finding of the attack's reading.
+pub const ATTACK: &str = "attack";
+/// The longest exploit test's name kept.
+const LONGEST_TEST: usize = 300;
 
 /// Where a finding's line sits in the change, as devpit reads it from the
 /// diff and HEAD: on a line the change added, on a line a hunk shows around
@@ -204,11 +215,23 @@ fn finding_problems(finding: &Value, at: &str, wrong: &mut Vec<String>) {
         wrong.push(format!("`{at}.jev` is an object"));
     }
     if let Some(verified) = finding.get("verified") {
-        if !RESULTS.contains(&text(verified, "result")) || !filled(verified, "evidence") {
+        let named = |key: &str| {
+            verified
+                .get(key)
+                .is_none_or(|said| said.as_str().is_some_and(|said| !said.trim().is_empty()))
+        };
+        if !RESULTS.contains(&text(verified, "result"))
+            || !filled(verified, "evidence")
+            || !named("test")
+            || !named("target")
+        {
             wrong.push(format!(
-                "`{at}.verified` is {{ result: confirmed, refuted or not_run, evidence }}"
+                "`{at}.verified` is {{ result: confirmed, refuted or not_run, evidence, test?, target? }}"
             ));
         }
+    }
+    if finding.get("origin").is_some() && !ORIGINS.contains(&text(finding, "origin")) {
+        wrong.push(format!("`{at}.origin` is attack"));
     }
     if finding.get("anchor").is_some() && !ANCHORS.contains(&text(finding, "anchor")) {
         wrong.push(format!(
@@ -557,6 +580,15 @@ pub fn merged(findings: &[Value], groups: &[Vec<usize>], answered: &[Source]) ->
                 .copied()
                 .min_by_key(|at| rank(&findings[*at]))?;
             let mut kept = findings[worst].clone();
+            // A reviewer's word on the same problem holds without proof.
+            if group
+                .iter()
+                .any(|at| text(&findings[*at], "origin") != ATTACK)
+            {
+                if let Some(fields) = kept.as_object_mut() {
+                    fields.remove("origin");
+                }
+            }
             let mut found_by: Vec<Source> = Vec::new();
             for at in group {
                 let source = Source {
@@ -633,15 +665,118 @@ pub fn verified_on(list: &mut [Value], verified: &[Value]) -> Result<(), String>
                 )
             })?;
         let finding = &mut list[place];
-        if !matches!(text(finding, "severity"), "critical" | "high") {
+        if text(finding, "origin") != ATTACK
+            && !matches!(text(finding, "severity"), "critical" | "high")
+        {
             return Err(format!(
                 "finding {place} is {}: only a critical or high has a PoC to verify",
                 text(finding, "severity")
             ));
         }
-        finding["verified"] = json!({ "result": one["result"], "evidence": one["evidence"] });
+        let mut verified = json!({ "result": one["result"], "evidence": one["evidence"] });
+        for key in ["test", "target"] {
+            match one.get(key) {
+                None | Some(Value::Null) => {}
+                Some(Value::String(said)) if !said.trim().is_empty() => {
+                    verified[key] =
+                        json!(said.trim().chars().take(LONGEST_TEST).collect::<String>());
+                }
+                Some(_) => {
+                    return Err(format!(
+                        "`verified.{at}.{key}` is {}",
+                        if key == "test" {
+                            "the exploit test's name, as the runner names it"
+                        } else {
+                            "the URL of the target the PoC ran against"
+                        }
+                    ))
+                }
+            }
+        }
+        finding["verified"] = verified;
     }
     Ok(())
+}
+
+/// A finding of the attack's reading, stamped after its reader signed it:
+/// only the engine says where a finding came from.
+pub fn from_attack(answer: &mut Value) {
+    for finding in answer["findings"]
+        .as_array_mut()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_object_mut)
+    {
+        finding.insert("origin".into(), json!(ATTACK));
+    }
+}
+
+/// The exploit test that confirmed a finding: a PoC run that confirmed it
+/// and named the test that shows it.
+pub fn exploit_test(finding: &Value) -> Option<&str> {
+    let verified = &finding["verified"];
+    (text(verified, "result") == "confirmed")
+        .then(|| text(verified, "test"))
+        .filter(|test| !test.trim().is_empty())
+}
+
+/// The exploits a review confirmed, each as findings.json keeps it after
+/// the finding is fixed: its test, which must stay green.
+pub fn exploits(findings: &[Value]) -> Vec<Value> {
+    findings
+        .iter()
+        .filter(|finding| text(finding, "origin") == ATTACK && standing(finding))
+        .filter_map(|finding| {
+            Some(json!({
+                "test": exploit_test(finding)?,
+                "file": text(finding, "file"),
+                "line": lines(finding).0,
+                "title": text(finding, "title"),
+            }))
+        })
+        .collect()
+}
+
+/// The exploits a findings.json keeps.
+pub fn exploits_in(findings: &Value) -> Vec<Value> {
+    findings["exploits"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|one| {
+            one["test"]
+                .as_str()
+                .is_some_and(|test| !test.trim().is_empty())
+        })
+        .take(MOST_FINDINGS)
+        .cloned()
+        .collect()
+}
+
+/// `kept` with `more` added, one per test.
+pub fn with_exploits(kept: &[Value], more: &[Value]) -> Vec<Value> {
+    let mut all: Vec<Value> = Vec::new();
+    for one in kept.iter().chain(more) {
+        if !all.iter().any(|had| had["test"] == one["test"]) {
+            all.push(one.clone());
+        }
+    }
+    all.truncate(MOST_FINDINGS);
+    all
+}
+
+/// The findings followed up instead of fixed: the attack's that no
+/// exploit test confirmed, refuted ones aside. They never hold the item.
+pub fn left(findings: &[Value]) -> Vec<&Value> {
+    findings
+        .iter()
+        .filter(|finding| {
+            text(finding, "origin") == ATTACK
+                && standing(finding)
+                && text(&finding["verified"], "result") != "refuted"
+                && exploit_test(finding).is_none()
+        })
+        .collect()
 }
 
 /// Why `verify: required` counts a finding apart from its severity.
@@ -695,12 +830,21 @@ pub fn standing(finding: &Value) -> bool {
 }
 
 /// Whether a finding holds the card: in `block_on` as [`weighed`], and
-/// still standing.
+/// still standing. The attack's reading holds it only with proof: a PoC run
+/// that confirmed it and named its exploit test.
 pub fn blocks(finding: &Value, block_on: &[Severity], verify: Verify) -> bool {
-    standing(finding)
-        && weighed(finding, verify)
+    if !standing(finding) {
+        return false;
+    }
+    match text(finding, "origin") {
+        ATTACK => {
+            exploit_test(finding).is_some()
+                && severity_of(text(finding, "severity")).is_some_and(|one| block_on.contains(&one))
+        }
+        _ => weighed(finding, verify)
             .0
-            .is_some_and(|one| block_on.contains(&one))
+            .is_some_and(|one| block_on.contains(&one)),
+    }
 }
 
 /// The findings that hold the card.
@@ -1233,6 +1377,12 @@ fn item_of(finding: &Value, axes: &[&str], verify: Verify) -> String {
     }
     if let Some(verification) = verification_said(finding, verify) {
         said.push_str(&format!(" — {verification}"));
+    }
+    if text(finding, "origin") == ATTACK {
+        said.push_str(&match exploit_test(finding) {
+            Some(test) => format!(" — attack, exploit test `{test}`"),
+            None => " — attack, unconfirmed: followed up, holds nothing".to_owned(),
+        });
     }
     if let Some(run) = finding.get("carried_from").and_then(Value::as_str) {
         said.push_str(&format!(" — carried from run {run}"));

@@ -597,6 +597,25 @@ pub fn prompt(persona_text: &str, packet: &str, agent: &str, persona: &str) -> S
     )
 }
 
+/// What the attack's reading is asked beyond its persona: to prove, not
+/// to list. Said after the packet, so every reader's prompt still opens the
+/// same way.
+pub const ATTACK_ASK: &str = "## Attack\n\
+This reading attacks the change: it does not list risks, it proves them.\n\
+1. Start from the threat model: the trust boundaries the diff touches, and STRIDE over each.\n\
+2. Try to exploit each one against this checkout's own code: its tests, a throwaway test in a temporary folder outside the checkout, or a request to a target in $DEVFLOW_SECURITY_TARGETS. Those are the project's own running instances the person confirmed, and the only hosts you may send a request to; when the variable is empty, there are none. Never another host, never a third party's.\n\
+3. A hypothesis you reproduced is a finding whose `poc` is its exploit test: the test file, its name and its code, which fails while the hole is there and passes once it is fixed. Say in `evidence` what running it showed.\n\
+4. A hypothesis you could not reproduce stays a finding at its severity, its description starting `unconfirmed:`. It is followed up and holds nothing: only an exploit test the session ran confirms a finding, and only a confirmed one holds the item.\n\
+Read only: change no file of the checkout.\n";
+
+/// The attack's reader's prompt: a reviewer's, then [`ATTACK_ASK`].
+pub fn attack_prompt(persona_text: &str, packet: &str, agent: &str) -> String {
+    format!(
+        "{}\n{ATTACK_ASK}",
+        prompt(persona_text, packet, agent, models::ATTACK_PERSONA)
+    )
+}
+
 /// Past this many commits, a review without a base most likely reads more
 /// than its card: B7 read 129 commits of develop.
 pub const MANY_COMMITS: u32 = 30;
@@ -1091,7 +1110,12 @@ fn reviewed_anew(given: &Given) -> Result<(String, PathBuf, Record), String> {
         let persona = persona_text(given.root, given.personas, &reviewer.persona)
             .map_err(|why| (why, None))?;
         let agent = reviewer.agent.word();
-        let asked = prompt(&persona, &packet, agent, &reviewer.persona);
+        let attack = reader.stage == models::ATTACK;
+        let asked = if attack {
+            attack_prompt(&persona, &packet, agent)
+        } else {
+            prompt(&persona, &packet, agent, &reviewer.persona)
+        };
         let env = env_of_in(dialect, given.env, git, &packet_at, &reviewer.persona);
         let said = turn_in(
             dialect,
@@ -1107,7 +1131,12 @@ fn reviewed_anew(given: &Given) -> Result<(String, PathBuf, Record), String> {
         match findings::read_signed(&said.text, agent, &reviewer.persona)
             .and_then(|answer| held_to_retro(answer, given.retro))
         {
-            Ok(answer) => Ok((answer, said)),
+            Ok(mut answer) => {
+                if attack {
+                    findings::from_attack(&mut answer);
+                }
+                Ok((answer, said))
+            }
             Err(why) => Err((why, Some(said))),
         }
     };
@@ -1566,6 +1595,24 @@ pub fn reviewed(given: &Given) -> Result<Done, String> {
             .and_then(|earlier| earlier["findings"].as_array())
             .map_or(&[][..], Vec::as_slice),
     );
+    // Every exploit a review of the item confirmed stays its regression test.
+    let mut exploits = earlier
+        .as_ref()
+        .map_or_else(Vec::new, findings::exploits_in);
+    if let Some(previous) = &previous {
+        let kept = given
+            .runs
+            .found(given.card.id, Some(&previous.run), FINDINGS)
+            .and_then(|at| at.parent().and_then(|folder| read_json(folder, FINDINGS)));
+        exploits = findings::with_exploits(
+            &exploits,
+            &findings::with_exploits(
+                &kept.as_ref().map_or_else(Vec::new, findings::exploits_in),
+                &findings::exploits(&previous.findings),
+            ),
+        );
+    }
+    let exploits = findings::with_exploits(&exploits, &findings::exploits(&merged));
     let findings_json = (!record.answers.is_empty())
         .then(|| {
             let (done_well, verification) = findings::said_together(&record.answers);
@@ -1594,6 +1641,9 @@ pub fn reviewed(given: &Given) -> Result<Done, String> {
         }
         if record.retro {
             findings_json["mode"] = json!("retro");
+        }
+        if !exploits.is_empty() {
+            findings_json["exploits"] = json!(exploits);
         }
         let repeats = previous.as_ref().map_or_else(Vec::new, |previous| {
             findings::repeats(
@@ -1652,6 +1702,11 @@ fn verified(given: &Given, stamp: String, path: &Path, record: Record) -> Result
     })?;
     let mut list = kept["findings"].as_array().cloned().unwrap_or_default();
     findings::verified_on(&mut list, &given.asked.verified)?;
+    let exploits =
+        findings::with_exploits(&findings::exploits_in(&kept), &findings::exploits(&list));
+    if !exploits.is_empty() {
+        kept["exploits"] = json!(exploits);
+    }
     let review = &given.config.review;
     kept["verdict"] = json!(findings::verdict_of(
         &list,
@@ -1902,6 +1957,22 @@ fn unverified(verify: Verify, list: &[Value]) -> Option<String> {
     (verify != Verify::Off && !places.is_empty()).then(|| places.join(", "))
 }
 
+/// The places of the attack's standing findings no PoC run was recorded for:
+/// each is the session's to prove with an exploit test, or leave unconfirmed.
+fn unproven(list: &[Value]) -> Option<String> {
+    let places: Vec<String> = list
+        .iter()
+        .enumerate()
+        .filter(|(_, finding)| {
+            finding["origin"] == findings::ATTACK
+                && findings::standing(finding)
+                && finding.get("verified").is_none()
+        })
+        .map(|(at, _)| at.to_string())
+        .collect();
+    (!places.is_empty()).then(|| places.join(", "))
+}
+
 /// What the agent is answered.
 pub fn summary(done: &Done) -> Value {
     let packet = format!("{}/{PACKET}", done.folder);
@@ -1917,6 +1988,11 @@ pub fn summary(done: &Done) -> Value {
             "Review {} yourself: one fresh subagent per persona, each given only the packet at {packet} and its persona at {persona}, each answering one findings object. Then call {review} again with this {item}, run \"{}\" and reports: those objects.",
             done.pending.join(", "),
             done.stamp
+        )
+    } else if let Some(places) = unproven(list) {
+        format!(
+            "Prove the attack (devflow-review): for findings {places} of {}/{FINDINGS}, write each exploit test from its poc, run it with {} and the failing line in `red`, then call {review} with this {item}, run \"{}\" and verified: one {{ finding, result, evidence, test, target? }} each. One you cannot reproduce stays unconfirmed: it is followed up and holds nothing.",
+            done.folder, done.dialect.tools.evidence, done.stamp
         )
     } else if let Some(places) = unverified(done.verify, list) {
         format!(
@@ -1987,6 +2063,21 @@ pub fn summary(done: &Done) -> Value {
     }
     if let Some(repeats) = findings.and_then(|findings| findings.get("repeats")) {
         answer["repeats"] = repeats.clone();
+    }
+    let left = findings::left(list);
+    if !left.is_empty() {
+        answer["left"] = json!(left
+            .iter()
+            .map(|finding| findings::line_of(finding, done.verify)
+                .trim_start_matches("- ")
+                .to_owned())
+            .collect::<Vec<_>>());
+    }
+    if let Some(exploits) = findings
+        .and_then(|findings| findings.get("exploits"))
+        .filter(|exploits| exploits.as_array().is_some_and(|list| !list.is_empty()))
+    {
+        answer["exploits"] = exploits.clone();
     }
     let spent = spent(&done.ran);
     if !spent.is_empty() {

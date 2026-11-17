@@ -40,6 +40,20 @@
       "items": { "type": "object" },
       "description": "Set by devflow: the findings taken out because their line is on no line of HEAD, each with its file, line, axis, title, who found it and the reason."
     },
+    "exploits": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["test"],
+        "properties": {
+          "test": { "type": "string", "minLength": 1 },
+          "file": { "type": "string" },
+          "line": { "type": "integer" },
+          "title": { "type": "string" }
+        }
+      },
+      "description": "Set by devflow: the exploit tests that confirmed an attack finding, in this review or one it re-reviews. Each stays a regression test: the gate wants it green in the newest evidence run."
+    },
     "verification": {
       "type": "object",
       "required": ["tests", "evidence"],
@@ -117,9 +131,15 @@
           "required": ["result", "evidence"],
           "properties": {
             "result": { "enum": ["confirmed", "refuted", "not_run"] },
-            "evidence": { "type": "string", "minLength": 1, "description": "Where the PoC run shows it, or why it was not run." }
+            "evidence": { "type": "string", "minLength": 1, "description": "Where the PoC run shows it, or why it was not run." },
+            "test": { "type": "string", "minLength": 1, "description": "The exploit test that shows it, as the runner names it: an attack finding blocks only once one confirmed it." },
+            "target": { "type": "string", "minLength": 1, "description": "The URL of the target the PoC ran against: one of the targets in force, or it is refused." }
           },
-          "description": "Set by devflow from the session's review.verify step: what running this critical or high's PoC showed. With review.verify: required, a high not confirmed counts as medium and a refuted one holds nothing."
+          "description": "Set by devflow from the session's PoC run: what running this finding's PoC showed. With review.verify: required, a high not confirmed counts as medium and a refuted one holds nothing."
+        },
+        "origin": {
+          "enum": ["attack"],
+          "description": "Set by devflow when the attack's reading found it: it holds the item only once an exploit test confirmed it. A static analyser's results are not findings here: they stay in the evidence."
         },
         "impact": {
           "type": "string",

@@ -48,7 +48,39 @@ pub fn review(server: &Server, params: Value) -> Result<Value, String> {
         return standalone(&project, &state, asked, &reach, &pull);
     }
     let config = super::config_for(&project, &state, &server.consent, "review")?;
-    on_item(server, &project, config, &params, &reach)
+    let (params, attack) = attack_asked(params)?;
+    match attack {
+        // The attack asked by name: a release's, or one more on this diff.
+        true => {
+            let asked = devflow_engine::models::attack_asked(config)?;
+            on_item(server, &project, &asked, &params, &reach)
+        }
+        false => on_item(server, &project, config, &params, &reach),
+    }
+}
+
+/// `attack: true` taken out of the tool's input, which the engine does not
+/// read: it is this host's way of asking for the attack's reading by name.
+fn attack_asked(mut params: Value) -> Result<(Value, bool), String> {
+    let Some(fields) = params.as_object_mut() else {
+        return Ok((params, false));
+    };
+    match fields.remove("attack") {
+        None | Some(Value::Null) | Some(Value::Bool(false)) => Ok((params, false)),
+        Some(Value::Bool(true)) => {
+            if ["run", "reports", "verified"]
+                .iter()
+                .any(|key| fields.get(*key).is_some_and(|said| !said.is_null()))
+            {
+                return Err(
+                    "`attack` starts a new review: leave out `run`, `reports` and `verified`"
+                        .to_owned(),
+                );
+            }
+            Ok((params, true))
+        }
+        Some(_) => Err("`attack` is true or false".to_owned()),
+    }
 }
 
 type Pinned = (String, String, Vec<String>, String, u32);

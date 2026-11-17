@@ -533,6 +533,7 @@ fn reviewed(looked: &Looked, missing: &mut Vec<String>) -> Option<String> {
             word(finding, "severity")
         ));
     }
+    exploits_green(looked, review, missing);
     let pending: Vec<&str> = list(review.findings, "pending")
         .iter()
         .filter_map(Value::as_str)
@@ -555,14 +556,60 @@ fn reviewed(looked: &Looked, missing: &mut Vec<String>) -> Option<String> {
             "the review is older than the last change ({changed}): review again (devflow-review)"
         ));
     }
+    let left = crate::findings::left(list(review.findings, "findings")).len();
     Some(format!(
-        "verdict {}, {} in block_on",
+        "verdict {}, {} in block_on{}",
         match word(review.findings, "verdict") {
             "" => "unsaid",
             verdict => verdict,
         },
-        blocking.len()
+        blocking.len(),
+        if left == 0 {
+            String::new()
+        } else {
+            format!(
+                ", {left} unconfirmed attack finding{} followed up",
+                if left == 1 { "" } else { "s" }
+            )
+        }
     ))
+}
+
+/// The exploit tests the review confirmed findings with, each wanted green
+/// in the newest run: the hole they showed must stay shut. A test is green
+/// when the run saw it pass, as a red test now green or a criterion's.
+fn exploits_green(looked: &Looked, review: &Review, missing: &mut Vec<String>) {
+    let Some(run) = &looked.run else {
+        return;
+    };
+    let kept = crate::findings::exploits_in(review.findings);
+    let confirmed = crate::findings::exploits(list(review.findings, "findings"));
+    let wanted = crate::findings::with_exploits(&kept, &confirmed);
+    let passed = |test: &str| {
+        list(run.evidence, "red")
+            .iter()
+            .any(|red| word(red, "test").trim() == test && word(red, "now") == "passed")
+            || list(run.evidence, "criteria").iter().any(|seen| {
+                list(seen, "tests")
+                    .iter()
+                    .any(|one| word(one, "test").trim() == test && word(one, "result") == "passed")
+            })
+    };
+    let red: Vec<&Value> = wanted
+        .iter()
+        .filter(|exploit| !passed(word(exploit, "test").trim()))
+        .collect();
+    for exploit in red.iter().take(NAMED) {
+        missing.push(format!(
+            "the exploit test `{}` (`{}:{}` {}) is not green in run {}: keep it, fix the hole it shows, and pass it to {} in `red` or a criterion's tests (devflow-execution)",
+            word(exploit, "test"),
+            word(exploit, "file"),
+            exploit.get("line").and_then(Value::as_u64).unwrap_or_default(),
+            word(exploit, "title"),
+            run.name,
+            looked.dialect.tools.evidence
+        ));
+    }
 }
 
 /// What Decisions said of the `devflow-done` rubric.

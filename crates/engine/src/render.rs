@@ -250,6 +250,27 @@ fn review(dialect: &Dialect, out: &mut String, config: &Config) {
         );
         let _ = writeln!(out, "  verify: {}", config.review.verify.word());
     }
+    if let Some(attack) = &config.review.attack {
+        out.push_str(
+            "  # The attack: devflow-security tries to exploit the change, and only a\n  \
+             # finding an exploit test confirmed holds the item. off, sensitive (a\n  \
+             # diff past small or on a sensitive path), per-item, or release (asked\n  \
+             # by name).\n",
+        );
+        match &attack.model {
+            None => {
+                let _ = writeln!(out, "  attack: {}", attack.run.word());
+            }
+            Some(model) => {
+                let _ = writeln!(
+                    out,
+                    "  attack:\n    run: {}\n    model: {}",
+                    attack.run.word(),
+                    scalar(model)
+                );
+            }
+        }
+    }
 
     let _ = write!(
         out,
