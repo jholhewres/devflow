@@ -168,10 +168,13 @@ before, and only the defaults change:
   (`jev::holds_in`). A host still calling `jev::holds` for a plan holds it
   as before.
 
-## Security that proves
+## Security that proves, models you can see: 0.3.0
 
-The next release adds to 0.2.2's API; a devflow.yaml that says nothing new
-runs as before, and `models: quality` switches none of it on:
+0.3.0 is a minor version because a host that builds `plan::Slice` field
+by field must add one line (below). A devflow.yaml that says nothing new
+runs as before, and `models: quality` switches none of this on.
+
+**Security that proves**
 
 - A plan item that crosses a trust boundary (a file `review.scale.sensitive`
   matches, or `boundary: true`) names its abuse cases in `abuse`; they become
@@ -179,14 +182,14 @@ runs as before, and `models: quality` switches none of it on:
   flagged in the plan's answer (`unguarded`, `plan::unguarded`), never
   refused.
 - `review.attack: off | sensitive | per-item | release` (`off` unless said;
-  a map takes `run` and `model`, `large` unless said, as the other stages'
-  models are said) adds a reading by `devflow-security` that tries to
-  exploit the change (`models::ATTACK`). Its findings carry `origin:
-  attack` and hold the item only once the session's run confirmed them with
-  an exploit test (`verified.test`); unconfirmed, they are followed up under
-  `left`. Each confirmed exploit stays in `findings.json`'s `exploits`, and
-  the gate wants its test green in the newest run. A release's attack runs
-  by name: the review tool's `attack: true` (`models::attack_asked`).
+  a map takes `run` and `model`, `large` unless said) adds a reading by
+  `devflow-security` that tries to exploit the change (`models::ATTACK`). Its
+  findings carry `origin: attack` and hold the item only once the session's
+  run confirmed them with an exploit test (`verified.test`); unconfirmed,
+  they are followed up under `left`. Each confirmed exploit stays in
+  `findings.json`'s `exploits`, and the gate wants its test green in the
+  newest run. A release's attack runs by name: the review tool's
+  `attack: true` (`models::attack_asked`).
 - `report: sarif` reads any static analyser's SARIF 2.1.0 as evidence: each
   result a finding at its file and line (`Reported.found`), judged by the
   report and never the exit code, and never a hold. A location outside the
@@ -200,29 +203,57 @@ runs as before, and `models: quality` switches none of it on:
   within a few seconds; a name the person did not confirm is never sent to
   the resolver. One is in force only once the person confirmed it with
   `devflow config set security.targets` (kept in `consent.json`, like
-  `enabled`); the MCP `set` refuses it. The targets in force reach checks
-  and readers only as `DEVFLOW_SECURITY_TARGETS` (and `DEVPIT_…`), through
-  the environment a host builds (`security::with_targets`), and a PoC run
-  that names another target is refused.
+  `enabled`); the MCP `set` and `setup` refuse any `security` path. The
+  targets in force reach checks and readers only as
+  `DEVFLOW_SECURITY_TARGETS` (and `DEVPIT_…`), through the environment a host
+  builds (`security::with_targets`), and a PoC run that names another target
+  is refused.
+- Out of scope, and not up for debate: no step works around a model's
+  refusal, a weaker model included; a third party's host is never a target.
+
+**Models you can see**
+
+- A `model`, wherever devflow.yaml says one, is a tier written exactly
+  (`small`, `default`, `large`) or a model id of letters, digits and
+  `. _ : / @ [ ] -` that starts with a letter or a digit, so it is never
+  read as a flag of the CLI (`config::model_said`). Anything else is refused,
+  in `config set` and in the file, with its line and what to write.
+- `devflow config set` names a list's item by its place or its name: a stage
+  by its name, a reviewer by its persona
+  (`review.reviewers.<persona>.model`), a check by its name. A name two items
+  share is refused on read and on write (`preset::find`), with their places.
+- A change that lays devflow.yaml out again keeps each built-in stage's
+  `model`, `models` and `review.analysis`.
+- One resolver (`models::resolved`) says what each stage and reviewer runs
+  on and where it came from (`models::From`: stage, reviewer, preset or
+  default). The readers, the `status` tool's `models.origins` and
+  `devflow status`'s table read it alike, and the table says when a tier
+  leaves a CLI on its own default.
+
+**What a host sees change**
+
 - Public structs gained fields: `plan::Slice` (`abuse`, `boundary`; it now
   derives `Default`), `config::Config` (`security`), `config::Review`
   (`attack`), `runner::report::Reported` (`found`), and `config::Report`
-  has a `Sarif` word. `Ask`, `runner::Context`,
-  `evidence::{Ran, Evidence, Given}`, `review::{Asked, Given}` and
-  `gate::Looked` are as they were.
-- **Migration.** A host that builds `plan::Slice` field by field stops
-  compiling until it ends the literal with `..Default::default()`: devpit's
-  `slice_of` (`apps/desktop/src/devflow_plan.rs`) takes that one line when it
-  updates the engine, and its plan window then carries a slice's `abuse`
-  and `boundary` through an edit instead of dropping them. A host that
-  matches `config::Report` exhaustively adds the `Sarif` arm. Nothing else
-  changes for a host that says nothing new.
-- Out of scope, and not up for debate: no step works around a model's
-  refusal, a weaker model included; a third party's host is never a target.
-  Next: fuzzing, and gosec/govulncheck, gitleaks, trivy and `npm audit` as
-  checks; any of them that writes SARIF is evidence already. Also next: the
-  addresses a confirmed target resolved to kept with the person's yes, so a
-  later answer of the network's resolver cannot move it.
+  has a `Sarif` word. New: `models::{Origin, From, resolved, origins}`,
+  `config::model_said`, `preset::find`, the `security` module.
+  `Ask`, `runner::Context`, `evidence::{Ran, Evidence, Given}`,
+  `review::{Asked, Given}` and `gate::Looked` are as they were.
+- **Migration.**
+  - A host that builds `plan::Slice` field by field stops compiling until
+    it ends the literal with `..Default::default()`. devpit's `slice_of`
+    (`apps/desktop/src/devflow_plan.rs`) takes that one line when it updates
+    the engine; its plan window then carries a slice's `abuse` and
+    `boundary` through an edit instead of dropping them.
+  - A host that matches `config::Report` exhaustively adds the `Sarif` arm.
+  - A devflow.yaml whose `model` is a mis-cased tier (`Large`) or holds a
+    space no longer reads: the error names the line and what to write.
+  - `models::plan` answers `agent` and `origins` besides what it did.
+
+Next: fuzzing, and gosec/govulncheck, gitleaks, trivy and `npm audit` as
+checks (any of them that writes SARIF is evidence already); the addresses a
+confirmed target resolved to kept with the person's yes, so a later answer
+of the network's resolver cannot move it.
 
 ## Release
 
