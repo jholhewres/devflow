@@ -1,6 +1,6 @@
 //! Test reports: files in `$DEVFLOW_REPORT_DIR` (vitest/jest JSON, JUnit XML,
-//! `go test -json`) and what `cargo test` or `go test -json` printed. Nothing
-//! recognised means no result, never a pass.
+//! `go test -json`, a static analyser's SARIF) and what `cargo test` or `go
+//! test -json` printed. Nothing recognised means no result, never a pass.
 
 use std::path::Path;
 
@@ -10,9 +10,11 @@ mod cargo;
 mod cases;
 mod go;
 mod junit;
+pub mod sarif;
 mod vitest;
 
 pub use cases::{outcome_of, Case, Outcome, Reported, MOST_CASES};
+pub use sarif::ToolFinding;
 
 /// Largest report file read, checked before reading.
 pub const MOST_REPORT: u64 = 32 * 1024 * 1024;
@@ -54,7 +56,9 @@ pub fn from_file(text: &str, cwd: &Path) -> Option<Tested> {
 
 fn file_cases(text: &str, cwd: &Path) -> Option<Reported> {
     match text.trim_start().as_bytes().first()? {
-        b'{' => vitest::from_json(text, cwd).or_else(|| go::from_lines(text)),
+        b'{' => sarif::from_json(text, cwd)
+            .or_else(|| vitest::from_json(text, cwd))
+            .or_else(|| go::from_lines(text)),
         b'<' => junit::from_xml(text, cwd),
         _ => None,
     }

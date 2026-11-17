@@ -6,7 +6,7 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
 
-use crate::runner::report::{self, Case, Outcome, Reported};
+use crate::runner::report::{self, Case, Outcome, Reported, ToolFinding};
 use crate::runner::Context;
 use crate::verdict::{verdict, Report, RunState, Verdict};
 use serde::Deserialize;
@@ -266,6 +266,19 @@ pub fn checked(
     }
 }
 
+/// A static analyser's check, judged by its report and never its exit code:
+/// `semgrep --error` exits 1 for the very findings it was asked for. A
+/// SARIF report read passes, unless the tool says its own run failed; none
+/// read is inconclusive. Its findings never fail it: they are listed, and a
+/// review weighs them.
+pub fn tool_checked(reported: Option<&Reported>) -> Verdict {
+    match reported.filter(|read| read.read_sarif()) {
+        Some(read) if read.tested.failed > 0 => Verdict::Failed,
+        Some(_) => Verdict::Passed,
+        None => Verdict::Inconclusive,
+    }
+}
+
 /// The lock `name` in `locks`, waited for up to `timeout`, with its file.
 /// It is held until the file is dropped, and a process that dies lets it go.
 pub fn locked(
@@ -394,6 +407,11 @@ pub fn run_check(
         failure.name = redact(&failure.name);
         failure.message = failure.message.as_deref().map(redact);
     }
+    // So is a finding's message. The code a result quotes is never read,
+    // and the report is kept without it (`report_files`).
+    for found in reported.iter_mut().flat_map(|read| read.found.iter_mut()) {
+        found.message = redact(&found.message);
+    }
     let state = if ended.exit_code == Some(0) && !ended.timed_out {
         RunState::Ok
     } else {
@@ -415,7 +433,11 @@ pub fn run_check(
         .lines()
         .filter(|line| !line.trim().is_empty())
         .collect();
-    let verdict = checked(check.report, state, read, ended.exit_code);
+    let verdict = if check.report == Format::Sarif {
+        tool_checked(reported.as_ref())
+    } else {
+        checked(check.report, state, read, ended.exit_code)
+    };
     Ran {
         name: check.name.clone(),
         verdict,
@@ -454,14 +476,19 @@ fn report_files(folder: &Path, check: &str, redact: &dyn Fn(&str) -> String) -> 
                     .is_ok_and(|meta| meta.len() <= report::MOST_REPORT)
         })
         .filter_map(|entry| entry.file_name().into_string().ok())
-        .filter(|name| name.ends_with(".xml") || name.ends_with(".json"))
+        .filter(|name| {
+            [".xml", ".json", ".sarif"]
+                .iter()
+                .any(|ext| name.ends_with(ext))
+        })
         .collect();
     found.sort();
     found.truncate(report::MOST_REPORTS);
     for name in &found {
         let path = folder.join(name);
         if let Ok(text) = std::fs::read_to_string(&path) {
-            let kept = redact(&text);
+            let kept =
+                redact(&report::sarif::without_snippets(&text).unwrap_or_else(|| text.clone()));
             if kept != text {
                 let _ = std::fs::write(&path, kept);
             }
@@ -982,6 +1009,41 @@ pub fn recorded(evidence: &Evidence) -> Value {
 }
 
 fn record_of(evidence: &Evidence) -> Value {
+    let mut record = record_json(evidence);
+    // What a static analyser found, beside its check: only where there is some.
+    for (ran, check) in evidence.checks.iter().zip(
+        record["checks"]
+            .as_array_mut()
+            .map_or(&mut [][..], Vec::as_mut_slice),
+    ) {
+        if let Some(found) = ran.reported.as_ref().filter(|read| !read.found.is_empty()) {
+            check["findings"] = json!(found.found);
+        }
+    }
+    record
+}
+
+/// What every check's static analysers found, each said on one line.
+pub fn tool_findings(evidence: &Value) -> Vec<String> {
+    evidence["checks"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|check| check["findings"].as_array().into_iter().flatten())
+        .map(|found| {
+            let text = |key: &str| found[key].as_str().unwrap_or_default();
+            report::sarif::said(
+                text("file"),
+                found["line"].as_u64().unwrap_or(1),
+                text("rule"),
+                text("severity"),
+                text("tool"),
+            )
+        })
+        .collect()
+}
+
+fn record_json(evidence: &Evidence) -> Value {
     let dialect = evidence.dialect;
     json!({
         dialect.product: crate::skills::made_by_in(dialect, &["devflow-execution", "devflow-completion"]),
@@ -1070,6 +1132,10 @@ pub fn summary(evidence: &Evidence, attached: &Attached, under: &str) -> Value {
                 said["screenshots"] = json!(ran.media.screenshots.len());
                 said["video"] = json!(ran.media.video.len());
             }
+            if let Some(read) = ran.reported.as_ref().filter(|read| !read.found.is_empty()) {
+                said["found"] = json!(read.found.len());
+                said["findings"] = json!(read.found.iter().take(NAMED).map(ToolFinding::said).collect::<Vec<_>>());
+            }
             said
         }).collect::<Vec<_>>(),
         "criteria": criteria_json(evidence),
@@ -1102,6 +1168,17 @@ fn tests_said(said: &Dialect, ran: &Ran) -> String {
         };
     };
     let tested = &read.tested;
+    if read.read_sarif() {
+        let mut said = vec![format!(
+            "{} finding{} reported",
+            read.found.len(),
+            if read.found.len() == 1 { "" } else { "s" }
+        )];
+        if tested.failed > 0 {
+            said.push("the tool says its run failed".to_owned());
+        }
+        return said.join(", ");
+    }
     let mut said = vec![format!("{} passed", tested.passed)];
     if tested.failed > 0 {
         said.push(format!("{} failed", tested.failed));

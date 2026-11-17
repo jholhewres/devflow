@@ -3,6 +3,8 @@
 
 use crate::verdict::Tested;
 
+use super::sarif::ToolFinding;
+
 /// The most tests named from one run; the counts stay exact past it.
 pub const MOST_CASES: usize = 10_000;
 
@@ -32,18 +34,21 @@ pub struct Case {
     pub outcome: Outcome,
 }
 
-/// What a run's reports said: the counts, and each test by name.
+/// What a run's reports said: the counts, each test by name, and what a
+/// static analyser found.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Reported {
     pub tested: Tested,
     pub cases: Vec<Case>,
+    /// A SARIF report's results, at most [`super::sarif::MOST_TOOL_FINDINGS`].
+    pub found: Vec<ToolFinding>,
 }
 
 impl Reported {
     pub(super) fn of(tested: Tested) -> Self {
         Reported {
             tested,
-            cases: Vec::new(),
+            ..Reported::default()
         }
     }
 
@@ -51,6 +56,16 @@ impl Reported {
         self.tested.add(other.tested);
         let room = MOST_CASES.saturating_sub(self.cases.len());
         self.cases.extend(other.cases.into_iter().take(room));
+        let room = super::sarif::MOST_TOOL_FINDINGS.saturating_sub(self.found.len());
+        self.found.extend(other.found.into_iter().take(room));
+    }
+
+    /// Whether a SARIF report was among what was read.
+    pub fn read_sarif(&self) -> bool {
+        self.tested
+            .read_from
+            .iter()
+            .any(|format| format == super::sarif::SARIF)
     }
 
     pub(super) fn case(&mut self, name: &str, place: Option<String>, outcome: Outcome) {
