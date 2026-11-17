@@ -91,6 +91,14 @@ pub fn status_of(project: &Project, server: &Server) -> Value {
             let unread = devflow_engine::config::unread(text);
             said["unread"] = json!(unread);
             said["models"] = devflow_engine::models::plan(config, Agent::Claude);
+            if !config.security.is_empty() {
+                let (in_force, left) = devflow_engine::security::in_force(
+                    &config.security.targets,
+                    &server.consent.confirmed_targets(&project.root),
+                    &devflow_engine::security::resolved_here,
+                );
+                said["targets"] = json!({ "in_force": in_force, "left_out": left });
+            }
             if let Some(spent) = devflow_engine::review::spent_newest(&project.runs()) {
                 said["spent"] = spent;
             }
@@ -189,6 +197,12 @@ pub fn setup(server: &Server, params: Value) -> Result<Value, String> {
         Some(Value::Object(set)) => set.clone(),
         Some(_) => return Err("`set` is an object of dotted path to value".to_owned()),
     };
+    if set
+        .keys()
+        .any(|path| devflow_engine::security::persons_only(path))
+    {
+        return Err(devflow_engine::security::PERSONS_ONLY.to_owned());
+    }
     let detected = detect::detected(&project.root, machine(&project.root));
     let proposal = proposal::setup_in(&project.layout(), &state, preset, &set, &detected)
         .map_err(|why| why.to_string())?;
@@ -269,6 +283,9 @@ pub fn set(server: &Server, params: Value) -> Result<Value, String> {
     let value = params
         .get("value")
         .ok_or("pass the new `value` for the field")?;
+    if devflow_engine::security::persons_only(path) {
+        return Err(devflow_engine::security::PERSONS_ONLY.to_owned());
+    }
     let proposal =
         proposal::set_in(&project.layout(), &state, path, value).map_err(|why| why.to_string())?;
     layered_as(&project.root, &proposal)?;

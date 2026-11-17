@@ -29,3 +29,27 @@ fn a_confirmed_command_is_known_by_its_fingerprint() {
     assert!(consent.command_confirmed("sha256:a"));
     assert_eq!(consent.kept().commands.len(), 1);
 }
+
+#[test]
+fn the_targets_confirmed_are_kept_by_project_and_narrowed_by_a_shorter_list() {
+    let (folder, one, other) = (
+        tempfile::tempdir().expect("folder"),
+        tempfile::tempdir().expect("one"),
+        tempfile::tempdir().expect("other"),
+    );
+    let consent = Consent::at(folder.path());
+    assert!(consent.confirmed_targets(one.path()).is_empty());
+    let both = [
+        "http://localhost:8080".to_owned(),
+        "http://api:8000".to_owned(),
+    ];
+    consent.confirm_targets(one.path(), &both).expect("both");
+    assert_eq!(consent.confirmed_targets(one.path()), both);
+    assert!(consent.confirmed_targets(other.path()).is_empty());
+    consent
+        .confirm_targets(one.path(), &both[..1])
+        .expect("narrowed");
+    assert_eq!(consent.confirmed_targets(one.path()), both[..1]);
+    consent.confirm_targets(one.path(), &[]).expect("none");
+    assert!(consent.kept().targets.is_empty());
+}

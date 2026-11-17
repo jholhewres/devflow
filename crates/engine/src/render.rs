@@ -27,6 +27,18 @@ pub fn render_in(dialect: &Dialect, config: &Config) -> String {
         stages_v2(dialect, &mut out, config);
     }
     review(dialect, &mut out, config);
+    if !config.security.is_empty() {
+        out.push_str(
+            "\n# The project's own running instances an attack may send requests to:\n\
+             # loopback, localhost, host.docker.internal or a docker service's name.\n\
+             # Each is in force only once the person confirms it on a terminal with\n\
+             # `devflow config set security.targets`.\n\
+             security:\n  targets:\n",
+        );
+        for target in &config.security.targets {
+            let _ = writeln!(out, "    - {}", scalar(target));
+        }
+    }
     if config.version != V1 && !config.locked.is_empty() {
         out.push_str("\n# Fields a project extending this file may not change.\nlocked:\n");
         for path in &config.locked {

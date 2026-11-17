@@ -102,25 +102,54 @@ pub fn set(root: &Path, path: &str, said: &str, consent: &Consent) -> ExitCode {
     }
 }
 
+/// What a change of devflow.yaml is besides its field: one of the person's
+/// switches, the targets an attack may reach, or neither.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Kind {
+    Field,
+    Switch(Ask),
+    Targets,
+}
+
+fn kind_of(path: &str, value: &Value) -> Kind {
+    match ask_of(path, value) {
+        Some(ask) => Kind::Switch(ask),
+        None if devflow_engine::security::persons_only(path) => Kind::Targets,
+        None => Kind::Field,
+    }
+}
+
+/// One `config set`: the change shown, asked, written after a yes, and what
+/// only the person decides kept on this machine. A switch is kept as made;
+/// the targets as the list the person allowed, a shorter one narrowing it.
 fn setting(root: &Path, path: &str, value: &Value, consent: &Consent) -> Result<String, String> {
     let project = Project::at(root);
     let state = project.read();
     let layout = project.layout();
-    let ask = ask_of(path, value);
-    let proposal: Proposal = match ask {
-        Some(ask) => proposal::switched_in(&layout, &state, ask),
-        None => proposal::set_in(&layout, &state, path, value),
+    let kind = kind_of(path, value);
+    let proposal: Proposal = match kind {
+        Kind::Switch(ask) => proposal::switched_in(&layout, &state, ask),
+        _ => proposal::set_in(&layout, &state, path, value),
     }
     .map_err(|why| why.to_string())?;
-    devflow_engine::layers::layered(&project.root, &proposal.yaml, &crate::project::home())
-        .map_err(|invalid| invalid.to_string())?;
+    let layered =
+        devflow_engine::layers::layered(&project.root, &proposal.yaml, &crate::project::home())
+            .map_err(|invalid| invalid.to_string())?;
     let before = match &state {
         State::Valid(_, config) => preset::value_at(&config.to_json(), path).clone(),
         _ => Value::Null,
     };
     let after = preset::value_at(&proposal.config.to_json(), path).clone();
-    let already = ask.is_some_and(|ask| consent.made(&project.root, ask));
-    if proposal.changes.is_empty() && (ask.is_none() || already) {
+    let targets = layered.config.security.targets;
+    let kept = consent.confirmed_targets(&project.root);
+    let new = unconfirmed(&targets, &kept);
+    let already = proposal.changes.is_empty()
+        && match kind {
+            Kind::Field => true,
+            Kind::Switch(ask) => consent.made(&project.root, ask),
+            Kind::Targets => new.is_empty() && unconfirmed(&kept, &targets).is_empty(),
+        };
+    if already {
         return Ok(format!("{path} is already {after}"));
     }
     println!(
@@ -128,20 +157,30 @@ fn setting(root: &Path, path: &str, value: &Value, consent: &Consent) -> Result<
         layout.file,
         project.root.display()
     );
-    let question = match ask {
-        Some(Ask::Enable) => "Switch devflow on in this project, on this machine?",
-        Some(Ask::Enforce) => "Let Decisions hold work in this project (enforce)?",
-        None => "Write it?",
+    let question = match kind {
+        Kind::Switch(Ask::Enable) => "Switch devflow on in this project, on this machine?",
+        Kind::Switch(Ask::Enforce) => "Let Decisions hold work in this project (enforce)?",
+        Kind::Targets if !new.is_empty() => {
+            for target in &new {
+                println!("  new here: {}", shown(target));
+            }
+            "devflow's attack and checks may send requests, exploits included, to these \
+             targets. They are this project's own instances, never a third party's. Allow them, \
+             on this machine?"
+        }
+        _ => "Write it?",
     };
     if !confirmed(question)? {
-        return Ok("Nothing was written.".to_owned());
+        return Ok("Nothing was written, and nothing was confirmed.".to_owned());
     }
     if !proposal.changes.is_empty() {
         let planned = setup::with_unused(&project.root, &proposal.config, proposal.files.clone());
         setup::write(&project.root, &planned)?;
     }
-    if let Some(ask) = ask {
-        consent.remember(&project.root, ask, true)?;
+    match kind {
+        Kind::Switch(ask) => consent.remember(&project.root, ask, true)?,
+        Kind::Targets => consent.confirm_targets(&project.root, &targets)?,
+        Kind::Field => {}
     }
     if path == "enabled" && *value == Value::Bool(false) {
         consent.remember(&project.root, Ask::Enable, false)?;
@@ -153,6 +192,35 @@ fn setting(root: &Path, path: &str, value: &Value, consent: &Consent) -> Result<
         "Written. devflow never commits: {} is yours to commit.",
         layout.file
     ))
+}
+
+/// The targets in `after` not among those `confirmed`, by origin.
+pub(crate) fn unconfirmed(after: &[String], confirmed: &[String]) -> Vec<String> {
+    use devflow_engine::security::{origins, target};
+    let origins = origins(confirmed);
+    after
+        .iter()
+        .filter(|url| target(url).map_or(true, |one| !origins.contains(&one.origin())))
+        .cloned()
+        .collect()
+}
+
+/// What a target new to this machine is shown with before the yes: what
+/// its name resolves to here, which is what an attack would reach.
+fn shown(url: &str) -> String {
+    use devflow_engine::security::{resolved_here, target};
+    match target(url) {
+        Ok(one) if one.named => {
+            let found = resolved_here(&one.host, one.port);
+            if found.is_empty() {
+                format!("{url} (resolves to nothing here)")
+            } else {
+                let found: Vec<String> = found.iter().map(ToString::to_string).collect();
+                format!("{url} → {}", found.join(", "))
+            }
+        }
+        _ => url.to_owned(),
+    }
 }
 
 /// `devflow stage confirm <name>`: a team layer's command for an own stage,

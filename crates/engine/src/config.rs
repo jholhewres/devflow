@@ -159,6 +159,9 @@ pub struct Config {
     /// The models preset; `economy` when not said.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub models: Option<Models>,
+    /// The project's own running instances an attack may reach.
+    #[serde(skip_serializing_if = "Security::is_empty")]
+    pub security: Security,
     /// Fields a later layer may not change, by dotted path.
     #[serde(skip)]
     pub locked: Vec<String>,
@@ -348,6 +351,21 @@ pub struct Reviewer {
     pub model: Option<String>,
 }
 
+/// `security`: what an attack may reach. A target is in force only once the
+/// person also confirmed it on a terminal (`devflow config set
+/// security.targets`): a file an agent can edit is not their yes.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct Security {
+    /// URLs of the project's own instances, each [`crate::security::target`].
+    pub targets: Vec<String>,
+}
+
+impl Security {
+    pub fn is_empty(&self) -> bool {
+        self.targets.is_empty()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Decisions {
     #[serde(rename = "use")]
@@ -413,6 +431,7 @@ impl Default for Config {
                 rubrics: BTreeMap::new(),
             },
             models: None,
+            security: Security::default(),
         }
     }
 }
@@ -877,6 +896,10 @@ fn read(dialect: &crate::Dialect, root: &Node, from_file: bool) -> Result<Config
         Some((node, path)) => Some(word(node, &path, Models::of, Models::ALL, Models::word)?),
         None => None,
     };
+    let security = match fields.get("security") {
+        Some((node, path)) => security(node, &path)?,
+        None => Security::default(),
+    };
     fields.done()?;
     Ok(Config {
         version,
@@ -887,8 +910,36 @@ fn read(dialect: &crate::Dialect, root: &Node, from_file: bool) -> Result<Config
         review,
         decisions,
         models,
+        security,
         locked,
     })
+}
+
+/// `security.targets`: each a target [`crate::security::target`] reads, at
+/// most [`crate::security::MOST_TARGETS`], refused with its line.
+fn security(node: &Node, path: &str) -> Result<Security, Invalid> {
+    let mut fields = Fields::of(node, path)?;
+    let mut targets: Vec<String> = Vec::new();
+    if let Some((node, path)) = fields.get("targets") {
+        let listed = items(node, &path)?;
+        if listed.len() > crate::security::MOST_TARGETS {
+            return Err(Invalid::at(
+                node.line(),
+                &path,
+                &format!("at most {} targets", crate::security::MOST_TARGETS),
+            ));
+        }
+        for (index, item) in listed.iter().enumerate() {
+            let at = format!("{path}.{index}");
+            let url = text(item, &at, crate::security::LONGEST)?;
+            crate::security::target(&url).map_err(|why| Invalid::at(item.line(), &at, &why))?;
+            if !targets.contains(&url) {
+                targets.push(url);
+            }
+        }
+    }
+    fields.done()?;
+    Ok(Security { targets })
 }
 
 fn stage(field: Option<(&Node, String)>) -> Result<Stage, Invalid> {

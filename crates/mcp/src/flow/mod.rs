@@ -112,11 +112,24 @@ pub fn item_here(project: &Project, id: &str) -> Result<WorkItem, String> {
     })
 }
 
+/// The targets an attack may reach in the project: those devflow.yaml lists
+/// that the person confirmed on this machine, each name resolved to this
+/// machine or a private network.
+pub fn targets_in_force(project: &Project, config: &Config, consent: &Consent) -> Vec<String> {
+    devflow_engine::security::in_force(
+        &config.security.targets,
+        &consent.confirmed_targets(&project.root),
+        &devflow_engine::security::resolved_here,
+    )
+    .0
+}
+
 /// What a check, a stage's gate or a reviewer is told of the item, through
-/// its environment only.
-pub fn context_of(project: &Project, item: &WorkItem) -> Context {
+/// its environment only: the targets in force among it.
+pub fn context_of(project: &Project, item: &WorkItem, targets: &[String]) -> Context {
     let root = project.root.display().to_string();
     Context {
+        shared: devflow_engine::security::environment(targets),
         project: project.name(),
         project_path: root.clone(),
         worktree_path: root,

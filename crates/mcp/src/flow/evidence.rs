@@ -21,7 +21,8 @@ pub fn evidence(server: &Server, params: Value) -> Result<Value, String> {
     let config = super::config_for(&project, &state, &server.consent, "execution")?;
     let asked = evidence::asked(&as_engine(&params))?;
     let item = item_here(&project, &asked.card)?;
-    let context = context_of(&project, &item);
+    let targets = super::targets_in_force(&project, config, &server.consent);
+    let context = context_of(&project, &item, &targets);
     let runs = project.runs();
     let found = evidence::gathered(&Given {
         dialect: &devflow_engine::Dialect::DEVFLOW,

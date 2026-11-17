@@ -46,6 +46,7 @@ pub mod review;
 pub mod runner;
 pub mod runs;
 pub mod scale;
+pub mod security;
 pub mod setup;
 pub mod skills;
 pub mod stage;

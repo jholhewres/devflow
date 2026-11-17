@@ -222,3 +222,39 @@ fn a_check_added_by_a_change_gets_a_script_and_one_already_there_keeps_its_comma
         [".devflow/devflow.yaml", ".devflow/scripts/check-lint.sh"]
     );
 }
+
+#[test]
+fn the_attack_and_its_targets_are_set_as_any_field_and_read_back() {
+    let state = valid("version: 2\nenabled: true\n");
+    let attack = set(&state, "review.attack", &Value::from("sensitive")).expect("attack");
+    assert!(attack.yaml.contains("attack: sensitive"), "{}", attack.yaml);
+    assert_eq!(
+        attack.config.review.attack.as_ref().map(|one| one.run),
+        Some(crate::config::AttackRun::Sensitive)
+    );
+    let targets = set(
+        &state,
+        "security.targets",
+        &serde_json::json!(["http://localhost:8080"]),
+    )
+    .expect("targets");
+    assert!(
+        targets.yaml.contains("- http://localhost:8080"),
+        "{}",
+        targets.yaml
+    );
+    assert_eq!(
+        crate::config::parse(&targets.yaml)
+            .expect("again")
+            .security
+            .targets,
+        ["http://localhost:8080"]
+    );
+    let wrong = set(
+        &state,
+        "security.targets",
+        &serde_json::json!(["http://localhost@evil.com"]),
+    )
+    .expect_err("a user before the host");
+    assert!(wrong.message.contains("`@`"), "{wrong}");
+}

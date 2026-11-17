@@ -35,3 +35,35 @@ fn without_a_terminal_nothing_is_written() {
         "version: 2\n"
     );
 }
+
+#[test]
+fn a_target_new_to_this_machine_is_named_before_the_yes() {
+    let kept = vec!["http://localhost:8080/".to_owned()];
+    let after = vec![
+        "http://localhost:8080".to_owned(),
+        "http://api:8000".to_owned(),
+    ];
+    assert_eq!(super::unconfirmed(&after, &kept), ["http://api:8000"]);
+    assert!(super::unconfirmed(&kept, &after).is_empty());
+    assert_eq!(super::unconfirmed(&kept, &[]), kept);
+}
+
+#[test]
+fn what_only_the_person_decides_is_told_apart_from_a_field() {
+    assert_eq!(
+        super::kind_of("enabled", &Value::Bool(true)),
+        super::Kind::Switch(Ask::Enable)
+    );
+    assert_eq!(
+        super::kind_of("security.targets", &serde_json::json!([])),
+        super::Kind::Targets
+    );
+    assert_eq!(
+        super::kind_of("security", &serde_json::json!({})),
+        super::Kind::Targets
+    );
+    assert_eq!(
+        super::kind_of("review.attack", &value_of("sensitive")),
+        super::Kind::Field
+    );
+}

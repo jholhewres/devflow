@@ -180,7 +180,7 @@ fn confirmed(
 
 /// The command, run as a check runs: the item in its environment only.
 fn ran(command: &str, project: &Project, item: &WorkItem, name: &str) -> (bool, Vec<String>) {
-    let mut context = context_of(project, item);
+    let mut context = context_of(project, item, &[]);
     context
         .shared
         .push(("DEVFLOW_STAGE".to_owned(), name.to_owned()));

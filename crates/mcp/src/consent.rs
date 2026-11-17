@@ -1,10 +1,10 @@
 //! What only the person decides, kept on their machine: devflow switched on
-//! in a project, Decisions moved to `enforce` there, and a team layer's
-//! command confirmed at its commit. A terminal command with a confirmation
+//! in a project, Decisions moved to `enforce` there, a team layer's command
+//! confirmed at its commit, and the targets an attack may reach there. A terminal command with a confirmation
 //! writes it (`devflow config set`, `devflow stage confirm`); an MCP tool
 //! only reads it, and answers with the command to run.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use devflow_engine::Ask;
@@ -22,6 +22,9 @@ struct Kept {
     enforced: BTreeSet<String>,
     #[serde(default)]
     commands: Vec<String>,
+    /// By project: the `security.targets` the person confirmed there.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    targets: BTreeMap<String, Vec<String>>,
 }
 
 /// The person's decisions, in one file.
@@ -82,6 +85,32 @@ impl Consent {
             set.insert(key);
         } else {
             set.remove(&key);
+        }
+        self.keep(&kept)
+    }
+
+    /// The targets the person confirmed in the project at `root`.
+    pub fn confirmed_targets(&self, root: &Path) -> Vec<String> {
+        self.kept()
+            .targets
+            .remove(&key_of(root))
+            .unwrap_or_default()
+    }
+
+    /// Keeps `targets` as what the person confirmed in the project: a
+    /// target left out is no longer confirmed.
+    pub fn confirm_targets(&self, root: &Path, targets: &[String]) -> Result<(), String> {
+        let mut kept = self.kept();
+        let key = key_of(root);
+        let listed: Vec<String> = targets
+            .iter()
+            .take(devflow_engine::security::MOST_TARGETS)
+            .cloned()
+            .collect();
+        if listed.is_empty() {
+            kept.targets.remove(&key);
+        } else {
+            kept.targets.insert(key, listed);
         }
         self.keep(&kept)
     }

@@ -39,7 +39,7 @@ pub static TOOLS: [Tool; 18] = [
     },
     Tool {
         name: "set",
-        description: "Change one field of this project's devflow.yaml by its dotted path (review.block_on, review.reviewers, stages.execution.checks, stages.plan.approve): a preview with the value before and after unless apply is true, which writes it only after the person said yes. Works on an invalid file, to fix the field the error names. enabled: true and decisions.mode: enforce are never written here: the person runs `devflow config set` for them in a terminal.",
+        description: "Change one field of this project's devflow.yaml by its dotted path (review.block_on, review.reviewers, stages.execution.checks, stages.plan.approve): a preview with the value before and after unless apply is true, which writes it only after the person said yes. Works on an invalid file, to fix the field the error names. enabled: true, decisions.mode: enforce and security.targets are never written here: the person runs `devflow config set` for them in a terminal.",
         input: || json!({ "type": "object", "properties": {
             "path": { "type": "string", "description": "The field, e.g. review.block_on or review.reviewers.1 (one past the end adds one)." },
             "value": { "description": "The new value: a string, number, true or false, a list or an object, as the field takes." },

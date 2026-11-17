@@ -114,6 +114,10 @@ pub fn on_item(
     reach: review::Reach,
 ) -> Result<Value, String> {
     let asked = review::asked(params)?;
+    // Before anything is read: a PoC run against a target not in force is
+    // never recorded, whatever else the call gets right.
+    let targets = super::targets_in_force(project, config, &server.consent);
+    devflow_engine::security::refused(&asked.verified, &targets)?;
     let item = item_here(project, &asked.card)?;
     let root = project.root.as_path();
     let runs = project.runs();
@@ -128,7 +132,7 @@ pub fn on_item(
         (None, None) => Some(pinned(root, asked.base.as_deref().or(started.as_deref()))?),
         (Some(_), _) => None,
     };
-    let env = context_of(project, &item).environment();
+    let env = context_of(project, &item, &targets).environment();
     let evidence = super::gate::newest(&runs, &item.id, "evidence.json");
     let brief = brief_of(project, &item.id);
     let jev = Jev::of(server, project, config, Some(&item.id), &[]);
@@ -190,6 +194,12 @@ pub fn on_item(
     }
     answer["decisions"] = super::jev::decisions_of(config, jev.as_ref());
     Ok(answer)
+}
+
+/// A review without a work item gives its readers no target: the variable
+/// is set, empty, so none is read from the server's own environment.
+pub(crate) fn standalone_env() -> Vec<(String, String)> {
+    devflow_engine::security::environment(&[])
 }
 
 /// What `gh pr view` says of a pull request.
@@ -413,7 +423,7 @@ pub fn standalone(
         },
         brief: None,
         evidence: None,
-        env: &[],
+        env: &standalone_env(),
         at,
         budget: BUDGET,
         reach,
@@ -450,3 +460,7 @@ pub fn standalone(
     ));
     Ok(answer)
 }
+
+#[cfg(test)]
+#[path = "review_tests.rs"]
+mod tests;

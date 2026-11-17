@@ -1697,6 +1697,9 @@ pub fn reviewed(given: &Given) -> Result<Done, String> {
 /// The session's PoC runs kept on the run's findings as they stand, and
 /// the verdict weighed again: nothing is merged anew, so each place holds.
 fn verified(given: &Given, stamp: String, path: &Path, record: Record) -> Result<Done, String> {
+    // A PoC is never run against a host devflow.yaml does not list; the host
+    // also holds it to the ones the person confirmed.
+    crate::security::refused(&given.asked.verified, &given.config.security.targets)?;
     let mut kept = read_json(path, FINDINGS).ok_or_else(|| {
         format!("run {stamp} has no findings.json yet: verify once its review answered")
     })?;
