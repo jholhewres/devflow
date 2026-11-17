@@ -46,8 +46,9 @@ pub fn published_in(dialect: &crate::Dialect, config: &crate::Config) -> Result<
     }
 }
 
-/// One card of a plan, as the plan skill fills it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// One card of a plan, as the plan skill fills it. A host that builds one
+/// field by field ends with `..Default::default()`: fields are added in 0.2.x.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Slice {
     /// A short local id that `depends_on` refers to.
     pub key: String,
@@ -63,7 +64,17 @@ pub struct Slice {
     pub verify: String,
     #[serde(default)]
     pub depends_on: Vec<String>,
+    /// How the card's boundary could be abused, each a criterion its tests
+    /// prove the abuse refused: rendered among the criteria.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub abuse: Vec<String>,
+    /// The plan says the card crosses a trust boundary, whatever its files.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub boundary: bool,
 }
+
+/// What an abuse case's checkbox starts with, so a reader tells it apart.
+pub const ABUSE: &str = "Abuse case: ";
 
 /// The slices an agent or the board passed, trimmed and checked.
 pub fn read(cards: &Value) -> Result<Vec<Slice>, String> {
@@ -103,6 +114,12 @@ fn trimmed(slice: Slice) -> Slice {
         files: lines(slice.files),
         verify: slice.verify.trim().to_owned(),
         depends_on: lines(slice.depends_on),
+        // A case handed back from a card's body keeps no second prefix.
+        abuse: lines(slice.abuse)
+            .into_iter()
+            .map(|case| case.strip_prefix(ABUSE).map_or(case.clone(), str::to_owned))
+            .collect(),
+        boundary: slice.boundary,
     }
 }
 
@@ -129,7 +146,12 @@ pub fn checked_in(dialect: &crate::Dialect, slices: &[Slice]) -> Result<(), Stri
                 "{named}: a title of 1 to {LONGEST_TITLE} characters"
             ));
         }
-        let lines = [&slice.criteria, &slice.files, &slice.depends_on];
+        let lines = [
+            &slice.criteria,
+            &slice.files,
+            &slice.depends_on,
+            &slice.abuse,
+        ];
         if slice.build.chars().count() > LONGEST_BUILD
             || slice.verify.chars().count() > LONGEST_LINE
             || lines.iter().any(|all| all.len() > MOST_ITEMS)
@@ -138,7 +160,7 @@ pub fn checked_in(dialect: &crate::Dialect, slices: &[Slice]) -> Result<(), Stri
                 .any(|all| all.iter().any(|one| one.chars().count() > LONGEST_LINE))
         {
             return Err(format!(
-                "{named}: too long — a build of {LONGEST_BUILD} characters, at most {MOST_ITEMS} criteria, files and depends_on, each line {LONGEST_LINE}"
+                "{named}: too long — a build of {LONGEST_BUILD} characters, at most {MOST_ITEMS} criteria, abuse cases, files and depends_on, each line {LONGEST_LINE}"
             ));
         }
         for key in &slice.depends_on {
@@ -211,6 +233,47 @@ fn ordered(slices: &[Slice]) -> Option<Vec<usize>> {
     Some(done)
 }
 
+/// Whether a card crosses a trust boundary: the plan says so, or one of
+/// its files matches a `sensitive` glob (`review.scale.sensitive`, else
+/// [`crate::scale::SENSITIVE`]). Never read from the criteria's words,
+/// which are in whatever language the person writes.
+pub fn crosses_a_boundary(slice: &Slice, sensitive: &[String]) -> Option<String> {
+    if slice.boundary {
+        return Some("the plan marks it a boundary".to_owned());
+    }
+    slice.files.iter().find_map(|file| {
+        let file = file.trim_matches('`');
+        sensitive
+            .iter()
+            .find(|pattern| crate::scale::matches(pattern, file))
+            .map(|pattern| format!("{file} is a sensitive path ({pattern})"))
+    })
+}
+
+/// The boundary cards that name no abuse case, each by its key and why it
+/// is a boundary: a warning on the plan, never a refusal.
+pub fn unguarded(slices: &[Slice], sensitive: &[String]) -> Vec<(String, String)> {
+    slices
+        .iter()
+        .filter(|slice| slice.abuse.is_empty())
+        .filter_map(|slice| {
+            crosses_a_boundary(slice, sensitive).map(|why| (slice.key.clone(), why))
+        })
+        .collect()
+}
+
+/// [`unguarded`] as a plan's answer says it: each with what to add.
+pub fn unguarded_said(unguarded: &[(String, String)]) -> Vec<String> {
+    unguarded
+        .iter()
+        .map(|(key, why)| {
+            format!(
+                "{key}: {why}, and it names no abuse case: add `abuse`, how its boundary could be abused, each proven refused by a test"
+            )
+        })
+        .collect()
+}
+
 /// The card's title.
 pub fn title(slice: &Slice) -> String {
     format!("{PREFIX}{}", slice.title)
@@ -223,10 +286,13 @@ pub fn body(slice: &Slice) -> String {
     if !slice.build.is_empty() {
         let _ = write!(body, "{}\n\n", slice.build);
     }
-    if !slice.criteria.is_empty() {
+    if !slice.criteria.is_empty() || !slice.abuse.is_empty() {
         let _ = writeln!(body, "## {}", criteria::HEADING);
         for criterion in &slice.criteria {
             let _ = writeln!(body, "- [ ] {criterion}");
+        }
+        for case in &slice.abuse {
+            let _ = writeln!(body, "- [ ] {ABUSE}{case}");
         }
         body.push('\n');
     }

@@ -138,13 +138,19 @@ pub fn plan(server: &Server, params: Value) -> Result<Value, String> {
         return edited(&project, &params);
     }
     let Some(epic) = epic else {
-        return previewed(&params);
+        let sensitive = match project.read() {
+            State::Valid(_, config) => sensitive_of(&config),
+            _ => sensitive_of(&Config::default()),
+        };
+        return previewed(&params, &sensitive);
     };
     let state = project.read();
     let config = super::config_for(&project, &state, &server.consent, "plan")?;
     plan::published(config)?;
+    let sensitive = sensitive_of(config);
     let (config, jev) = judging(server, &project, Some(&epic));
     let mut answer = planned(&project, &epic, &params, config.as_ref().zip(jev.as_ref()))?;
+    flag_unguarded(&mut answer, &params, &project, &epic, &sensitive);
     if let Some(config) = &config {
         answer["decisions"] = jev::decisions_of(config, jev.as_ref());
     }
@@ -152,7 +158,7 @@ pub fn plan(server: &Server, params: Value) -> Result<Value, String> {
 }
 
 /// A plan with no epic: its items read and checked, made nowhere, kept nowhere.
-pub fn previewed(params: &Value) -> Result<Value, String> {
+pub fn previewed(params: &Value, sensitive: &[String]) -> Result<Value, String> {
     if params.get("apply").and_then(Value::as_bool) == Some(true) {
         return Err("a plan's items are made under their epic: pass `epic`".to_owned());
     }
@@ -162,14 +168,51 @@ pub fn previewed(params: &Value) -> Result<Value, String> {
             .or(params.get("cards"))
             .unwrap_or(&Value::Null),
     )?;
-    Ok(json!({
+    let mut said = json!({
         "applied": false,
         "epic": Value::Null,
         "preview": preview_of(&slices),
         "note": "Nothing was made, and nothing is kept: with no epic, this plan is the preview \
                  alone. To make its items, brief the work as an epic (devflow-briefing) and plan \
                  it with `epic`.",
-    }))
+    });
+    let unguarded = plan::unguarded(&slices, sensitive);
+    if !unguarded.is_empty() {
+        said["unguarded"] = json!(plan::unguarded_said(&unguarded));
+    }
+    Ok(said)
+}
+
+/// The globs a boundary item is told by: `review.scale.sensitive`, else the
+/// built-in ones.
+fn sensitive_of(config: &Config) -> Vec<String> {
+    config.review.scale.clone().unwrap_or_default().sensitive
+}
+
+/// The plan's answer with the boundary items that name no abuse case: a
+/// warning beside the preview, never a refusal (the plan only advises).
+fn flag_unguarded(
+    answer: &mut Value,
+    params: &Value,
+    project: &Project,
+    epic: &str,
+    sensitive: &[String],
+) {
+    let given = params.get("items").or(params.get("cards"));
+    let slices = match given.and_then(|given| plan::read(given).ok()) {
+        Some(slices) => slices,
+        None => project
+            .items()
+            .plan(epic)
+            .ok()
+            .flatten()
+            .map(|kept| slices_of(&kept))
+            .unwrap_or_default(),
+    };
+    let unguarded = plan::unguarded(&slices, sensitive);
+    if !unguarded.is_empty() {
+        answer["unguarded"] = json!(plan::unguarded_said(&unguarded));
+    }
 }
 
 fn preview_of(slices: &[Slice]) -> Vec<Value> {
