@@ -250,3 +250,16 @@ fn every_name_asked_answers_and_a_slow_one_adds_nothing_past_the_limit() {
 fn a_metadata_address_another_cloud_embeds_is_not_private() {
     assert!(!private("fd00:c1::a9fe:a9fe".parse().expect("ip")));
 }
+
+#[test]
+fn a_path_spelled_with_spaces_around_its_dots_is_still_the_persons() {
+    for path in [
+        "security.targets",
+        "security .targets",
+        " security. targets",
+        "security",
+    ] {
+        assert!(persons_only(path), "{path:?}");
+    }
+    assert!(!persons_only("securityx.targets"));
+}

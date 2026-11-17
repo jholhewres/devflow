@@ -343,9 +343,9 @@ pub fn in_force(
 
 /// Whether a change of devflow.yaml at `path` is to what an attack may
 /// reach: the person's alone, on a terminal, never a tool's.
+/// The path is read part by part, each trimmed, as a change writes it.
 pub fn persons_only(path: &str) -> bool {
-    let path = path.trim();
-    path == "security" || path.starts_with("security.")
+    path.split('.').next().map(str::trim) == Some("security")
 }
 
 /// What a tool asked to change [`persons_only`] fields answers.
