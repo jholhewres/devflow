@@ -378,3 +378,42 @@ fn security_targets_are_read_written_back_and_held_to_what_a_target_is() {
         "security.hosts"
     );
 }
+
+#[test]
+fn a_model_is_an_exact_tier_or_a_well_formed_id() {
+    for good in [
+        "small",
+        "default",
+        "large",
+        "sonnet",
+        "claude-opus-5-5",
+        "gpt-5.1-codex",
+        "openai/gpt-5:high",
+        "claude-sonnet-4-5[1m]",
+    ] {
+        assert_eq!(crate::config::model_said(good), Ok(good), "{good}");
+    }
+    let tier = crate::config::model_said("Large").expect_err("a tier's case");
+    assert!(tier.contains("`large`"), "{tier}");
+    for bad in [
+        "-x",
+        "--dangerously-skip-permissions",
+        "two words",
+        "",
+        "a;b",
+        "x".repeat(101).as_str(),
+    ] {
+        let why = crate::config::model_said(bad).expect_err(bad);
+        assert!(why.contains("small, default or large"), "{bad}: {why}");
+    }
+    let file = refused("version: 2\nstages:\n  - uses: builtin/plan\n    model: Large\n");
+    assert_eq!(
+        (file.line, file.field.as_str()),
+        (Some(4), "stages.plan.model"),
+        "{file}"
+    );
+    let reviewer = refused(
+        "version: 2\nreview:\n  reviewers:\n    - { agent: claude, persona: devflow-all, model: \"-x\" }\n",
+    );
+    assert_eq!(reviewer.field, "review.reviewers.0.model", "{reviewer}");
+}

@@ -63,9 +63,19 @@ Models: `models: economy` runs the work and the reviewers on a small model
 and an analysis of a large or sensitive diff on a large one; unset, only the
 work's session opens small; `models: quality` runs everything large. A stage's own `model`
 (`small`, `default`, `large` or a model id) and a reviewer's `model` win over
-the preset. A `devflow.yaml` that names no preset reviews as it did. `status`
-says the model of each stage (`models`) and what the newest review spent by
-stage and model (`spent`).
+the preset. A `devflow.yaml` that names no preset reviews as it did. A model
+is a tier, exactly, or a model id; anything else is refused with what to
+write. To plan and review on a large model and execute on a small one:
+
+```sh
+devflow config set stages.plan.model large
+devflow config set stages.execution.model small
+devflow config set review.reviewers.devflow-security.model large   # a reviewer, by its persona
+devflow status   # each stage's and reviewer's model, and where it came from
+```
+
+`status` also says what the newest review spent by stage and model
+(`spent`).
 
 Security: `review.attack` (`off` unless set; `sensitive`, `per-item` or
 `release`) has `devflow-security` try to exploit the change, and only a

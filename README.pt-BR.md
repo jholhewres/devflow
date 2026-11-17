@@ -63,9 +63,20 @@ Modelos: `models: economy` roda o trabalho e os revisores num modelo
 pequeno, e uma análise de diff grande ou sensível num modelo grande; sem
 preset, só a sessão do trabalho abre no pequeno; `models: quality` roda tudo no grande. O `model` de uma etapa
 (`small`, `default`, `large` ou o id de um modelo) e o de um revisor vencem o
-preset. Um `devflow.yaml` sem preset revisa como antes. O `status` diz o
-modelo de cada etapa (`models`) e o que o review mais recente gastou por
-etapa e modelo (`spent`).
+preset. Um `devflow.yaml` sem preset revisa como antes. Um modelo é um tier,
+exato, ou o id de um modelo; qualquer outra coisa é recusada, com o que
+escrever no lugar. Para planejar e revisar num modelo grande e executar num
+pequeno:
+
+```sh
+devflow config set stages.plan.model large
+devflow config set stages.execution.model small
+devflow config set review.reviewers.devflow-security.model large   # um revisor, pela persona
+devflow status   # o modelo de cada etapa e revisor, e de onde veio
+```
+
+O `status` também diz o que o review mais recente gastou por etapa e modelo
+(`spent`).
 
 Segurança: `review.attack` (`off` se não disser; `sensitive`, `per-item` ou
 `release`) faz o `devflow-security` tentar explorar a mudança, e só um

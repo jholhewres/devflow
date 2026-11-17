@@ -167,6 +167,11 @@ and the report is kept without the code each result quotes. A rule's
 message may still quote what it matched: run a secret scanner with its own
 redaction too (`gitleaks --redact`).
 
+A stage's `model` (`stages.<stage>.model`) and a reviewer's
+(`review.reviewers.<persona>.model`) are a tier, `small`, `default` or `large`,
+or a model id; `set` refuses anything else with what to write, and `status`
+lists each one's model and where it came from (`models.origins`).
+
 `review.attack` (`off` unless said; `sensitive`, `per-item` or `release`, or
 `{ run: per-item, model: large }`) adds `devflow-security`'s attack to the
 review: only a finding an exploit test confirmed holds the item.

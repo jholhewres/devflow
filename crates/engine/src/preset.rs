@@ -231,14 +231,31 @@ pub(crate) fn set_path(
                 let shown = parts[..index].join(".");
                 let slot = match part.parse::<usize>() {
                     Ok(slot) => Some(slot),
-                    Err(_) => named_in(items, part),
+                    Err(_) => only_named(items, part).map_err(|places| {
+                        let places: Vec<String> =
+                            places.iter().map(|at| format!("{shown}.{at}")).collect();
+                        Invalid::at(
+                            None,
+                            &parts[..=index].join("."),
+                            &format!(
+                                "{} items of {shown} are `{part}`: name one by its place, {}",
+                                places.len(),
+                                places.join(" or ")
+                            ),
+                        )
+                    })?,
                 };
                 let Some(slot) = slot.filter(|slot| *slot <= items.len()) else {
                     if part.parse::<usize>().is_err() {
+                        let what = if items.iter().any(|item| item.get("uses").is_some()) {
+                            "stage"
+                        } else {
+                            "item"
+                        };
                         return Err(Invalid::at(
                             None,
                             &parts[..=index].join("."),
-                            &format!("{shown} has no stage called `{part}`"),
+                            &format!("{shown} has no {what} called `{part}`"),
                         ));
                     }
                     return Err(Invalid::at(
@@ -294,12 +311,30 @@ pub(crate) fn stage_name(item: &Value) -> Option<&str> {
     Some(uses.rsplit('/').next().unwrap_or(uses))
 }
 
-/// Where the stage called `name` — or using it — is in a list of stages, so
-/// `stages.plan.approve` means the same in either version.
+/// Where the item called `name` is in a list: a stage by its name or what
+/// it uses, so `stages.plan.approve` means the same in either version; a
+/// reviewer by its persona; a check by its name.
 pub(crate) fn named_in(items: &[Value], name: &str) -> Option<usize> {
-    items.iter().position(|item| {
-        stage_name(item) == Some(name) || item.get("uses").and_then(Value::as_str) == Some(name)
-    })
+    items.iter().position(|item| called(item, name))
+}
+
+fn called(item: &Value, name: &str) -> bool {
+    stage_name(item) == Some(name)
+        || ["uses", "persona", "name"]
+            .iter()
+            .any(|key| item.get(*key).and_then(Value::as_str) == Some(name))
+}
+
+/// [`named_in`], or every place `name` is when it is more than one.
+fn only_named(items: &[Value], name: &str) -> Result<Option<usize>, Vec<usize>> {
+    let places: Vec<usize> = (0..items.len())
+        .filter(|at| called(&items[*at], name))
+        .collect();
+    match places.as_slice() {
+        [] => Ok(None),
+        [one] => Ok(Some(*one)),
+        _ => Err(places),
+    }
 }
 
 /// One field that differs, by dotted path. Lists are compared whole.

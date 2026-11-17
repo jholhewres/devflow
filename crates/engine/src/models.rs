@@ -141,11 +141,103 @@ pub fn plan(config: &Config, agent: Agent) -> serde_json::Value {
         "session": session_model(config, agent),
         "review_default": review_default(config),
         "analysis": analysis_on(config),
+        "origins": origins(config, agent),
     });
     if attack_run(config) != AttackRun::Off {
         plan["attack"] = attack_run(config).word().into();
     }
     plan
+}
+
+/// What one stage, or one reviewer, runs on and why.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct Origin {
+    pub stage: String,
+    /// The reviewer, `<agent> <persona>`, on a reviewer's row.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub who: Option<String>,
+    /// The tier or id devflow.yaml comes to; `None` leaves the CLI's default.
+    pub said: Option<String>,
+    /// What that is on the row's CLI ([`crate::review::model_for`]).
+    pub runs_on: Option<String>,
+    /// `stage` (its own `model`), `reviewer` (the reviewer's), `preset`
+    /// (the models preset's tier) or `default` (the CLI's own).
+    pub from: &'static str,
+}
+
+/// What each built-in stage, each reviewer, the analysis and the attack run
+/// on as devflow.yaml says it, and where that came from. `agent` is the
+/// session's CLI; a reviewer's row is on its own, and the analysis's and
+/// the attack's on the first reviewer's.
+pub fn origins(config: &Config, agent: Agent) -> Vec<Origin> {
+    let row =
+        |stage: &str, who: Option<String>, on: Agent, said: (Option<String>, &'static str)| {
+            Origin {
+                stage: stage.to_owned(),
+                who,
+                runs_on: crate::review::model_for(on, said.0.as_deref()),
+                said: said.0,
+                from: said.1,
+            }
+        };
+    let preset_tier = |stage: &str| -> (Option<String>, &'static str) {
+        match tier(preset(config), stage) {
+            Some(tier) => (Some(tier.to_owned()), "preset"),
+            None => (None, "default"),
+        }
+    };
+    let review = match &config.stages.review.model {
+        Some(model) => (Some(model.clone()), "stage"),
+        None => match review_default(config) {
+            Some(tier) => (Some(tier), "preset"),
+            None => (None, "default"),
+        },
+    };
+    let first = config
+        .review
+        .reviewers
+        .first()
+        .map_or(Agent::Claude, |first| first.agent);
+    let mut rows: Vec<Origin> = crate::config::STAGES
+        .iter()
+        .map(|stage| {
+            let said = match (*stage, config.stages.model(stage)) {
+                ("review", _) => review.clone(),
+                (_, Some(model)) => (Some(model.to_owned()), "stage"),
+                (_, None) => preset_tier(stage),
+            };
+            row(stage, None, agent, said)
+        })
+        .collect();
+    for reviewer in &config.review.reviewers {
+        let said = match &reviewer.model {
+            Some(model) => (Some(model.clone()), "reviewer"),
+            None => review.clone(),
+        };
+        let who = format!("{} {}", reviewer.agent.word(), reviewer.persona);
+        rows.push(row("review", Some(who), reviewer.agent, said));
+    }
+    let own = |model: Option<&String>, stage: &str| match model {
+        Some(model) => (Some(model.clone()), "stage"),
+        None => preset_tier(stage),
+    };
+    if analysis_on(config) {
+        let model = config
+            .review
+            .analysis
+            .as_ref()
+            .and_then(|one| one.model.as_ref());
+        rows.push(row(ANALYSIS, None, first, own(model, ANALYSIS)));
+    }
+    if attack_run(config) != AttackRun::Off {
+        let model = config
+            .review
+            .attack
+            .as_ref()
+            .and_then(|one| one.model.as_ref());
+        rows.push(row(ATTACK, None, first, own(model, ATTACK)));
+    }
+    rows
 }
 
 /// One headless reading of a diff, and the stage it is for.

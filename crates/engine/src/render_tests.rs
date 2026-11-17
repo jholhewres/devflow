@@ -41,7 +41,7 @@ fn full() -> Config {
     config.review.reviewers = vec![Reviewer {
         agent: Agent::Gemini,
         persona: "devflow-spec".into(),
-        model: Some("pro: 2.5".into()),
+        model: Some("2.5".into()),
     }];
     config.review.block_on = vec![Severity::Critical];
     config.review.consolidate = crate::config::Consolidate::Agent;

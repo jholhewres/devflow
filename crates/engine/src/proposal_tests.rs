@@ -258,3 +258,59 @@ fn the_attack_and_its_targets_are_set_as_any_field_and_read_back() {
     .expect_err("a user before the host");
     assert!(wrong.message.contains("`@`"), "{wrong}");
 }
+
+#[test]
+fn a_model_is_set_by_stage_and_by_reviewer_and_a_wrong_one_is_refused() {
+    let state = valid(
+        "version: 2\nstages:\n  - uses: builtin/plan\n  - uses: builtin/execution\nreview:\n  reviewers:\n    - { agent: claude, persona: devflow-security }\n    - { agent: codex, persona: devflow-spec }\n",
+    );
+    let plan = set(&state, "stages.plan.model", &json!("large")).expect("a stage");
+    assert_eq!(
+        plan.config.stages.plan.model.as_deref(),
+        Some("large"),
+        "{}",
+        plan.yaml
+    );
+    let reviewer = set(
+        &state,
+        "review.reviewers.devflow-security.model",
+        &json!("claude-opus-5-5"),
+    )
+    .expect("a reviewer by its persona");
+    assert_eq!(
+        reviewer.config.review.reviewers[0].model.as_deref(),
+        Some("claude-opus-5-5"),
+        "{}",
+        reviewer.yaml
+    );
+    assert!(
+        reviewer.yaml.contains("model: claude-opus-5-5"),
+        "{}",
+        reviewer.yaml
+    );
+
+    let case = set(&state, "stages.plan.model", &json!("Large")).expect_err("a tier's case");
+    assert!(case.message.contains("`large`"), "{case}");
+    let flag = set(&state, "stages.execution.model", &json!("-x")).expect_err("a flag");
+    assert!(flag.message.contains("small, default or large"), "{flag}");
+    let stage = set(&state, "stages.nada.model", &json!("small")).expect_err("no such stage");
+    assert!(stage.message.contains("no stage called `nada`"), "{stage}");
+    let persona = set(
+        &state,
+        "review.reviewers.devflow-nada.model",
+        &json!("small"),
+    )
+    .expect_err("no such reviewer");
+    assert!(persona.message.contains("`devflow-nada`"), "{persona}");
+
+    let twice = valid(
+        "version: 2\nreview:\n  reviewers:\n    - { agent: claude, persona: devflow-all }\n    - { agent: codex, persona: devflow-all }\n",
+    );
+    let which = set(
+        &twice,
+        "review.reviewers.devflow-all.model",
+        &json!("small"),
+    )
+    .expect_err("two reviewers read as devflow-all");
+    assert!(which.message.contains("review.reviewers.1"), "{which}");
+}

@@ -86,3 +86,52 @@ fn the_plan_says_each_stages_model_and_the_sessions() {
     assert_eq!(plan["session"], "sonnet");
     assert_eq!(plan["analysis"], true);
 }
+
+#[test]
+fn each_stage_and_reviewer_says_its_model_and_where_it_came_from() {
+    let config = crate::config::parse(
+        "version: 2\nstages:\n  - uses: builtin/plan\n    model: large\n  - uses: builtin/execution\n  - uses: builtin/review\nreview:\n  reviewers:\n    - { agent: claude, persona: devflow-security, model: claude-opus-5-5 }\n    - { agent: codex, persona: devflow-spec }\n  attack: sensitive\n",
+    )
+    .expect("config");
+    let rows = origins(&config, Agent::Claude);
+    let row = |stage: &str, who: Option<&str>| {
+        rows.iter()
+            .find(|row| row.stage == stage && row.who.as_deref() == who)
+            .unwrap_or_else(|| panic!("{stage} {who:?}: {rows:#?}"))
+    };
+    let plan = row("plan", None);
+    assert_eq!((plan.said.as_deref(), plan.from), (Some("large"), "stage"));
+    assert_eq!(plan.runs_on.as_deref(), Some("opus"));
+    let execution = row("execution", None);
+    assert_eq!(
+        (execution.said.as_deref(), execution.from),
+        (Some("small"), "preset")
+    );
+    let briefing = row("briefing", None);
+    assert_eq!((briefing.said.as_deref(), briefing.from), (None, "default"));
+    let security = row("review", Some("claude devflow-security"));
+    assert_eq!(
+        (security.said.as_deref(), security.from),
+        (Some("claude-opus-5-5"), "reviewer")
+    );
+    // Before any preset is said, a reviewer naming none runs on its CLI's default.
+    let spec = row("review", Some("codex devflow-spec"));
+    assert_eq!((spec.said.as_deref(), spec.from), (None, "default"));
+    let attack = row("attack", None);
+    assert_eq!(
+        (attack.said.as_deref(), attack.from),
+        (Some("large"), "preset")
+    );
+    assert!(
+        rows.iter().all(|row| row.stage != "analysis"),
+        "the analysis is off"
+    );
+    assert_eq!(plan_json_rows(&config).len(), rows.len());
+}
+
+fn plan_json_rows(config: &Config) -> Vec<serde_json::Value> {
+    plan(config, Agent::Claude)["origins"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+}

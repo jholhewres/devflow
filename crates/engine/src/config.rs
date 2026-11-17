@@ -956,10 +956,49 @@ fn stage(field: Option<(&Node, String)>) -> Result<Stage, Invalid> {
     Ok(Stage { enabled, model })
 }
 
-/// A stage's `model`: a tier or a model id.
+/// The tiers a `model` may name; anything else is a model id.
+pub const TIERS: [&str; 3] = ["small", "default", "large"];
+/// The longest model id read.
+const LONGEST_MODEL: usize = 100;
+
+/// A model as written, held to what one is: a tier, exactly, or a model id
+/// of letters, digits and `. _ : / @ [ ] -` that starts with a letter or a
+/// digit, so it can never be read as a flag of the CLI it is passed to.
+pub fn model_said(text: &str) -> Result<&str, String> {
+    let said = text.trim();
+    if TIERS.contains(&said) {
+        return Ok(said);
+    }
+    if let Some(tier) = TIERS.iter().find(|tier| tier.eq_ignore_ascii_case(said)) {
+        return Err(format!("`{said}` is not a tier: write it `{tier}`"));
+    }
+    let id = said.len() <= LONGEST_MODEL
+        && said
+            .bytes()
+            .next()
+            .is_some_and(|first| first.is_ascii_alphanumeric())
+        && said
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"._:/@[]-".contains(&byte));
+    if id {
+        Ok(said)
+    } else {
+        Err(format!(
+            "`{said}` is not a model: a tier (small, default or large) or a model id such as \
+             claude-opus-5-5, of letters, digits and . _ : / @ [ ] -, starting with a letter or a digit"
+        ))
+    }
+}
+
+/// A stage's `model`: a tier or a model id, as [`model_said`] holds it.
 pub(crate) fn model(field: Option<(&Node, String)>) -> Result<Option<String>, Invalid> {
     match field {
-        Some((node, path)) => Ok(Some(text(node, &path, 100)?)),
+        Some((node, path)) => {
+            let said = text(node, &path, LONGEST_MODEL)?;
+            model_said(&said)
+                .map(|said| Some(said.to_owned()))
+                .map_err(|why| Invalid::at(node.line(), &path, &why))
+        }
         None => Ok(None),
     }
 }
@@ -1317,10 +1356,7 @@ fn reviewer(node: &Node, path: &str) -> Result<Reviewer, Invalid> {
             ))
         }
     };
-    let model = match fields.get("model") {
-        Some((node, path)) => Some(text(node, &path, 100)?),
-        None => None,
-    };
+    let model = model(fields.get("model"))?;
     fields.done()?;
     Ok(Reviewer {
         agent,

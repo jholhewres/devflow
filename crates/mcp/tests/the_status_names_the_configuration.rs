@@ -40,3 +40,30 @@ fn a_project_with_one_names_its_file() {
         .unwrap()
         .contains("devflow.yaml"));
 }
+
+#[test]
+fn the_status_lists_each_stages_model_and_where_it_came_from() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(
+        dir.path().join("devflow.yaml"),
+        "version: 2\nstages:\n  - uses: builtin/plan\n    model: large\n  - uses: builtin/execution\n",
+    )
+    .unwrap();
+    let out = devflow(&["status", "--root", dir.path().to_str().unwrap()]);
+    let said = String::from_utf8(out.stdout).unwrap();
+    assert!(out.status.success(), "{said}");
+    let line = |stage: &str| {
+        said.lines()
+            .find(|line| line.trim_start().starts_with(stage))
+            .unwrap_or_else(|| panic!("no {stage} line in:\n{said}"))
+            .split_whitespace()
+            .collect::<Vec<_>>()
+    };
+    assert!(said.contains("Models (preset economy"), "{said}");
+    assert_eq!(line("plan"), ["plan", "large", "(opus)", "stage"]);
+    assert_eq!(
+        line("execution"),
+        ["execution", "small", "(sonnet)", "preset"]
+    );
+    assert_eq!(line("briefing"), ["briefing", "-", "default"]);
+}
