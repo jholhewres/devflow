@@ -6,8 +6,22 @@ use serde_json::json;
 use super::*;
 use crate::config::{Evidence as Kept, Report as Format};
 
-const EXECUTION: &str = include_str!("../../../flow/skills/devflow-execution/SKILL.md");
-const COMPLETION: &str = include_str!("../../../flow/skills/devflow-completion/SKILL.md");
+/// A built-in skill as devflow says it.
+fn said(text: &str) -> String {
+    crate::skills::rendered(text, &crate::skills::Words::default())
+}
+
+fn execution() -> String {
+    said(include_str!(
+        "../../../flow/skills/devflow-execution/SKILL.md"
+    ))
+}
+
+fn completion() -> String {
+    said(include_str!(
+        "../../../flow/skills/devflow-completion/SKILL.md"
+    ))
+}
 
 /// The JSON blocks of a skill that call the evidence tool, as the engine
 /// reads them: the tool's `item` is the engine's `card`.
@@ -30,8 +44,8 @@ fn sent(skill: &str) -> Vec<Value> {
 
 #[test]
 fn the_evidence_takes_exactly_what_the_skills_send() {
-    let execution = sent(EXECUTION);
-    let completion = sent(COMPLETION);
+    let execution = sent(&execution());
+    let completion = sent(&completion());
     assert_eq!((execution.len(), completion.len()), (1, 1));
     let full = asked(&execution[0]).expect("the execution skill's call");
     assert_eq!(full.card, "<item id>");

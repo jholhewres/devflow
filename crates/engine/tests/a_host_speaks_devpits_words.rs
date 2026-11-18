@@ -42,6 +42,8 @@ macro_rules! flow {
 }
 
 static DEVPIT_FLOW: Assets = Assets {
+    // devpit's flow at that commit had no parts; devflow's own stand in.
+    parts: Assets::DEVFLOW.parts,
     skills: [
         (
             "devflow-briefing",

@@ -285,8 +285,8 @@ fn a_failing_rubric_holds_the_card_only_in_enforce_and_a_skip_never_does() {
 /// with; the gate writes that line.
 #[test]
 fn the_comment_starts_with_the_line_the_completion_skill_names() {
-    assert!(COMPLETION.contains("[devflow] gate: <n> of <m> criteria with evidence"));
     let said_by_devflow = crate::skills::rendered(COMPLETION, &Default::default());
+    assert!(said_by_devflow.contains("[devflow] gate: <n> of <m> criteria with evidence"));
     assert!(said_by_devflow.contains("`gate`"));
     let config = config_with(false);
     let run = green_run();

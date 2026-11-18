@@ -26,6 +26,8 @@ pub struct Tools {
 pub struct Assets {
     /// Each skill's name, its stage (none for the setup's) and its text.
     pub skills: [(&'static str, Option<&'static str>, &'static str); 7],
+    /// The parts a skill loads only when asked: its name, the part's, the text.
+    pub parts: [(&'static str, &'static str, &'static str); 5],
     /// Each persona's name and text.
     pub personas: [(&'static str, &'static str); 4],
     /// Each rubric's name and text: finding, brief, plan.
@@ -73,6 +75,33 @@ impl Assets {
                 "devflow-setup",
                 None,
                 include_str!("../../../flow/skills/devflow-setup/SKILL.md"),
+            ),
+        ],
+        parts: [
+            (
+                "devflow-review",
+                "verify",
+                include_str!("../../../flow/skills/devflow-review/verify.md"),
+            ),
+            (
+                "devflow-review",
+                "without-card",
+                include_str!("../../../flow/skills/devflow-review/without-card.md"),
+            ),
+            (
+                "devflow-review",
+                "retro",
+                include_str!("../../../flow/skills/devflow-review/retro.md"),
+            ),
+            (
+                "devflow-review",
+                "publish",
+                include_str!("../../../flow/skills/devflow-review/publish.md"),
+            ),
+            (
+                "devflow-review",
+                "by-hand",
+                include_str!("../../../flow/skills/devflow-review/by-hand.md"),
             ),
         ],
         personas: [

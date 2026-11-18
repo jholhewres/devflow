@@ -32,36 +32,95 @@ pub const MOST_BYTES: u64 = 128 * 1024;
 /// build ships it.
 const BUILT_IN: [(&str, Option<&str>, &str); 7] = Dialect::DEVFLOW.assets.skills;
 
-/// The words a built-in skill's text is said in: each tool by devflow's own
-/// name (`{{tool:evidence}}` in flow/skills/) as a host names it, with its
-/// backticks. A tool a host does not name is said as devflow says it.
+/// The words a built-in skill's text is said in. flow/skills/ names each
+/// tool by devflow's own name (`{{tool:evidence}}`), and marks each phrase a
+/// host says otherwise (`[[work item]]`, or `[[key::devflow's words]]`);
+/// what a host does not say is said as devflow says it.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Words {
+    /// By devflow's tool name: the host's tool, with its backticks.
     pub tools: BTreeMap<String, String>,
+    /// By phrase key: the host's words.
+    pub phrases: BTreeMap<String, String>,
 }
 
-/// The most a host's word for a tool may take.
+/// The most a host's word for a tool, or its phrase, may take.
 const MOST_WORD: usize = 200;
+const MOST_PHRASE: usize = 4096;
+
+/// The hosts whose words devflow ships, in flow/hosts/.
+pub const HOSTS: [(&str, &str); 1] = [("devpit", include_str!("../../../flow/hosts/devpit.json"))];
 
 impl Words {
-    /// A host's dialect as JSON: `{"tools": {"item": "`devpit_card`"}}`.
-    /// What is not a short text is left out.
+    /// A host's dialect as JSON: the words devflow ships for `host`, then
+    /// its own `tools` and `phrases` over them. What is not a short text is
+    /// left out.
     pub fn of_json(dialect: &Value) -> Words {
-        let tools = dialect["tools"]
-            .as_object()
-            .into_iter()
-            .flatten()
-            .filter_map(|(name, said)| {
-                let said = said.as_str().filter(|said| said.len() <= MOST_WORD)?;
-                Some((name.clone(), said.to_owned()))
-            })
-            .collect();
-        Words { tools }
+        let mut words = dialect["host"]
+            .as_str()
+            .and_then(Words::shipped)
+            .unwrap_or_default();
+        words.tools.extend(texts(&dialect["tools"], MOST_WORD));
+        words
+            .phrases
+            .extend(texts(&dialect["phrases"], MOST_PHRASE));
+        words
+    }
+
+    /// The words devflow ships for `host`, when it ships them.
+    pub fn shipped(host: &str) -> Option<Words> {
+        let (_, text) = HOSTS.iter().find(|(name, _)| *name == host)?;
+        let json: Value = serde_json::from_str(text).ok()?;
+        Some(Words {
+            tools: texts(&json["tools"], MOST_WORD),
+            phrases: texts(&json["phrases"], MOST_PHRASE),
+        })
     }
 }
 
-/// `text` with each `{{tool:<name>}}` said in `words`.
+fn texts(map: &Value, most: usize) -> BTreeMap<String, String> {
+    map.as_object()
+        .into_iter()
+        .flatten()
+        .filter_map(|(name, said)| {
+            let said = said.as_str().filter(|said| said.len() <= most)?;
+            Some((name.clone(), said.to_owned()))
+        })
+        .collect()
+}
+
+/// A phrase's key and devflow's words for it: `[[key::words]]`, or
+/// `[[words]]`, keyed by the words with their spacing made one space.
+pub fn phrase_key(inner: &str) -> (String, &str) {
+    match inner.split_once("::") {
+        Some((key, said)) => (key.to_owned(), said),
+        None => (
+            inner.split_whitespace().collect::<Vec<_>>().join(" "),
+            inner,
+        ),
+    }
+}
+
+/// `text` with each phrase and each tool said in `words`.
 pub fn rendered(text: &str, words: &Words) -> String {
+    let mut said = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find("[[") {
+        let Some(end) = rest[at + 2..].find("]]") else {
+            break;
+        };
+        said.push_str(&rest[..at]);
+        let inner = &rest[at + 2..at + 2 + end];
+        let (key, devflows) = phrase_key(inner);
+        said.push_str(words.phrases.get(&key).map_or(devflows, String::as_str));
+        rest = &rest[at + 2 + end + 2..];
+    }
+    said.push_str(rest);
+    tools_said(&said, words)
+}
+
+/// `text` with each `{{tool:<name>}}` said in `words`.
+fn tools_said(text: &str, words: &Words) -> String {
     const OPEN: &str = "{{tool:";
     let mut out = String::with_capacity(text.len());
     let mut rest = text;
@@ -253,54 +312,146 @@ pub fn resolve_said(
                 names().collect::<Vec<_>>().join(", ")
             )
         })?;
-    let built_in = rendered(built_in, words);
-    let mine = |layer: Layer, base: &Path, relative: String| -> Result<Option<Skill>, String> {
-        let refused = |why: String| format!("the {} {relative}: {why}", layer.word());
-        let Some((file, text)) = read_in(base, &relative).map_err(refused)? else {
-            return Ok(None);
-        };
-        let frontmatter = frontmatter(&text, name).map_err(refused)?;
-        Ok(Some(Skill {
+    let places = Layers {
+        project,
+        personal,
+        teams,
+    };
+    let Some((layer, file, text)) = places.file(name, "SKILL.md")? else {
+        let text = rendered(built_in, words);
+        return Ok(Skill {
             name,
             stage,
-            layer,
-            file: Some(file),
+            layer: Layer::BuiltIn,
+            file: None,
+            frontmatter: frontmatter(&text, name)?,
             text,
-            frontmatter,
-        }))
+        });
     };
-    if let Some(skill) = mine(
-        Layer::Project,
-        project,
-        format!("{}/{name}/SKILL.md", dir(project)),
-    )? {
-        return Ok(skill);
-    }
-    for team in teams {
-        let relative = format!("skills/{name}/SKILL.md");
-        if let Some(text) = team.read(&relative)? {
-            let frontmatter = frontmatter(&text, name)
-                .map_err(|why| format!("{}'s {relative}: {why}", team.name))?;
-            return Ok(Skill {
-                name,
-                stage,
-                layer: Layer::Team,
-                file: None,
-                text,
-                frontmatter,
-            });
-        }
-    }
-    if let Some(skill) = mine(Layer::Personal, personal, format!("{name}/SKILL.md"))? {
-        return Ok(skill);
-    }
+    let frontmatter = frontmatter(&text, name).map_err(|why| {
+        let at = file
+            .as_ref()
+            .map_or(name.to_owned(), |file| file.display().to_string());
+        format!("the {} {at}: {why}", layer.word())
+    })?;
     Ok(Skill {
         name,
         stage,
-        layer: Layer::BuiltIn,
-        file: None,
-        frontmatter: frontmatter(&built_in, name)?,
-        text: built_in,
+        layer,
+        file,
+        text,
+        frontmatter,
+    })
+}
+
+/// A skill's file as a layer had it: the layer, where it was read, its text.
+type InLayer = (Layer, Option<PathBuf>, String);
+
+/// Where a skill's files are looked for, the first that has one winning.
+struct Layers<'a> {
+    project: &'a Path,
+    personal: &'a Path,
+    teams: &'a [Team],
+}
+
+impl Layers<'_> {
+    /// `<name>/<file>` from the project's skills, a team's, then the
+    /// person's: its layer, where it was read and its text. A file that is
+    /// there but cannot be used is refused, never passed over.
+    fn file(&self, name: &str, file: &str) -> Result<Option<InLayer>, String> {
+        let mine = |layer: Layer, base: &Path, relative: String| {
+            let refused = |why: String| format!("the {} {relative}: {why}", layer.word());
+            read_in(base, &relative)
+                .map_err(refused)
+                .map(|read| read.map(|(path, text)| (layer, Some(path), text)))
+        };
+        let project = format!("{}/{name}/{file}", dir(self.project));
+        if let Some(found) = mine(Layer::Project, self.project, project)? {
+            return Ok(Some(found));
+        }
+        for team in self.teams {
+            if let Some(text) = team.read(&format!("skills/{name}/{file}"))? {
+                return Ok(Some((Layer::Team, None, text)));
+            }
+        }
+        mine(Layer::Personal, self.personal, format!("{name}/{file}"))
+    }
+}
+
+/// A part a skill loads only when asked, resolved.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Part {
+    pub skill: &'static str,
+    pub part: &'static str,
+    pub layer: Layer,
+    pub file: Option<PathBuf>,
+    pub text: String,
+}
+
+/// The parts `skill` has, by name.
+pub fn parts(skill: &str) -> Vec<&'static str> {
+    Dialect::DEVFLOW
+        .assets
+        .parts
+        .iter()
+        .filter(|(one, ..)| *one == skill)
+        .map(|(_, part, _)| *part)
+        .collect()
+}
+
+/// The resource URI of a skill's part, beside its SKILL.md.
+pub fn part_uri(skill: &str, part: &str) -> String {
+    format!("skill://devflow/{skill}/{part}.md")
+}
+
+/// The skill and part a URI stands for, when it is one.
+pub fn part_named(uri: &str) -> Option<(&'static str, &'static str)> {
+    Dialect::DEVFLOW
+        .assets
+        .parts
+        .iter()
+        .find(|(skill, part, _)| part_uri(skill, part) == uri)
+        .map(|(skill, part, _)| (*skill, *part))
+}
+
+/// `part` of `skill` from the first layer that has it, else built in, said
+/// in a host's `words`.
+pub fn resolve_part(
+    dialect: &Dialect,
+    words: &Words,
+    places: (&Path, &Path, &[Team]),
+    skill: &str,
+    part: &str,
+) -> Result<Part, String> {
+    let (skill, part, built_in) = dialect
+        .assets
+        .parts
+        .iter()
+        .find(|(one, other, _)| *one == skill && *other == part)
+        .copied()
+        .ok_or_else(|| {
+            let has = parts(skill);
+            if has.is_empty() {
+                format!("`{skill}` has no parts")
+            } else {
+                format!("`{skill}` has no part `{part}`: {}", has.join(", "))
+            }
+        })?;
+    let (project, personal, teams) = places;
+    let layers = Layers {
+        project,
+        personal,
+        teams,
+    };
+    let (layer, file, text) = layers
+        .file(skill, &format!("{part}.md"))?
+        .unwrap_or_else(|| (Layer::BuiltIn, None, rendered(built_in, words)));
+    Ok(Part {
+        skill,
+        part,
+        layer,
+        file,
+        text,
     })
 }
 

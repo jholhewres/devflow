@@ -274,3 +274,90 @@ fn a_built_in_skill_is_resolved_in_a_hosts_words_and_a_projects_own_as_written()
     let described = described_with(&Dialect::DEVFLOW, &words);
     assert_eq!(described.len(), 7);
 }
+
+#[test]
+fn a_phrase_is_said_in_the_hosts_words_or_else_as_devflow_says_it() {
+    let words = Words::of_json(&json!({ "phrases": {
+        "work item": "card",
+        "next names it": "",
+    } }));
+    assert_eq!(
+        rendered(
+            "an epic [[work\n  item]], [[next names it:: `next` names it]].",
+            &words
+        ),
+        "an epic card, ."
+    );
+    assert_eq!(
+        rendered("[[an item]] and [[x::{{tool:gate}}]]", &Words::default()),
+        "an item and `gate`"
+    );
+    assert_eq!(rendered("left [[open", &words), "left [[open");
+}
+
+#[test]
+fn a_host_devflow_ships_words_for_starts_from_them_and_its_own_win() {
+    let shipped = Words::shipped("devpit").expect("devpit's words");
+    assert_eq!(shipped.tools["item"], "`devpit_card`");
+    let words = Words::of_json(&json!({ "host": "devpit", "tools": { "item": "`mine`" } }));
+    assert_eq!(words.tools["item"], "`mine`");
+    assert_eq!(words.phrases, shipped.phrases);
+    assert_eq!(
+        Words::of_json(&json!({ "host": "nobody" })),
+        Words::default()
+    );
+}
+
+#[test]
+fn a_part_is_resolved_like_its_skill_and_named_by_its_uri() {
+    let project = tempfile::tempdir().expect("project");
+    let personal = tempfile::tempdir().expect("personal");
+    let places = (project.path(), personal.path(), &[][..]);
+    let verify = resolve_part(
+        &Dialect::DEVFLOW,
+        &Words::default(),
+        places,
+        "devflow-review",
+        "verify",
+    )
+    .expect("built in");
+    assert_eq!(verify.layer, Layer::BuiltIn);
+    assert!(
+        verify.text.starts_with("# Devflow review: verify"),
+        "{}",
+        verify.text
+    );
+    write(
+        project.path(),
+        ".devflow/skills/devflow-review/verify.md",
+        "Ours.\n",
+    );
+    let ours = resolve_part(
+        &Dialect::DEVFLOW,
+        &Words::default(),
+        places,
+        "devflow-review",
+        "verify",
+    )
+    .expect("the project's");
+    assert_eq!(
+        (ours.layer, ours.text.as_str()),
+        (Layer::Project, "Ours.\n")
+    );
+    assert_eq!(
+        parts("devflow-review"),
+        ["verify", "without-card", "retro", "publish", "by-hand"]
+    );
+    assert_eq!(
+        part_named("skill://devflow/devflow-review/retro.md"),
+        Some(("devflow-review", "retro"))
+    );
+    assert!(resolve_part(
+        &Dialect::DEVFLOW,
+        &Words::default(),
+        places,
+        "devflow-plan",
+        "x"
+    )
+    .is_err());
+}
