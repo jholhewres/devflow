@@ -291,15 +291,21 @@ linking the engine, and the binary keeps itself current.
   object per line, `initialize` first, stderr for logs only. Protocol 1
   changes only by adding; `initialize` lists the `methods` and `tools` this
   build serves, and a method not listed is the host's own until it is.
-- 0.4.0 serves `config/read`, `config/write`, `tool` (`status`) and
-  `shutdown`. The host passes its own record of the person's two switches;
+- 0.4.0 serves `config/read`, `config/write`, `skills/list`, `skills/get`,
+  `tool` (`status`) and `shutdown`. The host passes its own record of the person's two switches;
   `consent.json` is not read for them. Only `by: "person"` raises `enabled`
   or `decisions.mode: enforce`, and `security.*` stays the person's, on a
   terminal.
-- Next, each adding to `methods`: skills (`skills/list`, `skills/get`,
-  devflow's own texts in the host's words), then the gate and its hooks
-  over the host's work items, evidence, review, brief and plan, publish and
-  stage, and the host's screens.
+- devflow's skills are devflow's own, said in the host's words: a built-in
+  SKILL.md names a tool as `{{tool:<name>}}`, which `initialize`'s
+  `dialect.tools` maps to the host's tool (`skills::Words`); a tool it does
+  not name is said as devflow says it, so devflow's own text is unchanged.
+  `skills/list` and `skills/get` resolve each skill project → team →
+  personal → built-in and say its layer, file and sha256.
+- Next, each adding to `methods`: the phrases where a host's text differs by
+  more than a tool's name and the review skill's parts, then the gate and its
+  hooks over the host's work items, evidence, review, brief and plan, publish
+  and stage, and the host's screens.
 
 **devflow.yaml keeps what it does not read**
 

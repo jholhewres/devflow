@@ -46,6 +46,14 @@ Worth knowing before you run it, and worth keeping in mind when reviewing:
   location outside the project's root is left out unread, and the report is
   kept without the code and file contents it quotes. A rule's message may
   still quote what it matched.
+- It **replaces its own binary** with the latest GitHub release when
+  `devflow mcp` starts, unless `DEVFLOW_NO_UPDATE=1` or the binary was built
+  from a checkout. The release is fetched over https only; its archive must
+  match the release's `checksums.txt` and the new binary must run before it
+  replaces the old one, kept as `devflow.prev`. The checksum comes from the
+  same release, so it guards against a broken download, not a compromised
+  release. A way to install anything but a release's own archive is a
+  vulnerability.
 - It **does not sandbox the agent's own shell.** The session that builds the
   work, and a reviewer's CLI, run with your permissions and their own
   settings: devflow gives the targets in force and asks that nothing else be
