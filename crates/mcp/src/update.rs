@@ -22,8 +22,11 @@ use crate::register::{Machine, NAME, REPO};
 /// Set to `1`, nothing is checked or replaced.
 pub const OFF: &str = "DEVFLOW_NO_UPDATE";
 
-/// Set by the release workflow on the builds it publishes.
-pub const RELEASED: bool = option_env!("DEVFLOW_RELEASE").is_some();
+/// Whether the release workflow built this binary: `DEVFLOW_RELEASE=1` at
+/// build time, which only it sets.
+pub fn released() -> bool {
+    option_env!("DEVFLOW_RELEASE") == Some("1")
+}
 
 const PLUGIN: &str = "devflow@devflow";
 const MOST_ARCHIVE: u64 = 64 << 20;
@@ -36,6 +39,10 @@ const WAIT_RUN: Duration = Duration::from_secs(10);
 /// A lock or a staged file older than this was left by a start that died.
 const STALE: Duration = Duration::from_secs(600);
 const STAGED: &str = ".devflow-new-";
+/// In devflow's state folder: the lock one update holds, and the version the
+/// Claude Code plugin was last checked at.
+const LOCK: &str = "update.lock";
+const PLUGIN_CHECKED: &str = "plugin-checked";
 
 /// Where releases are published: GitHub, or a local server in the tests.
 pub struct Source {
@@ -120,7 +127,7 @@ impl Here {
         Ok(Here {
             version: env!("CARGO_PKG_VERSION").to_owned(),
             bin,
-            released: RELEASED,
+            released: released(),
             off: is_off(std::env::var(OFF).ok().as_deref()),
             os: std::env::consts::OS,
             arch: std::env::consts::ARCH,
@@ -128,9 +135,11 @@ impl Here {
     }
 }
 
-/// Whether the switch's value turns updates off.
+/// Whether the switch's value turns updates off: `1`, `true`, `yes`, `on`.
 pub fn is_off(value: Option<&str>) -> bool {
-    value.is_some_and(|value| !value.is_empty() && value != "0")
+    value.is_some_and(|value| {
+        ["1", "true", "yes", "on"].contains(&value.trim().to_ascii_lowercase().as_str())
+    })
 }
 
 /// Why the binary is not replaced.
@@ -449,7 +458,8 @@ pub fn prev_of(bin: &Path) -> PathBuf {
 }
 
 /// `staged` put at `bin` by one rename, `bin` kept as `.prev` first: by a
-/// hard link, so `bin` is never missing, else by a rename.
+/// hard link, else a copy, so `bin` is never missing, even when the process
+/// is killed half way.
 pub fn swap(staged: &Path, bin: &Path) -> Result<(), String> {
     let prev = prev_of(bin);
     let undo = |why: String| {
@@ -461,18 +471,12 @@ pub fn swap(staged: &Path, bin: &Path) -> Result<(), String> {
             return undo(format!("{}: {err}", prev.display()));
         }
     }
-    let moved = match fs::hard_link(bin, &prev) {
-        Ok(()) => false,
-        Err(_) => match fs::rename(bin, &prev) {
-            Ok(()) => true,
-            Err(err) if err.kind() == ErrorKind::NotFound => false,
-            Err(err) => return undo(format!("{}: {err}", bin.display())),
-        },
-    };
-    if let Err(err) = fs::rename(staged, bin) {
-        if moved {
-            let _ = fs::rename(&prev, bin);
+    if bin.exists() && fs::hard_link(bin, &prev).is_err() {
+        if let Err(err) = fs::copy(bin, &prev) {
+            return undo(format!("{} could not be kept: {err}", prev.display()));
         }
+    }
+    if let Err(err) = fs::rename(staged, bin) {
         return undo(format!("{}: {err}", bin.display()));
     }
     Ok(())
@@ -512,15 +516,27 @@ impl Drop for Lock {
     }
 }
 
-/// The scope the Claude Code plugin is installed in, when its version is
-/// older than `version`.
-pub fn plugin_behind(listing: &str, version: &str) -> Option<String> {
+/// The person's own install of the Claude Code plugin, `devflow register`'s,
+/// in a listing that has one entry per scope.
+fn user_plugin(listing: &str) -> Option<Value> {
     let listed: Value = serde_json::from_str(listing).ok()?;
-    let plugin = listed.as_array()?.iter().find(|one| one["id"] == PLUGIN)?;
-    let installed = plugin["version"].as_str()?;
-    let scope = plugin["scope"].as_str().unwrap_or("user");
-    let known = ["user", "project", "local"].contains(&scope);
-    (known && newer(version, installed)).then(|| scope.to_owned())
+    listed
+        .as_array()?
+        .iter()
+        .find(|one| one["id"] == PLUGIN && one["scope"].as_str().unwrap_or("user") == "user")
+        .cloned()
+}
+
+/// Whether the person's own install of the Claude Code plugin is older than
+/// `version`. A project's install is that project's to update.
+pub fn plugin_behind(listing: &str, version: &str) -> bool {
+    user_plugin(listing)
+        .and_then(|plugin| {
+            plugin["version"]
+                .as_str()
+                .map(|installed| newer(version, installed))
+        })
+        .unwrap_or(false)
 }
 
 /// The Claude Code plugin brought up to `version`: the marketplace read
@@ -531,13 +547,15 @@ pub fn refresh_plugin(machine: &Machine, version: &str) -> Option<Result<String,
         return None;
     }
     let listing = (machine.ask)(&["claude", "plugin", "list", "--json"])?;
-    let scope = plugin_behind(&listing, version)?;
+    if !plugin_behind(&listing, version) {
+        return None;
+    }
     if (machine.ask)(&["claude", "plugin", "marketplace", "update", NAME]).is_none() {
         return Some(Err(
             "the Claude Code plugin was not updated: its marketplace did not refresh".to_owned(),
         ));
     }
-    if (machine.ask)(&["claude", "plugin", "update", PLUGIN, "--scope", &scope]).is_none() {
+    if (machine.ask)(&["claude", "plugin", "update", PLUGIN, "--scope", "user"]).is_none() {
         return Some(Err("the Claude Code plugin did not update".to_owned()));
     }
     let now = (machine.ask)(&["claude", "plugin", "list", "--json"])
@@ -549,9 +567,7 @@ pub fn refresh_plugin(machine: &Machine, version: &str) -> Option<Result<String,
 }
 
 fn installed_plugin(listing: &str) -> Option<String> {
-    let listed: Value = serde_json::from_str(listing).ok()?;
-    let plugin = listed.as_array()?.iter().find(|one| one["id"] == PLUGIN)?;
-    plugin["version"].as_str().map(str::to_owned)
+    user_plugin(listing)?["version"].as_str().map(str::to_owned)
 }
 
 /// Starts the update on a thread of its own: the server answers at once,
@@ -563,11 +579,10 @@ pub fn on_load() {
             let Ok(here) = Here::now() else {
                 return;
             };
-            let Some(lock) = devflow_engine::home::state_dir().map(|dir| dir.join("update.lock"))
-            else {
+            let Some(state) = devflow_engine::home::state_dir() else {
                 return;
             };
-            for line in background(&Source::github(), &here, &Machine::here(), &lock) {
+            for line in background(&Source::github(), &here, &Machine::here(), &state) {
                 eprintln!("devflow: {line}");
             }
         });
@@ -576,11 +591,11 @@ pub fn on_load() {
 /// One start's update, as the lines it leaves in the agent CLI's log. Says
 /// nothing when updates are off, on a checkout's build, or when all is
 /// current.
-pub fn background(source: &Source, here: &Here, machine: &Machine, lock: &Path) -> Vec<String> {
+pub fn background(source: &Source, here: &Here, machine: &Machine, state: &Path) -> Vec<String> {
     if here.off || !here.released {
         return Vec::new();
     }
-    let Some(_held) = Lock::take(lock) else {
+    let Some(_held) = Lock::take(&state.join(LOCK)) else {
         return Vec::new();
     };
     let mut said = Vec::new();
@@ -605,8 +620,19 @@ pub fn background(source: &Source, here: &Here, machine: &Machine, lock: &Path) 
         Some(Refused::Current | Refused::Unwritable(_)) => found.current.clone(),
         Some(_) => return said,
     };
-    if let Some(Ok(line) | Err(line)) = refresh_plugin(machine, &version) {
-        said.push(line);
+    // The plugin is asked about once per version, not at every start.
+    let stamp = state.join(PLUGIN_CHECKED);
+    if fs::read_to_string(&stamp).ok().as_deref() == Some(version.as_str()) {
+        return said;
+    }
+    match refresh_plugin(machine, &version) {
+        Some(Err(line)) => said.push(line),
+        done => {
+            if let Some(Ok(line)) = done {
+                said.push(line);
+            }
+            let _ = fs::write(&stamp, &version);
+        }
     }
     said
 }
@@ -638,7 +664,12 @@ pub enum Done {
 /// `devflow update [--check] [--json]`: the person's own update, or a
 /// host's, which `DEVFLOW_NO_UPDATE` does not hold and which never asks.
 pub fn command(only_check: bool, json: bool) -> ExitCode {
-    let done = Here::now().and_then(|here| asked(&Source::github(), &here, only_check));
+    let state = devflow_engine::home::state_dir().unwrap_or_else(|| PathBuf::from(".devflow-home"));
+    let held = Lock::take(&state.join(LOCK));
+    let done = match held {
+        Some(_) => Here::now().and_then(|here| asked(&Source::github(), &here, only_check)),
+        None => Err("another devflow update is running".to_owned()),
+    };
     let plugin = match &done {
         Ok(Done::Current(version) | Done::Updated { to: version, .. }) if !only_check => {
             refresh_plugin(&Machine::here(), version)

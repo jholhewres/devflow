@@ -79,12 +79,7 @@ impl Machine {
             config,
             mac: cfg!(target_os = "macos"),
             has: Box::new(|program| on_path(program).is_some()),
-            ask: Box::new(|argv| {
-                let out = Command::new(argv[0]).args(&argv[1..]).output().ok()?;
-                out.status
-                    .success()
-                    .then(|| String::from_utf8_lossy(&out.stdout).into_owned())
-            }),
+            ask: Box::new(|argv| asked_within(argv, ASK_WAIT)),
         }
     }
 
@@ -373,6 +368,48 @@ pub fn backup_of(file: &Path) -> PathBuf {
 }
 
 /// Where a program is on `PATH`.
+/// How long a query of another CLI may take: a marketplace refresh fetches
+/// over git.
+const ASK_WAIT: std::time::Duration = std::time::Duration::from_secs(120);
+
+/// What `argv` prints when it succeeds within `wait`, asking nothing: no
+/// stdin, and git told never to prompt for a password or a passphrase.
+pub fn asked_within(argv: &[&str], wait: std::time::Duration) -> Option<String> {
+    use std::io::Read;
+    use std::process::Stdio;
+    let mut child = Command::new(argv.first()?)
+        .args(&argv[1..])
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env("GIT_SSH_COMMAND", "ssh -o BatchMode=yes")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    let mut out = child.stdout.take()?;
+    let reader = std::thread::spawn(move || {
+        let mut said = String::new();
+        let _ = out.read_to_string(&mut said);
+        said
+    });
+    let started = std::time::Instant::now();
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break Some(status),
+            Ok(None) if started.elapsed() < wait => {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                break None;
+            }
+        }
+    };
+    let said = reader.join().ok()?;
+    status.filter(|status| status.success()).map(|_| said)
+}
+
 pub fn on_path(program: &str) -> Option<PathBuf> {
     std::env::split_paths(&std::env::var_os("PATH")?)
         .map(|dir| dir.join(program))

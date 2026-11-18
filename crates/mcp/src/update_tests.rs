@@ -175,7 +175,9 @@ fn checksums_are_read_as_sha256sum_writes_them() {
 fn the_switch_is_off_for_any_value_but_zero_or_empty() {
     assert!(is_off(Some("1")));
     assert!(is_off(Some("yes")));
+    assert!(is_off(Some("TRUE")));
     assert!(!is_off(Some("0")));
+    assert!(!is_off(Some("false")));
     assert!(!is_off(Some("")));
     assert!(!is_off(None));
 }
@@ -334,18 +336,19 @@ fn the_swap_keeps_the_binary_in_place_and_the_old_one_beside_it() {
 }
 
 #[test]
-fn the_plugin_is_behind_only_when_older_and_installed() {
+fn only_the_persons_own_install_of_the_plugin_is_behind() {
     let listing = r#"[{"id":"other@x","version":"0.1.0"},
+        {"id":"devflow@devflow","version":"0.1.0","scope":"project","projectPath":"/elsewhere"},
         {"id":"devflow@devflow","version":"0.2.2","scope":"user"}]"#;
-    assert_eq!(plugin_behind(listing, "0.4.0").as_deref(), Some("user"));
-    assert_eq!(plugin_behind(listing, "0.2.2"), None);
-    assert_eq!(
-        plugin_behind(r#"[{"id":"other@x","version":"0.1.0"}]"#, "0.4.0"),
-        None
-    );
-    let odd = r#"[{"id":"devflow@devflow","version":"0.2.2","scope":"--evil"}]"#;
-    assert_eq!(plugin_behind(odd, "0.4.0"), None);
-    assert_eq!(plugin_behind("not json", "0.4.0"), None);
+    assert!(plugin_behind(listing, "0.4.0"));
+    assert!(!plugin_behind(listing, "0.2.2"));
+    let elsewhere = r#"[{"id":"devflow@devflow","version":"0.1.0","scope":"project"}]"#;
+    assert!(!plugin_behind(elsewhere, "0.4.0"));
+    assert!(!plugin_behind(
+        r#"[{"id":"other@x","version":"0.1.0"}]"#,
+        "0.4.0"
+    ));
+    assert!(!plugin_behind("not json", "0.4.0"));
 }
 
 fn claude(listings: Vec<&'static str>) -> (Machine, Rc<RefCell<Vec<String>>>) {
@@ -401,14 +404,15 @@ fn a_current_plugin_is_left_alone() {
 #[test]
 fn a_start_with_updates_off_or_on_a_checkout_does_nothing() {
     let dir = tempfile::tempdir().unwrap();
-    let lock = dir.path().join("update.lock");
+    let state = dir.path().join("state");
+    let lock = state.join("update.lock");
     let (machine, asked) = claude(vec![]);
     let mut here = installed(dir.path(), "0.4.0");
     here.off = true;
-    assert!(background(&nowhere(), &here, &machine, &lock).is_empty());
+    assert!(background(&nowhere(), &here, &machine, &state).is_empty());
     here.off = false;
     here.released = false;
-    assert!(background(&nowhere(), &here, &machine, &lock).is_empty());
+    assert!(background(&nowhere(), &here, &machine, &state).is_empty());
     assert!(asked.borrow().is_empty());
     assert!(!lock.exists());
 }
@@ -416,10 +420,11 @@ fn a_start_with_updates_off_or_on_a_checkout_does_nothing() {
 #[test]
 fn a_start_offline_says_so_once_and_changes_nothing() {
     let dir = tempfile::tempdir().unwrap();
-    let lock = dir.path().join("update.lock");
+    let state = dir.path().join("state");
+    let lock = state.join("update.lock");
     let (machine, asked) = claude(vec![]);
     let here = installed(dir.path(), "0.4.0");
-    let said = background(&nowhere(), &here, &machine, &lock);
+    let said = background(&nowhere(), &here, &machine, &state);
     assert_eq!(said.len(), 1);
     assert!(
         said[0].starts_with("could not check for an update"),
@@ -434,7 +439,8 @@ fn a_start_offline_says_so_once_and_changes_nothing() {
 #[test]
 fn a_start_updates_the_binary_then_the_plugin_to_the_same_version() {
     let dir = tempfile::tempdir().unwrap();
-    let lock = dir.path().join("update.lock");
+    let state = dir.path().join("state");
+    let lock = state.join("update.lock");
     let (machine, asked) = claude(vec![
         r#"[{"id":"devflow@devflow","version":"0.4.0","scope":"user"}]"#,
         r#"[{"id":"devflow@devflow","version":"0.5.0","scope":"user"}]"#,
@@ -445,7 +451,7 @@ fn a_start_updates_the_binary_then_the_plugin_to_the_same_version() {
         &release("0.5.0", &[("devflow", &new)], None),
         &here,
         &machine,
-        &lock,
+        &state,
     );
     assert!(said[0].starts_with("updated 0.4.0 → 0.5.0"), "{said:?}");
     assert!(said[1].contains("now 0.5.0"), "{said:?}");
@@ -454,6 +460,11 @@ fn a_start_updates_the_binary_then_the_plugin_to_the_same_version() {
         .borrow()
         .iter()
         .any(|line| line.contains("--scope user")));
+    assert!(!lock.exists());
+    assert_eq!(
+        fs::read_to_string(state.join(PLUGIN_CHECKED)).unwrap(),
+        "0.5.0"
+    );
 }
 
 #[test]
@@ -504,4 +515,43 @@ fn the_persons_update_installs_and_says_from_and_to() {
     assert!(asked(&nowhere(), &checkout, false)
         .unwrap_err()
         .contains("checkout"));
+}
+
+#[test]
+fn the_plugin_is_asked_about_once_per_version() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = dir.path().join("state");
+    let current = r#"[{"id":"devflow@devflow","version":"0.5.0","scope":"user"}]"#;
+    let (machine, asked) = claude(vec![current]);
+    let here = installed(dir.path(), "0.5.0");
+    let source = release("0.5.0", &[], None);
+    assert!(background(&source, &here, &machine, &state).is_empty());
+    assert_eq!(asked.borrow().len(), 1);
+    assert!(background(&source, &here, &machine, &state).is_empty());
+    assert_eq!(asked.borrow().len(), 1, "{:?}", asked.borrow());
+}
+
+#[test]
+fn a_plugin_that_did_not_update_is_asked_about_again() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = dir.path().join("state");
+    let behind = r#"[{"id":"devflow@devflow","version":"0.4.0","scope":"user"}]"#;
+    let asked = Rc::new(RefCell::new(0));
+    let seen = asked.clone();
+    let machine = Machine {
+        home: PathBuf::new(),
+        config: PathBuf::new(),
+        mac: false,
+        has: Box::new(|program| program == "claude"),
+        ask: Box::new(move |argv| {
+            *seen.borrow_mut() += 1;
+            (argv.join(" ") == "claude plugin list --json").then(|| behind.to_owned())
+        }),
+    };
+    let here = installed(dir.path(), "0.5.0");
+    let source = release("0.5.0", &[], None);
+    let said = background(&source, &here, &machine, &state);
+    assert!(said[0].contains("marketplace did not refresh"), "{said:?}");
+    background(&source, &here, &machine, &state);
+    assert_eq!(*asked.borrow(), 4);
 }
