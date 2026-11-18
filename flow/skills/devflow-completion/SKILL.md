@@ -7,7 +7,7 @@ license: Apache-2.0
 # Devflow: completion
 
 Nothing on a [[work item]] is done without **fresh evidence**: a run of its checks made
-in this turn, after the last change to the code. Before [[{{tool:finish}},]]
+in this turn, after the last change to the code. Before {{tool:finish}},
 every acceptance criterion is matched to that evidence, the handoff note is
 written and the gate comment is on the [[item.]] When anything is missing, the
 [[item]] stays where it is and you say what is missing.
@@ -94,7 +94,7 @@ the comment on the [[item:]] the table under one line,
 ```
 
 and answers `result` (`passed` or `failed`) with what is `missing`. When [[devflow#2::devflow]]
-does not offer the tool, post that comment yourself with [[{{tool:comment}}.]]
+does not offer the tool, post that comment yourself with {{tool:comment}}.
 
 The gate passes when n equals m, every check is green and no finding is in
 `review.block_on`. When it fails, reply with what is missing and which stage

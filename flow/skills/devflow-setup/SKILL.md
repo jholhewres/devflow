@@ -36,7 +36,7 @@ detection left open, and write the file once the person says yes. Switching
 
 ### 1. Read the state
 
-Call [[{{tool:status}}.]] It answers with the state (`no file`, `disabled`,
+Call {{tool:status}}. It answers with the state (`no file`, `disabled`,
 `active`, `invalid`), what [[devflow#2::devflow]] detected with the file each fact came from,
 and the current `devflow.yaml`.
 
@@ -164,7 +164,7 @@ none, and leaves it out or says `none`, is judged by its exit code: 0 passed,
 
 `report: sarif` is a static analyser's: any tool that writes SARIF 2.1.0
 (semgrep, gosec, trivy, gitleaks, CodeQL, …), such as
-`semgrep --config p/default --sarif --error -o "$DEVFLOW_REPORT_DIR/semgrep.sarif"`.
+`semgrep --config p/default --sarif --error -o "[[$DEVFLOW_REPORT_DIR]]/semgrep.sarif"`.
 It is judged by its report, never its exit code (`--error` exits 1 for the
 very findings it was asked for): a report read passes, none is inconclusive,
 and a tool that says its own run failed fails. Each result becomes a finding

@@ -21,14 +21,14 @@ marked. This stage reads; the only files it writes are the glossary and ADRs.
   without one is an assumption and goes in that list.
 - **Decisions in the glossary's words.** Paths appear only as the source of a
   fact; describe modules and behaviour in domain terms, with no code snippets.
-- **The summary lives on the epic,** written with [[{{tool:brief}}.]] Any
+- **The summary lives on the epic,** written with {{tool:brief}}. Any
   scratch notes stay in this conversation.
 
 ## Steps
 
 ### 1. Read the brief
 
-Read the epic with [[{{tool:item}}:]] goal, who it is for, out of scope, success,
+Read the epic with {{tool:item}}: goal, who it is for, out of scope, success,
 decisions.
 
 Done when you can restate the goal and the success check in one line each.

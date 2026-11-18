@@ -32,7 +32,7 @@ Read the [[item with {{tool:item}}:]] criteria, likely files, verify command,
 blocked by. Read the epic's context section for the seam and the commands, and
 [[`.devflow/devflow.yaml`]] for the checks under `stages.execution.checks`.
 When [[an item]] it depends on is not [[done,]] name it and end the turn. Otherwise
-call [[{{tool:start}}.]] When this [[item's]] work already landed in another, or
+call {{tool:start}}. When this [[item's]] work already landed in another, or
 the work is no longer wanted, it is not built: the plan skill's step 7 merges
 or cuts it, after the person's yes.
 
