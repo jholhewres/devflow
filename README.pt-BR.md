@@ -34,6 +34,17 @@ O `install.sh` confere o checksum da release, coloca o `devflow` em
 (`--tools=`, `--dry-run`, `--uninstall`, `--version=`). O `devflow setup` escreve o `devflow.yaml` do projeto
 e liga o devflow, perguntando antes.
 
+O devflow se mantém atualizado: toda vez que uma CLI de agente inicia o
+`devflow mcp`, uma thread em segundo plano pergunta ao GitHub qual é a
+release mais recente e instala uma mais nova por cima do binário. O arquivo
+tem que bater com o `checksums.txt` da release, e o binário novo tem que
+rodar antes de substituir o antigo, que fica guardado como `devflow.prev`. O
+plugin do Claude Code vai para a mesma versão. O servidor responde na hora;
+offline, registra uma linha e segue; a próxima inicialização roda a versão
+nova. `DEVFLOW_NO_UPDATE=1` desliga, e um build feito de um checkout nunca se
+substitui. `devflow update` faz agora (`--check` só olha, `--json` responde
+numa linha).
+
 ## Uso
 
 | Ferramenta | O que recebe |
@@ -53,6 +64,8 @@ de revisão (`review`) e só pode dar como pronto quando o `gate` passa.
 | `devflow setup` · `doctor` | configura esta máquina e o projeto · confere |
 | `devflow config get` · `set <campo> <valor>` | lê ou muda o `devflow.yaml` |
 | `devflow jev setup` · `test` | Decisions (Jev) via OpenRouter, opcional |
+| `devflow update` · `version --json` | instala a release mais recente agora · esta versão e os protocolos de host |
+| `devflow host` | uma chamada de um app host (devpit) via JSON-RPC no stdio |
 
 A chave do OpenRouter vem de `OPENROUTER_API_KEY` ou fica em
 `~/.config/devflow/credentials` (modo 0600): nunca no repositório, nunca

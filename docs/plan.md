@@ -4,8 +4,8 @@ devflow is devpit's Devflow made to run on its own. The product is an **MCP
 server and a plugin**: any agent CLI or IDE that speaks MCP gets the flow's
 tools, and the ones that take plugins, skills or hooks get those too. The
 `devflow` binary also carries the few commands a person runs to install,
-configure and check it. Nothing depends on devpit; devpit will consume the
-engine through a thin adapter, in a phase of its own.
+configure and check it. Nothing depends on devpit; devpit talks to devflow
+across a process boundary (`devflow host`, 0.4.0), not by linking the engine.
 [extraction-map.md](extraction-map.md) lists what moves and why.
 
 ## Name
@@ -254,6 +254,62 @@ Next: fuzzing, and gosec/govulncheck, gitleaks, trivy and `npm audit` as
 checks (any of them that writes SARIF is evidence already); the addresses a
 confirmed target resolved to kept with the person's yes, so a later answer
 of the network's resolver cannot move it.
+
+## Standing on its own: 0.4.0
+
+0.4.0 adds to 0.3.0's API; a devflow.yaml that reads under 0.3.0 reads the
+same. A host now talks to devflow across a process boundary instead of
+linking the engine, and the binary keeps itself current.
+
+**It updates itself**
+
+- Each `devflow mcp` start runs `update::on_load` on a thread of its own:
+  the latest version is read off the `releases/latest` redirect (no API, no
+  rate limit), `checksums.txt` and the archive are fetched over https only,
+  the archive is checked against its sha256 before it is opened, the
+  `devflow` in it is staged beside the binary under a name no other start
+  holds, run once with `--version`, and renamed over the binary, the old one
+  hard-linked to `devflow.prev` first. A lock in `$XDG_STATE_HOME/devflow/`
+  keeps starts at the same moment from all downloading.
+- Every local refusal comes before the network: `DEVFLOW_NO_UPDATE=1`, a
+  build without the release workflow's `DEVFLOW_RELEASE` mark (a checkout's),
+  a machine with no release build, a folder that is not writable. Offline or
+  refused, the server is never held and one line goes to the CLI's log.
+- The Claude Code plugin is then brought to the binary's version
+  (`claude plugin marketplace update devflow`, `claude plugin update
+  devflow@devflow` in its scope), when it is installed and behind.
+- `devflow update [--check] [--json]` is the same on request, never asking
+  anything: what a host runs, since it never starts `devflow mcp`.
+- Release assets stay `devflow_<version>_<os>_<arch>.tar.gz` and one
+  `checksums.txt`: a host's installer relies on them.
+
+**A host across a process boundary**
+
+- `devflow version --json` says the version and the host protocols
+  (`[1]`), without the network.
+- `devflow host --root DIR` serves one call over stdio: JSON-RPC 2.0, one
+  object per line, `initialize` first, stderr for logs only. Protocol 1
+  changes only by adding; `initialize` lists the `methods` and `tools` this
+  build serves, and a method not listed is the host's own until it is.
+- 0.4.0 serves `config/read`, `config/write`, `tool` (`status`) and
+  `shutdown`. The host passes its own record of the person's two switches;
+  `consent.json` is not read for them. Only `by: "person"` raises `enabled`
+  or `decisions.mode: enforce`, and `security.*` stays the person's, on a
+  terminal.
+- Next, each adding to `methods`: skills (`skills/list`, `skills/get`,
+  devflow's own texts in the host's words), then the gate and its hooks
+  over the host's work items, evidence, review, brief and plan, publish and
+  stage, and the host's screens.
+
+**devflow.yaml keeps what it does not read**
+
+- A change is made in the text, not by laying the file out again: a word
+  swapped, a key added after its map's last, a list or map replaced, a key
+  removed with its lines (`edit::set`). Comments and fields devflow does not
+  read stay. Only a change inside a flow-style map is laid out again, which
+  `config/write` refuses instead.
+- A field this build does not read is left out of the layers too, not
+  refused: a file a newer devflow wrote still reads, and `unread` names it.
 
 ## Release
 

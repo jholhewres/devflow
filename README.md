@@ -34,6 +34,16 @@ and registers it with the agent CLIs and IDEs it finds (`--tools=`,
 `--dry-run`, `--uninstall`, `--version=`). `devflow setup` writes the project's `devflow.yaml` and switches
 devflow on, asking first.
 
+devflow keeps itself current: each time an agent CLI starts `devflow mcp`,
+a background thread asks GitHub for the latest release and installs a newer
+one over the binary. The archive must match the release's `checksums.txt`,
+and the new binary must run before it replaces the old one, which is kept as
+`devflow.prev`. The Claude Code plugin is brought to the same version. The
+server answers at once; offline, it logs one line and carries on; the next
+start runs the new version. `DEVFLOW_NO_UPDATE=1` switches it off, and a
+build from a checkout never replaces itself. `devflow update` does it now
+(`--check` only looks, `--json` answers one line).
+
 ## Use
 
 | Tool | What it gets |
@@ -53,6 +63,8 @@ and may call it done only when `gate` passes.
 | `devflow setup` · `doctor` | set up this machine and project · check them |
 | `devflow config get` · `set <path> <value>` | read or change `devflow.yaml` |
 | `devflow jev setup` · `test` | Decisions (Jev) through OpenRouter, opt-in |
+| `devflow update` · `version --json` | install the latest release now · this version and the host protocols |
+| `devflow host` | one call from a host app (devpit) over stdio JSON-RPC |
 
 The OpenRouter key is read from `OPENROUTER_API_KEY` or kept in
 `~/.config/devflow/credentials` (mode 0600): never in the repository, never
