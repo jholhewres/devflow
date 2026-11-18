@@ -289,3 +289,86 @@ fn a_request_without_a_method_is_answered_with_its_id() {
         (json!(9), json!(REQUEST))
     );
 }
+
+fn with_words(root: &Path, personal: &Path) -> Option<Session> {
+    let mut session = None;
+    ask(
+        &mut session,
+        root,
+        "initialize",
+        json!({
+            "protocol": 1,
+            "dialect": { "tools": {
+                "evidence": "`devpit_devflow_evidence`",
+                "item": "`devpit_card`",
+            } },
+            "personal": { "skills": personal },
+        }),
+    );
+    session
+}
+
+#[test]
+fn skills_are_listed_with_their_stage_and_where_they_come_from() {
+    let dir = project(Some(FILE));
+    let personal = tempfile::tempdir().unwrap();
+    let mine = personal.path().join("devflow-plan/SKILL.md");
+    std::fs::create_dir_all(mine.parent().unwrap()).unwrap();
+    std::fs::write(
+        &mine,
+        "---\nname: devflow-plan\ndescription: My plan.\n---\n\nMine.\n",
+    )
+    .unwrap();
+    let mut session = with_words(dir.path(), personal.path());
+    let said = &ask(&mut session, dir.path(), "skills/list", json!({}))["result"]["skills"];
+    let all = said.as_array().unwrap();
+    assert_eq!(all.len(), 7, "{said}");
+    let plan = all
+        .iter()
+        .find(|one| one["name"] == "devflow-plan")
+        .unwrap();
+    assert_eq!(plan["stage"], "plan");
+    assert_eq!(plan["description"], "My plan.");
+    assert_eq!(plan["source"]["layer"], "personal");
+    let setup = all
+        .iter()
+        .find(|one| one["name"] == "devflow-setup")
+        .unwrap();
+    assert_eq!(
+        (setup["stage"].clone(), setup["source"]["layer"].clone()),
+        (Value::Null, json!("built-in"))
+    );
+}
+
+#[test]
+fn a_built_in_skill_is_got_in_the_hosts_words_with_its_digest() {
+    use sha2::{Digest, Sha256};
+    let dir = project(Some(FILE));
+    let personal = tempfile::tempdir().unwrap();
+    let mut session = with_words(dir.path(), personal.path());
+    let said = &ask(
+        &mut session,
+        dir.path(),
+        "skills/get",
+        json!({ "name": "devflow-execution" }),
+    )["result"];
+    let text = said["text"].as_str().unwrap();
+    assert!(text.contains("Read the item with `devpit_card`"), "{text}");
+    assert!(text.contains("Call `devpit_devflow_evidence`"), "{text}");
+    assert!(!text.contains("{{"));
+    assert_eq!(
+        said["sha256"],
+        format!("{:x}", Sha256::digest(text.as_bytes()))
+    );
+    assert_eq!(said["source"]["layer"], "built-in");
+    for (params, code) in [
+        (
+            json!({ "name": "devflow-execution", "part": "verify.md" }),
+            PARAMS,
+        ),
+        (json!({ "name": "nope" }), PARAMS),
+    ] {
+        let refused = ask(&mut session, dir.path(), "skills/get", params);
+        assert_eq!(refused["error"]["code"], code, "{refused}");
+    }
+}

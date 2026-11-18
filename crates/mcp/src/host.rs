@@ -4,12 +4,12 @@
 //! person's two switches and passes it in; nothing here updates the binary.
 
 use std::io::{BufRead, Read, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::Mutex;
 
 use devflow_engine::folder::{self, State};
-use devflow_engine::{proposal, security, setup};
+use devflow_engine::{proposal, security, setup, skills};
 use serde_json::{json, Value};
 
 use crate::consent::Consent;
@@ -18,7 +18,14 @@ use crate::server::Server;
 /// The host protocols this devflow speaks.
 pub const PROTOCOLS: [u64; 1] = [1];
 /// The methods served after `initialize`.
-pub const METHODS: [&str; 4] = ["config/read", "config/write", "tool", "shutdown"];
+pub const METHODS: [&str; 6] = [
+    "config/read",
+    "config/write",
+    "skills/list",
+    "skills/get",
+    "tool",
+    "shutdown",
+];
 /// The tools `tool` serves.
 pub const TOOLS: [&str; 1] = ["status"];
 
@@ -35,6 +42,10 @@ type Failed = (i64, String);
 /// What `initialize` set up.
 pub struct Session {
     pub server: Server,
+    /// The host's words for the tools a built-in skill names.
+    pub words: skills::Words,
+    /// The person's own skills, where the host keeps them.
+    pub personal: PathBuf,
 }
 
 /// What one message is answered with, and whether the call ends there.
@@ -122,6 +133,8 @@ pub fn answer(line: &str, root: &Path, session: &mut Option<Session>) -> Answer 
             Err((NOT_STARTED, "initialize comes first".to_owned()))
         }
         ("config/read", Some(started)) => Ok(read(&started.server)),
+        ("skills/list", Some(started)) => Ok(listed(started)),
+        ("skills/get", Some(started)) => skill(started, &params),
         ("config/write", Some(started)) => write(&started.server, &params),
         ("tool", Some(started)) => tool(&started.server, &params),
         ("shutdown", Some(_)) => {
@@ -178,7 +191,15 @@ fn initialize(params: &Value, root: &Path) -> Result<(Session, Value), Failed> {
         "methods": METHODS,
         "tools": TOOLS,
     });
-    Ok((Session { server }, said))
+    let personal = params["personal"]["skills"]
+        .as_str()
+        .map_or_else(crate::project::personal_skills, PathBuf::from);
+    let session = Session {
+        server,
+        words: skills::Words::of_json(&params["dialect"]),
+        personal,
+    };
+    Ok((session, said))
 }
 
 /// The configuration as the file says it, valid or not.
@@ -274,6 +295,71 @@ pub fn write(server: &Server, params: &Value) -> Result<Value, Failed> {
         "before": said(&state),
         "after": proposal.config.to_json(),
         "asks": proposal.asks,
+    }))
+}
+
+/// One skill as the project resolves it, in the host's words.
+fn resolved(session: &Session, name: &str) -> Result<skills::Skill, String> {
+    let project = session.server.project();
+    skills::resolve_said(
+        &devflow_engine::Dialect::DEVFLOW,
+        &session.words,
+        &project.root,
+        &session.personal,
+        &project.teams(),
+        name,
+    )
+}
+
+/// Where a skill came from: its layer, and its file when it has one.
+fn source(skill: &skills::Skill) -> Value {
+    json!({
+        "layer": skill.layer.word(),
+        "file": skill.file.as_ref().map(|file| file.display().to_string()),
+    })
+}
+
+/// `skills/list`: every skill, its stage, what it is for and where it came
+/// from; one that does not read says why.
+fn listed(session: &Session) -> Value {
+    let skills: Vec<Value> = skills::names()
+        .map(|name| match resolved(session, name) {
+            Ok(skill) => json!({
+                "name": name,
+                "stage": skill.stage,
+                "description": skill.frontmatter["description"],
+                "source": source(&skill),
+            }),
+            Err(why) => json!({ "name": name, "error": why }),
+        })
+        .collect();
+    json!({ "skills": skills })
+}
+
+/// `skills/get`: one skill's text, its digest and where it came from.
+fn skill(session: &Session, params: &Value) -> Result<Value, Failed> {
+    let name = params["name"]
+        .as_str()
+        .and_then(skills::named)
+        .ok_or_else(|| {
+            let known: Vec<&str> = skills::names().collect();
+            (
+                PARAMS,
+                format!("pass a skill's `name`: {}", known.join(", ")),
+            )
+        })?;
+    match params["part"].as_str() {
+        None | Some("SKILL.md") => {}
+        Some(part) => return Err((PARAMS, format!("{name} has no part `{part}`"))),
+    }
+    let skill = resolved(session, name).map_err(|why| (FAILED, why))?;
+    let digest = skill.digest();
+    Ok(json!({
+        "name": name,
+        "stage": skill.stage,
+        "text": skill.text,
+        "sha256": digest.trim_start_matches("sha256:"),
+        "source": source(&skill),
     }))
 }
 
