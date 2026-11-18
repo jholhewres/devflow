@@ -28,6 +28,8 @@ pub(crate) enum Value {
 pub(crate) struct Key {
     pub name: String,
     pub line: Option<usize>,
+    /// The column it starts at, in characters, which an edit needs.
+    pub col: Option<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -76,6 +78,7 @@ pub(crate) fn from_json(value: &serde_json::Value) -> Node {
                         Key {
                             name: name.clone(),
                             line: None,
+                            col: None,
                         },
                         from_json(value),
                     )
@@ -115,6 +118,7 @@ impl Built {
 
     fn place(&mut self, node: Node) {
         let line = node.line().unwrap_or_default();
+        let col = node.at.map(|at| at.col);
         match self.open.last_mut() {
             None => self.root = Some(node),
             Some(Open::Seq(_, items)) => items.push(node),
@@ -130,6 +134,7 @@ impl Built {
                     *key = Some(Key {
                         name,
                         line: Some(line),
+                        col,
                     });
                 }
             },

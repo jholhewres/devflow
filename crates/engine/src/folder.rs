@@ -1,6 +1,7 @@
 //! The project's devflow.yaml: what it says, and the text a change to it
-//! leaves. A change of one word is made in place, so the person's own
-//! comments and layout stay; anything larger lays the file out again.
+//! leaves. A change is made in place, so the person's own comments, layout
+//! and the fields devflow does not read stay; only a file that cannot be
+//! edited there is laid out again.
 
 use std::path::Path;
 
@@ -8,7 +9,7 @@ use crate::config::{self, Config, Invalid};
 use crate::locate::Origin;
 use crate::node::{self, Node, Value};
 use crate::preset::Change;
-use crate::render::{render_in, scalar};
+use crate::render::render_in;
 
 /// The folder devflow keeps in a project, relative to its root.
 pub const DIR: &str = ".devflow";
@@ -187,7 +188,7 @@ pub fn rewritten_in(
 
 /// The JSON form of a file that parses as YAML, valid or not: what a change
 /// to an invalid file starts from.
-pub(crate) fn as_json(text: &str) -> Option<serde_json::Value> {
+pub fn as_json(text: &str) -> Option<serde_json::Value> {
     node::from_yaml(text).ok().map(|tree| json_of(&tree))
 }
 
@@ -213,53 +214,16 @@ fn json_of(node: &Node) -> serde_json::Value {
     }
 }
 
-/// `text` with each changed word replaced where it stands, or `None` when a
-/// change is not one plain word already in the text.
+/// `text` with each change made where it stands: a word swapped, a key
+/// added or removed, a value replaced; `None` when one cannot be.
 fn in_place(text: &str, changed: &[Change]) -> Option<String> {
-    let tree = node::from_yaml(text).ok()?;
-    let mut lines: Vec<String> = text.split_inclusive('\n').map(str::to_owned).collect();
-    for change in changed {
-        let word = match &change.after {
-            serde_json::Value::Bool(yes) => yes.to_string(),
-            serde_json::Value::String(text) => scalar(text),
-            _ => return None,
-        };
-        let found = find(&tree, &change.path)?;
-        let (Value::Scalar(old, true), Some(at)) = (&found.value, found.at) else {
-            return None;
-        };
-        let line = lines.get_mut(at.line.checked_sub(1)?)?;
-        let start = line
-            .char_indices()
-            .nth(at.col)
-            .map(|(byte, _)| byte)
-            .unwrap_or(line.len());
-        if !line[start..].starts_with(old.as_str()) {
-            return None;
-        }
-        line.replace_range(start..start + old.len(), &word);
-    }
-    Some(lines.concat())
-}
-
-/// The node at a dotted path.
-fn find<'a>(tree: &'a Node, path: &str) -> Option<&'a Node> {
-    path.split('.').try_fold(tree, |at, part| match &at.value {
-        Value::Map(items) => items
-            .iter()
-            .find(|(key, _)| key.name == part)
-            .map(|(_, node)| node),
-        Value::Seq(items) => match part.parse::<usize>() {
-            Ok(index) => items.get(index),
-            // A stage of version 2's list, by its name.
-            Err(_) => items.iter().find(|item| stage_named(item) == Some(part)),
-        },
-        _ => None,
+    changed.iter().try_fold(text.to_owned(), |text, change| {
+        crate::edit::set(&text, &change.path, &change.after)
     })
 }
 
 /// The name an item of a list of stages has: what follows the last `/` of `uses`.
-fn stage_named(item: &Node) -> Option<&str> {
+pub(crate) fn stage_named(item: &Node) -> Option<&str> {
     let Value::Map(fields) = &item.value else {
         return None;
     };

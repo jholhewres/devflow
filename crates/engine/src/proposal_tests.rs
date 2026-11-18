@@ -180,7 +180,10 @@ fn a_setup_run_again_over_the_persons_file_keeps_their_comments() {
         &detected(),
     )
     .expect("a list changed");
-    assert!(set.laid_out, "a list is more than a word");
+    assert!(!set.laid_out, "a list is edited in place too: {}", set.yaml);
+    assert!(set
+        .yaml
+        .contains("# ours: on next sprint\n# and a note of our own\n"));
 }
 
 #[test]
@@ -191,8 +194,12 @@ fn a_version_1_file_stays_version_1_after_an_unrelated_change() {
         changed.yaml,
         "version: 1\n# ours\nenabled: false\nreview:\n  consolidate: agent\n"
     );
-    let listed = set(&v1, "review.block_on", &json!(["critical"])).expect("laid out");
-    assert!(listed.yaml.contains("\nversion: 1\n"), "{}", listed.yaml);
+    let listed = set(&v1, "review.block_on", &json!(["critical"])).expect("in place");
+    assert!(
+        listed.yaml.starts_with("version: 1\n# ours\n"),
+        "{}",
+        listed.yaml
+    );
     assert_eq!(
         parse(&listed.yaml).expect("reads").version,
         crate::config::V1

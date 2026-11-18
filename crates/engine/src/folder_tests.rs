@@ -74,11 +74,25 @@ fn a_word_changed_keeps_the_persons_comments_and_layout() {
 }
 
 #[test]
-fn a_change_larger_than_a_word_lays_the_file_out_again() {
+fn a_change_larger_than_a_word_keeps_the_persons_comments_too() {
     let before = crate::config::parse(HAND_WRITTEN).expect("valid");
     let after = with_set(&before, "review.block_on", &json!(["critical"])).expect("set");
     let (text, laid_out) = rewritten(Some(HAND_WRITTEN), &changes(Some(&before), &after), &after);
-    assert!(laid_out);
+    assert!(!laid_out, "{text}");
+    assert!(text.starts_with(HAND_WRITTEN), "{text}");
+    assert_eq!(crate::config::parse(&text), Ok(after));
+}
+
+#[test]
+fn a_file_that_cannot_be_edited_in_place_is_laid_out_again() {
+    let flow = "version: 1
+enabled: false
+review: { consolidate: none }
+";
+    let before = crate::config::parse(flow).expect("valid");
+    let after = with_set(&before, "review.block_on", &json!(["critical"])).expect("set");
+    let (text, laid_out) = rewritten(Some(flow), &changes(Some(&before), &after), &after);
+    assert!(laid_out, "{text}");
     assert_eq!(crate::config::parse(&text), Ok(after));
 }
 

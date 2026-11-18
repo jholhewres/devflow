@@ -19,6 +19,7 @@ pub mod config;
 pub mod criteria;
 pub mod detect;
 pub mod dialect;
+mod edit;
 pub mod env;
 pub mod evidence;
 pub mod findings;
