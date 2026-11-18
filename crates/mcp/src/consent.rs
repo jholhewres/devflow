@@ -31,6 +31,9 @@ struct Kept {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Consent {
     file: PathBuf,
+    /// A host's own record of the two switches, which it keeps: devflow
+    /// switched on, and Decisions on enforce. The file is not read for them.
+    switches: Option<[bool; 2]>,
 }
 
 impl Consent {
@@ -45,6 +48,16 @@ impl Consent {
     pub fn at(folder: &Path) -> Consent {
         Consent {
             file: folder.join(FILE),
+            switches: None,
+        }
+    }
+
+    /// `self`, with the switches as the host keeps them; the rest is still
+    /// the file's.
+    pub fn switched_by_host(self, enabled: bool, enforce: bool) -> Consent {
+        Consent {
+            switches: Some([enabled, enforce]),
+            ..self
         }
     }
 
@@ -65,6 +78,12 @@ impl Consent {
 
     /// Whether the person made `ask` in the project at `root`.
     pub fn made(&self, root: &Path, ask: Ask) -> bool {
+        if let Some([enabled, enforce]) = self.switches {
+            return match ask {
+                Ask::Enable => enabled,
+                Ask::Enforce => enforce,
+            };
+        }
         let kept = self.kept();
         let key = key_of(root);
         match ask {
@@ -75,6 +94,9 @@ impl Consent {
 
     /// Keeps, or forgets, that the person made `ask` in the project.
     pub fn remember(&self, root: &Path, ask: Ask, yes: bool) -> Result<(), String> {
+        if self.switches.is_some() {
+            return Ok(());
+        }
         let mut kept = self.kept();
         let key = key_of(root);
         let set = match ask {

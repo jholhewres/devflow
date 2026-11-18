@@ -13,6 +13,7 @@ mod decisions;
 mod doctor;
 mod flow;
 mod hook;
+mod host;
 mod jev_cli;
 mod project;
 mod register;
@@ -42,6 +43,12 @@ enum Command {
     /// start installs a newer release in the background, unless
     /// DEVFLOW_NO_UPDATE=1.
     Mcp,
+    /// This binary's version and the host protocols it speaks.
+    Version {
+        /// As JSON: {"version", "protocols"}.
+        #[arg(long)]
+        json: bool,
+    },
     /// Install the latest release over this binary now, and bring the
     /// Claude Code plugin to it. Never asks anything.
     Update {
@@ -52,6 +59,9 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Serve one call from a host app (devpit) over stdio JSON-RPC: the
+    /// project's devflow.yaml and the flow's tools. A host runs this.
+    Host,
     /// Say which configuration applies to the project, if any.
     Status,
     /// Set devflow up: register it with the agent CLIs found here, write the
@@ -148,7 +158,9 @@ fn main() -> ExitCode {
             update::on_load();
             ExitCode::from(server::serve(&root) as u8)
         }
+        Command::Version { json } => version(json),
         Command::Update { check, json } => update::command(check, json),
+        Command::Host => host::run(&root),
         Command::Status => status(&root),
         Command::Setup(how) => setup_cli::run(&root, &how),
         Command::Doctor => doctor::run(&root),
@@ -173,6 +185,18 @@ fn main() -> ExitCode {
             action: Staging::Confirm { name },
         } => cli::confirm_stage(&root, &name, &consent::Consent::of_user()),
     }
+}
+
+fn version(json: bool) -> ExitCode {
+    if json {
+        println!(
+            "{}",
+            serde_json::json!({ "version": env!("CARGO_PKG_VERSION"), "protocols": host::PROTOCOLS })
+        );
+    } else {
+        println!("devflow {}", env!("CARGO_PKG_VERSION"));
+    }
+    ExitCode::SUCCESS
 }
 
 fn registering(how: &Registering, on: bool) -> ExitCode {

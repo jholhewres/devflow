@@ -178,6 +178,44 @@ pub fn set_in(
     written(layout, text, &before, &wanted, asks)
 }
 
+/// Several fields set at once, as a host's screen writes them. With `person`
+/// the change is the person's own click, so what only a click may raise is
+/// raised; without it, it is held back as [`set_in`] holds it.
+pub fn set_all_in(
+    layout: &Layout,
+    state: &State,
+    changes: &[(String, Value)],
+    person: bool,
+) -> Result<Proposal, Invalid> {
+    let text = match state {
+        State::Missing => {
+            return Err(Invalid::at(
+                None,
+                "",
+                "there is no devflow.yaml yet: set Devflow up first",
+            ))
+        }
+        State::Valid(text, _) | State::Invalid(Some(text), _) => text,
+        State::Invalid(None, invalid) => return Err(invalid.clone()),
+    };
+    let before = said(state);
+    if before.is_null() {
+        if let State::Invalid(_, invalid) = state {
+            return Err(invalid.clone());
+        }
+    }
+    let mut wanted = before.clone();
+    for (path, value) in changes {
+        wanted = preset::set_path(layout.dialect, wanted, path, value)?;
+    }
+    let asks = if person {
+        Vec::new()
+    } else {
+        held_back(layout, &before, &mut wanted)?
+    };
+    written(layout, text, &before, &wanted, asks)
+}
+
 /// The person's click: Devflow switched on, or Decisions moved to enforce.
 pub fn switched(state: &State, ask: Ask) -> Result<Proposal, Invalid> {
     switched_in(&Layout::default(), state, ask)
