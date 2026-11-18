@@ -17,18 +17,28 @@ pub fn skill(server: &Server, params: Value) -> Result<Value, String> {
     if let Some((skill, part)) = skills::part_named(asked) {
         return part_of(&project, skill, part);
     }
+    // A URI beside a skill's SKILL.md that names no part of it.
+    if let Some((name, file)) = asked
+        .strip_prefix("skill://devflow/")
+        .and_then(|rest| rest.split_once('/'))
+        .filter(|(_, file)| *file != "SKILL.md")
+    {
+        let name = skills::named(name).ok_or_else(|| format!("`{name}` is not a devflow skill"))?;
+        return part_of(&project, name, file);
+    }
     match params.get("part").and_then(Value::as_str) {
-        Some(part) => {
+        Some(part) if part != "SKILL.md" => {
             let name =
                 skills::named(asked).ok_or_else(|| format!("`{asked}` is not a devflow skill"))?;
             part_of(&project, name, part)
         }
-        None => one(&project, asked),
+        _ => one(&project, asked),
     }
 }
 
 /// One part of a skill, as the project resolves it.
 pub fn part_of(project: &Project, skill: &str, part: &str) -> Result<Value, String> {
+    let part = part.strip_suffix(".md").unwrap_or(part);
     let teams = project.teams();
     let found = skills::resolve_part(
         &devflow_engine::Dialect::DEVFLOW,

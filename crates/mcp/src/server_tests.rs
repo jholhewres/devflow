@@ -160,3 +160,18 @@ fn a_skills_part_is_served_by_the_tool_and_as_a_resource() {
         .unwrap()
         .contains("When `review` is not listed"));
 }
+
+#[test]
+fn a_part_is_asked_with_or_without_its_extension_and_an_unknown_one_says_so() {
+    let dir = tempfile::tempdir().unwrap();
+    let server = server(dir.path());
+    let ask = |params: serde_json::Value| crate::flow::skill::skill(&server, params);
+    let with = ask(serde_json::json!({ "name": "devflow-review", "part": "verify.md" })).unwrap();
+    let without = ask(serde_json::json!({ "name": "devflow-review", "part": "verify" })).unwrap();
+    assert_eq!(with["text"], without["text"]);
+    let main = ask(serde_json::json!({ "name": "devflow-review", "part": "SKILL.md" })).unwrap();
+    assert_eq!(main["name"], "devflow-review");
+    let why =
+        ask(serde_json::json!({ "uri": "skill://devflow/devflow-review/nope.md" })).unwrap_err();
+    assert!(why.contains("has no part `nope`"), "{why}");
+}
