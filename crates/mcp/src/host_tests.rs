@@ -418,3 +418,34 @@ fn devpits_host_gets_devflows_skills_and_parts_in_devpits_words() {
     );
     assert_eq!(verify["source"]["layer"], "built-in");
 }
+
+#[test]
+fn a_skill_comes_with_its_frontmatter_as_json() {
+    let dir = project(Some(FILE));
+    let personal = tempfile::tempdir().unwrap();
+    let mut session = None;
+    ask(
+        &mut session,
+        dir.path(),
+        "initialize",
+        json!({ "protocol": 1, "dialect": { "host": "devpit" }, "personal": { "skills": personal.path() } }),
+    );
+    let got = &ask(
+        &mut session,
+        dir.path(),
+        "skills/get",
+        json!({ "name": "devflow-plan" }),
+    )["result"];
+    assert_eq!(got["frontmatter"]["name"], "devflow-plan");
+    assert!(
+        got["frontmatter"]["description"]
+            .as_str()
+            .unwrap()
+            .contains("cards"),
+        "{got}"
+    );
+    let listed = &ask(&mut session, dir.path(), "skills/list", json!({}))["result"]["skills"];
+    for entry in listed.as_array().unwrap() {
+        assert_eq!(entry["frontmatter"]["name"], entry["name"], "{entry}");
+    }
+}

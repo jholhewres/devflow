@@ -329,6 +329,7 @@ fn listed(session: &Session) -> Value {
                 "name": name,
                 "stage": skill.stage,
                 "description": skill.frontmatter["description"],
+                "frontmatter": skill.frontmatter,
                 "source": source(&skill),
                 "parts": skills::parts(name),
             }),
@@ -384,6 +385,7 @@ fn skill(session: &Session, params: &Value) -> Result<Value, Failed> {
         "stage": skill.stage,
         "text": skill.text,
         "sha256": digest.trim_start_matches("sha256:"),
+        "frontmatter": skill.frontmatter,
         "source": source(&skill),
     }))
 }

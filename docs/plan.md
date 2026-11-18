@@ -348,6 +348,8 @@ person's, are served as written.
   (`skills::resolve_part`), and served by the `skill` tool's `part`, as
   `skill://devflow/devflow-review/<part>.md` resources, and by the host's
   `skills/get {name, part}`. `skills/list` names each skill's `parts`.
+- 0.5.1: `skills/get` without a part, and each `skills/list` entry, carry the
+  SKILL.md's `frontmatter` as JSON, so a host reads no YAML.
 
 ## Release
 
