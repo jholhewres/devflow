@@ -449,3 +449,19 @@ fn a_skill_comes_with_its_frontmatter_as_json() {
         assert_eq!(entry["frontmatter"]["name"], entry["name"], "{entry}");
     }
 }
+
+#[test]
+fn a_folder_that_is_not_one_devflow_keeps_is_refused_before_anything_is_pinned() {
+    let dir = project(None);
+    let mut session = None;
+    for folder in ["../elsewhere", ".devpit", "/tmp"] {
+        let said = ask(
+            &mut session,
+            dir.path(),
+            "initialize",
+            json!({ "protocol": 1, "folder": folder }),
+        );
+        assert_eq!(said["error"]["code"], PARAMS, "{folder}: {said}");
+    }
+    assert!(devflow_engine::folder::pinned().is_none());
+}

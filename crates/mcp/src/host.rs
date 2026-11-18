@@ -180,6 +180,7 @@ fn initialize(params: &Value, root: &Path) -> Result<(Session, Value), Failed> {
     if !root.is_dir() {
         return Err((PARAMS, format!("{} is not a folder", root.display())));
     }
+    let folder = pinned(params.get("folder"))?;
     let switch = |name: &str| params["consent"][name].as_bool().unwrap_or(false);
     let server = Server {
         cwd: root,
@@ -191,6 +192,7 @@ fn initialize(params: &Value, root: &Path) -> Result<(Session, Value), Failed> {
         "protocol": protocol,
         "methods": METHODS,
         "tools": TOOLS,
+        "folder": folder,
     });
     let personal = params["personal"]["skills"]
         .as_str()
@@ -201,6 +203,35 @@ fn initialize(params: &Value, root: &Path) -> Result<(Session, Value), Failed> {
         personal,
     };
     Ok((session, said))
+}
+
+/// The folder the host keeps devflow in, pinned for this call: every read
+/// and write goes there, whatever other devflow.yaml the project has.
+fn pinned(asked: Option<&Value>) -> Result<Option<&'static str>, Failed> {
+    let Some(asked) = asked.filter(|asked| !asked.is_null()) else {
+        return Ok(None);
+    };
+    let dir = match asked.as_str() {
+        Some(folder::DIR) => folder::DIR,
+        Some(folder::LEGACY) => folder::LEGACY,
+        _ => {
+            return Err((
+                PARAMS,
+                format!("`folder` is `{}` or `{}`", folder::DIR, folder::LEGACY),
+            ))
+        }
+    };
+    match folder::pinned() {
+        Some(already) if already == dir => {}
+        Some(already) => {
+            return Err((
+                PARAMS,
+                format!("this call already keeps devflow in {already}"),
+            ))
+        }
+        None => folder::pin(dir).map_err(|why| (FAILED, why))?,
+    }
+    Ok(Some(dir))
 }
 
 /// The configuration as the file says it, valid or not.

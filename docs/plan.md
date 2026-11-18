@@ -350,6 +350,9 @@ person's, are served as written.
   `skills/get {name, part}`. `skills/list` names each skill's `parts`.
 - 0.5.1: `skills/get` without a part, and each `skills/list` entry, carry the
   SKILL.md's `frontmatter` as JSON, so a host reads no YAML.
+- 0.5.2: `initialize` takes `folder` (`.devflow` or `.devpit/devflow`) and pins
+  it for the call (`folder::pin`): a project that also has another
+  devflow.yaml is read and written only in the host's folder.
 
 ## Release
 

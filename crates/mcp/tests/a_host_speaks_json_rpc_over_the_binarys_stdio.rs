@@ -91,3 +91,51 @@ fn a_line_that_is_not_utf8_is_answered_and_the_call_goes_on() {
     assert_eq!(replies[0]["error"]["code"], -32700);
     assert_eq!(replies[1]["result"]["protocol"], 1);
 }
+
+#[test]
+fn a_host_that_pins_its_folder_reads_and_writes_only_there() {
+    let repo = tempfile::tempdir().unwrap();
+    let home = tempfile::tempdir().unwrap();
+    let ours = repo.path().join(".devpit/devflow/devflow.yaml");
+    std::fs::create_dir_all(ours.parent().unwrap()).unwrap();
+    let text = "version: 2\nreview:\n  consolidate: none\n";
+    std::fs::write(&ours, text).unwrap();
+    let other = repo.path().join("devflow.yaml");
+    std::fs::write(&other, text).unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_devflow"))
+        .args(["host", "--root"])
+        .arg(repo.path())
+        .env("HOME", home.path())
+        .env("XDG_CONFIG_HOME", home.path().join("config"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let calls = [
+        json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize",
+                "params": { "protocol": 1, "folder": ".devpit/devflow" } }),
+        json!({ "jsonrpc": "2.0", "id": 2, "method": "config/write",
+                "params": { "changes": [{ "path": "review.consolidate", "value": "agent" }] } }),
+    ];
+    let mut stdin = child.stdin.take().unwrap();
+    for call in &calls {
+        writeln!(stdin, "{call}").unwrap();
+    }
+    drop(stdin);
+    let out = child.wait_with_output().unwrap();
+    let replies: Vec<Value> = String::from_utf8(out.stdout)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(replies[0]["result"]["folder"], ".devpit/devflow");
+    assert_eq!(
+        replies[1]["result"]["file"], ".devpit/devflow/devflow.yaml",
+        "{}",
+        replies[1]
+    );
+    assert!(std::fs::read_to_string(&ours)
+        .unwrap()
+        .contains("consolidate: agent"));
+    assert_eq!(std::fs::read_to_string(&other).unwrap(), text);
+}
