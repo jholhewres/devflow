@@ -60,7 +60,10 @@ jobs:
           sudo ln -sf /opt/zig-linux-x86_64-0.13.0/zig /usr/local/bin/zig
           cargo install --locked cargo-zigbuild --version 0.24.0
 
+      # The mark a published binary carries: only it ever replaces itself.
       - name: Build
+        env:
+          DEVFLOW_RELEASE: "1"
         run: cargo zigbuild --release --locked -p devflow-mcp --target ${{ matrix.target }}.2.31
 
       - name: glibc baseline is 2.31
@@ -107,6 +110,8 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: Build
+        env:
+          DEVFLOW_RELEASE: "1"
         run: cargo build --release --locked -p devflow-mcp --target ${{ matrix.target }}
 
       - name: Archive

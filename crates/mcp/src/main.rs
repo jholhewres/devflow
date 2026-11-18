@@ -19,6 +19,7 @@ mod register;
 mod server;
 mod setup_cli;
 mod tools;
+mod update;
 
 /// An evidence-gated engineering flow for coding agents: briefing, context,
 /// plan, execution, review and completion, where work is done only when its
@@ -37,8 +38,20 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Serve MCP over stdio. Agent CLIs run this; a person does not.
+    /// Serve MCP over stdio. Agent CLIs run this; a person does not. Each
+    /// start installs a newer release in the background, unless
+    /// DEVFLOW_NO_UPDATE=1.
     Mcp,
+    /// Install the latest release over this binary now, and bring the
+    /// Claude Code plugin to it. Never asks anything.
+    Update {
+        /// Say whether a newer release is out, and change nothing.
+        #[arg(long)]
+        check: bool,
+        /// One JSON line: {"updated", "from", "to"}, or {"error"}.
+        #[arg(long)]
+        json: bool,
+    },
     /// Say which configuration applies to the project, if any.
     Status,
     /// Set devflow up: register it with the agent CLIs found here, write the
@@ -131,7 +144,11 @@ fn main() -> ExitCode {
     let cli = Cli::parse();
     let root = cli.root.unwrap_or_else(|| PathBuf::from("."));
     match cli.command {
-        Command::Mcp => ExitCode::from(server::serve(&root) as u8),
+        Command::Mcp => {
+            update::on_load();
+            ExitCode::from(server::serve(&root) as u8)
+        }
+        Command::Update { check, json } => update::command(check, json),
         Command::Status => status(&root),
         Command::Setup(how) => setup_cli::run(&root, &how),
         Command::Doctor => doctor::run(&root),
