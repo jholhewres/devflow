@@ -213,7 +213,7 @@ fn a_change_that_cannot_be_made_in_place_is_refused_and_writes_nothing() {
     assert!(said["error"]["message"]
         .as_str()
         .unwrap()
-        .contains("cannot be edited in place"));
+        .contains("cannot take this change in place"));
     assert_eq!(on_file(dir.path()), text);
 }
 
@@ -254,5 +254,38 @@ fn a_project_on_devpits_folder_is_edited_in_place_too() {
     assert_eq!(
         std::fs::read_to_string(&file).unwrap(),
         "version: 1\nreview:\n  consolidate: none # ours\n  block_on:\n    - critical\n"
+    );
+}
+
+#[test]
+fn an_invalid_file_with_a_field_devflow_does_not_read_is_fixed_in_place() {
+    let text = "version: 2\nenabled: maybe\nours:\n  kept: true\n";
+    let dir = project(Some(text));
+    let mut session = started(dir.path(), false);
+    let said = ask(
+        &mut session,
+        dir.path(),
+        "config/write",
+        json!({ "changes": [{ "path": "enabled", "value": false }] }),
+    );
+    assert_eq!(said["result"]["changed"], true, "{said}");
+    assert_eq!(on_file(dir.path()), text.replace("maybe", "false"));
+    let typo = ask(
+        &mut session,
+        dir.path(),
+        "config/write",
+        json!({ "changes": [{ "path": "review.consolidat", "value": "none" }] }),
+    );
+    assert_eq!(typo["error"]["code"], FAILED, "{typo}");
+}
+
+#[test]
+fn a_request_without_a_method_is_answered_with_its_id() {
+    let dir = project(None);
+    let said = answer(r#"{"jsonrpc":"2.0","id":9}"#, dir.path(), &mut None);
+    let said: Value = serde_json::from_str(&said.reply.unwrap()).unwrap();
+    assert_eq!(
+        (said["id"].clone(), said["error"]["code"].clone()),
+        (json!(9), json!(REQUEST))
     );
 }

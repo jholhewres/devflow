@@ -4,7 +4,7 @@
 //! person's two switches and passes it in; nothing here updates the binary.
 
 use std::io::{BufRead, Read, Write};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::ExitCode;
 use std::sync::Mutex;
 
@@ -46,12 +46,12 @@ pub struct Answer {
 pub fn run(root: &Path) -> ExitCode {
     let mut session = None;
     let mut stdin = std::io::stdin().lock();
-    let mut line = String::new();
+    let mut raw = Vec::new();
     loop {
-        line.clear();
+        raw.clear();
         match (&mut stdin)
             .take(MOST_LINE_BYTES as u64 + 1)
-            .read_line(&mut line)
+            .read_until(b'\n', &mut raw)
         {
             Ok(0) | Err(_) => return ExitCode::SUCCESS,
             Ok(read) if read > MOST_LINE_BYTES => {
@@ -60,10 +60,16 @@ pub fn run(root: &Path) -> ExitCode {
             }
             Ok(_) => {}
         }
+        let Ok(line) = std::str::from_utf8(&raw) else {
+            if !send(&error(Value::Null, PARSE, "that is not UTF-8")) {
+                return ExitCode::FAILURE;
+            }
+            continue;
+        };
         if line.trim().is_empty() {
             continue;
         }
-        let answer = answer(&line, root, &mut session);
+        let answer = answer(line, root, &mut session);
         if let Some(reply) = answer.reply {
             if !send(&reply) {
                 return ExitCode::FAILURE;
@@ -96,10 +102,8 @@ pub fn answer(line: &str, root: &Path, session: &mut Option<Session>) -> Answer 
         return reply(error(Value::Null, PARSE, "that is not JSON"), false);
     };
     let Some(method) = message.get("method").and_then(Value::as_str) else {
-        return reply(
-            error(Value::Null, REQUEST, "a request names its method"),
-            false,
-        );
+        let id = message.get("id").cloned().unwrap_or(Value::Null);
+        return reply(error(id, REQUEST, "a request names its method"), false);
     };
     // A notification has no id and gets no answer.
     let Some(id) = message.get("id").cloned() else {
@@ -154,10 +158,11 @@ fn initialize(params: &Value, root: &Path) -> Result<(Session, Value), Failed> {
             ),
         ));
     };
+    // A relative root stands under the one the host was started with.
     let root = params
         .get("root")
         .and_then(Value::as_str)
-        .map_or_else(|| root.to_path_buf(), PathBuf::from);
+        .map_or_else(|| root.to_path_buf(), |given| root.join(given));
     if !root.is_dir() {
         return Err((PARAMS, format!("{} is not a folder", root.display())));
     }
@@ -249,8 +254,9 @@ pub fn write(server: &Server, params: &Value) -> Result<Value, Failed> {
         .map_err(|invalid| failed(invalid.to_string()))?;
     if proposal.laid_out {
         return Err(failed(format!(
-            "{} cannot be edited in place for this change, so nothing was written: edit it by \
-             hand, or write it as a flow-style map no longer",
+            "{} cannot take this change in place without losing its comments or fields devflow \
+             does not read (a flow-style map such as `review: {{ … }}`, or a list whose items \
+             carry such fields), so nothing was written: edit it by hand",
             layout.file
         )));
     }

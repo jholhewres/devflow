@@ -65,3 +65,29 @@ fn a_host_call_initializes_writes_the_config_and_ends_when_stdin_closes() {
     );
     assert!(!home.path().join("state/devflow/update.lock").exists());
 }
+
+#[test]
+fn a_line_that_is_not_utf8_is_answered_and_the_call_goes_on() {
+    let repo = tempfile::tempdir().unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_devflow"))
+        .args(["host", "--root"])
+        .arg(repo.path())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    stdin.write_all(b"\xff\xfe\n").unwrap();
+    let call =
+        json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": { "protocol": 1 } });
+    writeln!(stdin, "{call}").unwrap();
+    drop(stdin);
+    let out = child.wait_with_output().unwrap();
+    let replies: Vec<Value> = String::from_utf8(out.stdout)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(replies[0]["error"]["code"], -32700);
+    assert_eq!(replies[1]["result"]["protocol"], 1);
+}
