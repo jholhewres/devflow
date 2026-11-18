@@ -45,7 +45,7 @@ delta, so it always goes to one `devflow-all`, unless devflow.yaml says
 
 ### 1. Have devflow run the reviewers
 
-Call `review` with the item:
+Call {{tool:review}} with the item:
 
 ```json
 { "item": "<item id>" }
@@ -66,7 +66,7 @@ review with "nothing to review".
 
 Done when the answer names the run, the packet and `pending`.
 
-When `review` is not listed, do its work yourself: pin BASE
+When {{tool:review}} is not listed, do its work yourself: pin BASE
 (`git merge-base HEAD <base branch>`) and HEAD (`git rev-parse HEAD`), write
 the packet with the headings above (each filled or "none"), run all three
 personas as in step 2, and write `findings.json` beside the packet as step
@@ -209,8 +209,8 @@ lets one hold the item. The answer's `next` names them by their place in
 
 1. Write its exploit test into the project, from its `poc`, at the seam the
    hole is reached through. Run it: red is the hole, shown.
-2. Record it: call `evidence` with the test and its failing line in `red`.
-3. Call `review` with `run` and `verified`, naming the test:
+2. Record it: call {{tool:evidence}} with the test and its failing line in `red`.
+3. Call {{tool:review}} with `run` and `verified`, naming the test:
 
 ```json
 { "item": "<item id>", "run": "<the run>", "verified": [{ "finding": 2, "result": "confirmed", "evidence": "<the run where it went red>", "test": "<the exploit test, as the runner names it>" }] }
@@ -326,13 +326,13 @@ answer whose defect has none.
 Once the review is done, for each defect, ask the person before running its
 `impact`, then run it **read-only**: a `SELECT`, a log search, a metrics
 query, never a write, a migration or a script left on a server. Tell the
-person what each showed. The draft from `publish` carries one
+person what each showed. The draft from {{tool:publish}} carries one
 follow-up ticket per medium or worse finding, each defect with its `impact`,
 for the person to file.
 
 ### Publish on the pull request
 
-Once a review without an item is done, `publish` drafts it for
+Once a review without an item is done, {{tool:publish}} drafts it for
 its pull request, never posting by itself:
 
 ```json

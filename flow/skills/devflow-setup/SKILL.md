@@ -14,7 +14,7 @@ devflow **on** is the person's command in a terminal, never yours.
 
 ## Ground rules
 
-- **Preview before write.** `setup` and `set`
+- **Preview before write.** {{tool:setup}} and {{tool:set}}
   preview by default and write only with `"apply": true`, which follows an
   explicit yes to the latest preview.
 - **Facts are devflow's, decisions are the person's.** Detection answers what is
@@ -36,7 +36,7 @@ devflow **on** is the person's command in a terminal, never yours.
 
 ### 1. Read the state
 
-Call `status`. It answers with the state (`no file`, `disabled`,
+Call {{tool:status}}. It answers with the state (`no file`, `disabled`,
 `active`, `invalid`), what devflow detected with the file each fact came from,
 and the current `devflow.yaml`.
 
@@ -51,7 +51,7 @@ Done when you can say the state and list each detected fact with its source.
 
 ### 2. Preview the recommended setup
 
-Call `setup` with `{"preset": "recommended"}` and no `apply`.
+Call {{tool:setup}} with `{"preset": "recommended"}` and no `apply`.
 The recommended setup is: briefing and plan approved by the person; the
 detected checks, each as a script under `.devflow/scripts/`; one
 reviewer, with the security persona; the `devflow-done` gate; Decisions in
@@ -131,7 +131,7 @@ activation waits for their command.
 
 ### 5. Change one field
 
-Call `set` with the field as a dotted path and its new value,
+Call {{tool:set}} with the field as a dotted path and its new value,
 without `apply`:
 
 ```json
@@ -169,7 +169,7 @@ redaction too (`gitleaks --redact`).
 
 A stage's `model` (`stages.<stage>.model`) and a reviewer's
 (`review.reviewers.<persona>.model`) are a tier, `small`, `default` or `large`,
-or a model id; `set` refuses anything else with what to write, and `status`
+or a model id; {{tool:set}} refuses anything else with what to write, and {{tool:status}}
 lists each one's model and where it came from (`models.origins`). A path names
 an item of a list by its place, or by its name: a stage by its name, a
 reviewer by its persona, a check by its `name`; a name two items share is
@@ -180,7 +180,7 @@ refused, with their places.
 review: only a finding an exploit test confirmed holds the item.
 `security.targets` lists the project's own running instances it may send
 requests to (loopback, `localhost`, `host.docker.internal` or a docker
-service's name); like `enabled`, it is the person's: `set` refuses it and the
+service's name); like `enabled`, it is the person's: {{tool:set}} refuses it and the
 person runs `devflow config set security.targets '["http://localhost:8080"]'`
 in a terminal, which shows each target and asks them to confirm it.
 

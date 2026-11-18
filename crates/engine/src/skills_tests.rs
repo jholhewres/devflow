@@ -199,7 +199,10 @@ fn a_card_is_closed_with_a_handoff_and_the_next_starts_in_a_fresh_session() {
 fn a_record_names_this_devpit_and_the_text_of_each_skill_it_followed() {
     let made = made_by(&["devflow-review", "not-a-skill"]);
     assert_eq!(made["version"], env!("CARGO_PKG_VERSION"));
-    let shipped = include_str!("../../../flow/skills/devflow-review/SKILL.md");
+    let shipped = rendered(
+        include_str!("../../../flow/skills/devflow-review/SKILL.md"),
+        &Words::default(),
+    );
     assert_eq!(
         made["skills"],
         json!({ "devflow-review": format!("sha256:{:x}", Sha256::digest(shipped.as_bytes())) })
@@ -219,4 +222,55 @@ fn a_project_on_devpits_folder_keeps_its_skills_there() {
     let skill = resolve(project.path(), personal.path(), "devflow-plan").expect("resolved");
     assert_eq!(skill.layer, Layer::Project);
     assert_eq!(skill.text, OURS);
+}
+
+#[test]
+fn a_tool_is_said_in_the_hosts_words_or_else_as_devflow_says_it() {
+    let words = Words::of_json(&json!({ "tools": {
+        "item": "`devpit_card`",
+        "evidence": 7,
+        "gate": "x".repeat(MOST_WORD + 1),
+    } }));
+    assert_eq!(
+        rendered(
+            "Read it with {{tool:item}}, then {{tool:evidence}} and {{tool:gate}}.",
+            &words
+        ),
+        "Read it with `devpit_card`, then `evidence` and `gate`."
+    );
+    for left in ["{{tool:}}", "{{tool:Item}}", "{{tool:item", "{{phrase:x}}"] {
+        assert_eq!(rendered(left, &words), left);
+    }
+}
+
+#[test]
+fn every_built_in_skill_is_said_whole_in_devflows_words() {
+    for (name, _, text) in Dialect::DEVFLOW.assets.skills {
+        let said = rendered(text, &Words::default());
+        assert!(!said.contains("{{"), "{name} keeps a placeholder");
+        assert!(frontmatter(&said, name).is_ok(), "{name}");
+    }
+}
+
+#[test]
+fn a_built_in_skill_is_resolved_in_a_hosts_words_and_a_projects_own_as_written() {
+    let project = tempfile::tempdir().expect("project");
+    let personal = tempfile::tempdir().expect("personal");
+    let words = Words::of_json(&json!({ "tools": { "evidence": "`devpit_devflow_evidence`" } }));
+    let said = resolve_said(
+        &Dialect::DEVFLOW,
+        &words,
+        project.path(),
+        personal.path(),
+        &[],
+        "devflow-execution",
+    )
+    .expect("built in");
+    assert!(
+        said.text.contains("Call `devpit_devflow_evidence`"),
+        "{}",
+        said.text
+    );
+    let described = described_with(&Dialect::DEVFLOW, &words);
+    assert_eq!(described.len(), 7);
 }

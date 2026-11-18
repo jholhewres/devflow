@@ -6,6 +6,7 @@
 //! Each is described the way the MCP Skills extension (SEP-2640) does: a
 //! `skill://` URI, its frontmatter, and its file with digest and size.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use serde_json::{json, Value};
@@ -31,6 +32,64 @@ pub const MOST_BYTES: u64 = 128 * 1024;
 /// build ships it.
 const BUILT_IN: [(&str, Option<&str>, &str); 7] = Dialect::DEVFLOW.assets.skills;
 
+/// The words a built-in skill's text is said in: each tool by devflow's own
+/// name (`{{tool:evidence}}` in flow/skills/) as a host names it, with its
+/// backticks. A tool a host does not name is said as devflow says it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Words {
+    pub tools: BTreeMap<String, String>,
+}
+
+/// The most a host's word for a tool may take.
+const MOST_WORD: usize = 200;
+
+impl Words {
+    /// A host's dialect as JSON: `{"tools": {"item": "`devpit_card`"}}`.
+    /// What is not a short text is left out.
+    pub fn of_json(dialect: &Value) -> Words {
+        let tools = dialect["tools"]
+            .as_object()
+            .into_iter()
+            .flatten()
+            .filter_map(|(name, said)| {
+                let said = said.as_str().filter(|said| said.len() <= MOST_WORD)?;
+                Some((name.clone(), said.to_owned()))
+            })
+            .collect();
+        Words { tools }
+    }
+}
+
+/// `text` with each `{{tool:<name>}}` said in `words`.
+pub fn rendered(text: &str, words: &Words) -> String {
+    const OPEN: &str = "{{tool:";
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find(OPEN) {
+        out.push_str(&rest[..at]);
+        let after = &rest[at + OPEN.len()..];
+        let name = after
+            .find("}}")
+            .map(|end| &after[..end])
+            .filter(|name| !name.is_empty() && name.bytes().all(|b| b.is_ascii_lowercase()));
+        match name {
+            Some(name) => {
+                match words.tools.get(name) {
+                    Some(said) => out.push_str(said),
+                    None => out.push_str(&format!("`{name}`")),
+                }
+                rest = &after[name.len() + 2..];
+            }
+            None => {
+                out.push_str(OPEN);
+                rest = after;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
 /// What made a record: this devpit's version, which every crate shares with
 /// the app, and the digest of each built-in skill named, as this build ships
 /// it — so a run says which text of the flow it followed.
@@ -46,6 +105,7 @@ pub fn made_by_in(dialect: &Dialect, skills: &[&str]) -> Value {
         .iter()
         .filter(|(name, _, _)| skills.contains(name))
         .map(|(name, _, text)| {
+            let text = rendered(text, &Words::default());
             let digest = format!("sha256:{:x}", Sha256::digest(text.as_bytes()));
             ((*name).to_owned(), Value::from(digest))
         })
@@ -110,12 +170,20 @@ pub fn described() -> Vec<(&'static str, Option<&'static str>, String)> {
 
 /// [`described`] from `dialect`'s skills.
 pub fn described_in(dialect: &Dialect) -> Vec<(&'static str, Option<&'static str>, String)> {
+    described_with(dialect, &Words::default())
+}
+
+/// [`described_in`], said in a host's `words`.
+pub fn described_with(
+    dialect: &Dialect,
+    words: &Words,
+) -> Vec<(&'static str, Option<&'static str>, String)> {
     dialect
         .assets
         .skills
         .iter()
         .map(|(name, stage, text)| {
-            let said = frontmatter(text, name)
+            let said = frontmatter(&rendered(text, words), name)
                 .ok()
                 .and_then(|front| front.get("description")?.as_str().map(str::to_owned))
                 .unwrap_or_default();
@@ -161,6 +229,18 @@ pub fn resolve_with_in(
     teams: &[Team],
     name: &str,
 ) -> Result<Skill, String> {
+    resolve_said(dialect, &Words::default(), project, personal, teams, name)
+}
+
+/// [`resolve_with_in`], the built-in skill said in a host's `words`.
+pub fn resolve_said(
+    dialect: &Dialect,
+    words: &Words,
+    project: &Path,
+    personal: &Path,
+    teams: &[Team],
+    name: &str,
+) -> Result<Skill, String> {
     let (name, stage, built_in) = dialect
         .assets
         .skills
@@ -173,6 +253,7 @@ pub fn resolve_with_in(
                 names().collect::<Vec<_>>().join(", ")
             )
         })?;
+    let built_in = rendered(built_in, words);
     let mine = |layer: Layer, base: &Path, relative: String| -> Result<Option<Skill>, String> {
         let refused = |why: String| format!("the {} {relative}: {why}", layer.word());
         let Some((file, text)) = read_in(base, &relative).map_err(refused)? else {
@@ -218,8 +299,8 @@ pub fn resolve_with_in(
         stage,
         layer: Layer::BuiltIn,
         file: None,
-        text: built_in.to_owned(),
-        frontmatter: frontmatter(built_in, name)?,
+        frontmatter: frontmatter(&built_in, name)?,
+        text: built_in,
     })
 }
 

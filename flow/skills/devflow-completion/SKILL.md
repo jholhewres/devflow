@@ -7,7 +7,7 @@ license: Apache-2.0
 # Devflow: completion
 
 Nothing on a work item is done without **fresh evidence**: a run of its checks made
-in this turn, after the last change to the code. Before `finish`,
+in this turn, after the last change to the code. Before {{tool:finish}},
 every acceptance criterion is matched to that evidence, the handoff note is
 written and the gate comment is on the item. When anything is missing, the
 item stays where it is and you say what is missing.
@@ -27,7 +27,7 @@ item stays where it is and you say what is missing.
 
 ### 1. Read the item
 
-Read the item with `item`: its criteria, the `[devflow]` comments (the
+Read the item with {{tool:item}}: its criteria, the `[devflow]` comments (the
 evidence runs, the review and its verdict) and the files it names.
 
 Done when you can list every criterion and every piece of evidence on the item
@@ -35,7 +35,7 @@ with its time.
 
 ### 2. Run the checks now
 
-Call `evidence` with the item and its criteria, as in the
+Call {{tool:evidence}} with the item and its criteria, as in the
 execution stage: it runs every configured check and keeps the reports in the run.
 
 ```json
@@ -79,7 +79,7 @@ test or a finding. A row with nothing to name makes the gate fail.
 
 ### 4. Post the gate
 
-Call `gate` with the item:
+Call {{tool:gate}} with the item:
 
 ```json
 { "item": "<item id>" }
@@ -94,12 +94,12 @@ the comment on the item: the table under one line,
 ```
 
 and answers `result` (`passed` or `failed`) with what is `missing`. When devflow
-does not offer the tool, post that comment yourself with `comment`.
+does not offer the tool, post that comment yourself with {{tool:comment}}.
 
 The gate passes when n equals m, every check is green and no finding is in
 `review.block_on`. When it fails, reply with what is missing and which stage
 fixes it (execution, or review), and end the turn: no handoff as finished, no
-`finish`, which devflow refuses anyway while the gate fails. Where
+{{tool:finish}}, which devflow refuses anyway while the gate fails. Where
 devflow's hooks are on, a turn that ends with the gate failing is sent back
 with the same list.
 
@@ -111,7 +111,7 @@ Done when the gate comment is on the item with n and m filled.
 
 ### 5. Write the handoff note
 
-Call `handoff` with the item and a `note` of four lines:
+Call {{tool:handoff}} with the item and a `note` of four lines:
 
 ```json
 {
@@ -128,13 +128,13 @@ holds references rather than copies.
 
 ### 6. Finish
 
-Only after a passing gate: call `finish` with a `note` of one
+Only after a passing gate: call {{tool:finish}} with a `note` of one
 line per criterion and its evidence. Reply with the table and the word
 "finished", and end the turn.
 
 The session ends with its item: the handoff note of step 5 closes it. The
 next item starts in a **fresh session**, never in this one: it reads the item,
-the brief and the handoff, not this conversation. `next` names that item; start
+the brief and the handoff, not this conversation. {{tool:next}} names that item; start
 it in a new session.
 
 Done when the item was finished after a passing gate, or left in place after a
@@ -157,7 +157,7 @@ failing one, and the reply says which.
 
 - "should", "probably", "seems to" about a result.
 - "Done!", "all green", "ready to merge" before a run in this turn.
-- About to call `finish` without the gate comment.
+- About to call {{tool:finish}} without the gate comment.
 - A criterion whose evidence is "covered by the suite".
 - Pressure in the request: a deadline, "trust me", "don't bother re-running",
   "I'm exhausted".

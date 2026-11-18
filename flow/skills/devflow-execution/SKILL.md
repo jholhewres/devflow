@@ -28,11 +28,11 @@ and keeping the evidence; review and the finish are the next stages.
 
 ### 1. Read the item and its checks
 
-Read the item with `item`: criteria, likely files, verify command,
+Read the item with {{tool:item}}: criteria, likely files, verify command,
 blocked by. Read the epic's context section for the seam and the commands, and
 `.devflow/devflow.yaml` for the checks under `stages.execution.checks`.
 When an item it depends on is not done, name it and end the turn. Otherwise
-call `start`. When this item's work already landed in another, or
+call {{tool:start}}. When this item's work already landed in another, or
 the work is no longer wanted, it is not built: the plan skill's step 7 merges
 or cuts it, after the person's yes.
 
@@ -112,14 +112,14 @@ a screenshot. Run it red, then green, like any test. Tests the project already
 has stay where they are.
 
 An `e2e` only under `stages.execution.release` runs once for a release, not
-for each item: write no spec for the item, and leave it out of `evidence`.
+for each item: write no spec for the item, and leave it out of {{tool:evidence}}.
 
 Done when every visible criterion has a test in the spec, or the project has
 no `e2e` check among the item's checks.
 
 ### 6. Record the evidence
 
-Call `evidence`. devflow runs the item's checks from
+Call {{tool:evidence}}. devflow runs the item's checks from
 `devflow.yaml`, keeps the reports in `.devflow/runs/<item>/<time>/` (the
 answer's `run`; never committed), comments the item with each file and answers with a short summary: each check passed
 or failed, the counts and the paths.
@@ -164,7 +164,7 @@ The item stays where it is; finishing belongs to the completion stage. End the
 turn.
 
 **One item per session.** The completion stage closes the item with
-`handoff`, and the next item of the plan starts in a **fresh session**,
+{{tool:handoff}}, and the next item of the plan starts in a **fresh session**,
 not this one: it reads the item, the brief and the handoff note, never this
 conversation, so it pays for none of this item's history.
 
