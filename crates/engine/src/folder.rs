@@ -180,8 +180,9 @@ pub fn rewritten_in(
     changed: &[Change],
     after: &Config,
 ) -> (String, bool) {
-    if let Some(edited) = text.and_then(|text| in_place(text, changed)) {
-        if config::parse_in(dialect, &edited).as_ref() == Ok(after) {
+    if let Some((text, edited)) = text.and_then(|text| Some((text, in_place(text, changed)?))) {
+        let read = config::parse_in(dialect, &edited);
+        if read.as_ref() == Ok(after) && keeps_unread(dialect, text, &edited) {
             return (edited, false);
         }
     }
@@ -196,14 +197,32 @@ pub fn rewritten_at(
     changed: &[Change],
     after: &Config,
 ) -> (String, bool) {
-    if let Some(edited) = text.and_then(|text| in_place(text, changed)) {
+    if let Some((text, edited)) = text.and_then(|text| Some((text, in_place(text, changed)?))) {
         let read = config::parse_in(layout.dialect, &edited)
             .map(|config| relocated_in(layout.dir, config));
-        if read.as_ref() == Ok(after) {
+        if read.as_ref() == Ok(after) && keeps_unread(layout.dialect, text, &edited) {
             return (edited, false);
         }
     }
     (render_in(layout.dialect, after), true)
+}
+
+/// Whether an edit of a valid file kept every field this build does not
+/// read where it was: a list replaced whole is written from what devflow
+/// reads, and would drop them.
+fn keeps_unread(dialect: &crate::Dialect, text: &str, edited: &str) -> bool {
+    if config::parse_in(dialect, text).is_err() {
+        return true;
+    }
+    let fields = |text: &str| {
+        let mut fields: Vec<String> = config::unread(text)
+            .into_iter()
+            .map(|unread| unread.field)
+            .collect();
+        fields.sort();
+        fields
+    };
+    fields(text) == fields(edited)
 }
 
 /// The JSON form of a file that parses as YAML, valid or not: what a change

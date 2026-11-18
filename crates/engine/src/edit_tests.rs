@@ -140,3 +140,25 @@ fn a_value_that_is_not_a_plain_word_is_quoted() {
         Some("version: 2\nnote: \"yes: no # not a comment\"\n")
     );
 }
+
+#[test]
+fn a_file_with_windows_line_endings_keeps_them() {
+    let text = "version: 2\r\nreview:\r\n  consolidate: none\r\n";
+    assert_eq!(
+        set(text, "review.block_on", &json!(["critical"])).as_deref(),
+        Some("version: 2\r\nreview:\r\n  consolidate: none\r\n  block_on:\r\n    - critical\r\n")
+    );
+}
+
+#[test]
+fn a_list_item_is_written_with_what_names_it_first() {
+    let text = set(
+        "version: 2\n",
+        "stages",
+        &json!([{ "approve": "person", "uses": "builtin/plan" }]),
+    );
+    assert_eq!(
+        text.as_deref(),
+        Some("version: 2\nstages:\n  - uses: builtin/plan\n    approve: person\n")
+    );
+}

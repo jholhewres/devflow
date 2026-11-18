@@ -153,3 +153,17 @@ fn a_project_on_devpits_folder_is_compared_as_it_is_read() {
     assert!(!laid_out, "{edited}");
     assert_eq!(edited, text.replace("jev #", "none #"));
 }
+
+#[test]
+fn a_list_replaced_that_would_drop_an_unread_field_lays_the_file_out() {
+    let text = "version: 2\nstages:\n  - uses: builtin/execution\n    checks:\n      - name: unit\n        run: make test\n        later: 2 # a newer devflow reads this\n";
+    let before = crate::config::parse(text).expect("valid");
+    let after = with_set(
+        &before,
+        "stages.execution.checks",
+        &json!([{ "name": "unit", "run": "make test" }, { "name": "lint", "run": "make lint" }]),
+    )
+    .expect("set");
+    let (edited, laid_out) = rewritten(Some(text), &changes(Some(&before), &after), &after);
+    assert!(laid_out, "{edited}");
+}

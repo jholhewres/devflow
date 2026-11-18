@@ -16,7 +16,13 @@ pub(crate) fn set(text: &str, path: &str, value: &Json) -> Option<String> {
         lines.last_mut()?.push('\n');
     }
     let parts: Vec<&str> = path.split('.').collect();
-    edit(lines, &tree, &parts, value, Vec::new())
+    let edited = edit(lines, &tree, &parts, value, Vec::new())?;
+    // New lines end as the file's own do.
+    Some(if text.contains("\r\n") {
+        edited.replace("\r\n", "\n").replace('\n', "\r\n")
+    } else {
+        edited
+    })
 }
 
 /// The edit at `parts` below `map`; `chain` holds the keys walked through,
@@ -266,7 +272,12 @@ fn block(value: &Json, col: usize, lines: &mut Vec<String>) {
                 match (item, inline(item)) {
                     (_, Some(word)) => lines.push(format!("{pad}- {word}\n")),
                     (Json::Object(fields), None) => {
-                        for (at, (name, value)) in fields.iter().enumerate() {
+                        // What names an item comes first, as it is written by hand.
+                        let mut fields: Vec<(&String, &Json)> = fields.iter().collect();
+                        fields.sort_by_key(|(name, _)| {
+                            !["uses", "name", "agent"].contains(&name.as_str())
+                        });
+                        for (at, (name, value)) in fields.into_iter().enumerate() {
                             let mut entry = entry_lines(name, value, col + 2);
                             let lead = if at == 0 {
                                 format!("{pad}- ")

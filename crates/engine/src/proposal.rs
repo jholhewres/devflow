@@ -261,7 +261,15 @@ fn written(
     wanted: &Value,
     asks: Vec<Ask>,
 ) -> Result<Proposal, Invalid> {
-    let config = config::from_json_in(layout.dialect, wanted)?;
+    let config = match config::from_json_in(layout.dialect, wanted) {
+        Ok(config) => config,
+        // A field the change does not touch and this build does not read,
+        // in a file being fixed, is left as it is.
+        Err(invalid) if !touched(&invalid.field, before, wanted) => {
+            config::from_files_in(layout.dialect, wanted)?
+        }
+        Err(invalid) => return Err(invalid),
+    };
     // A check the change adds runs a script of its own, as a setup's does.
     let (config, scripts) = match config::from_json_in(layout.dialect, before) {
         Ok(had) => {
@@ -289,6 +297,16 @@ fn written(
         changes,
         scripts,
         asks,
+    })
+}
+
+/// Whether `field` is one the change from `before` to `wanted` sets, or
+/// lies under one.
+fn touched(field: &str, before: &Value, wanted: &Value) -> bool {
+    preset::diff(before, wanted).iter().any(|change| {
+        field == change.path
+            || field.starts_with(&format!("{}.", change.path))
+            || change.path.starts_with(&format!("{field}."))
     })
 }
 
