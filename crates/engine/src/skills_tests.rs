@@ -204,9 +204,10 @@ fn a_record_names_this_devpit_and_the_text_of_each_skill_it_followed() {
         &Words::default(),
     );
     assert_eq!(
-        made["skills"],
-        json!({ "devflow-review": format!("sha256:{:x}", Sha256::digest(shipped.as_bytes())) })
+        made["skills"]["devflow-review"],
+        json!(format!("sha256:{:x}", Sha256::digest(shipped.as_bytes())))
     );
+    assert!(made["skills"].get("not-a-skill").is_none());
 }
 
 #[test]
@@ -360,4 +361,70 @@ fn a_part_is_resolved_like_its_skill_and_named_by_its_uri() {
         "x"
     )
     .is_err());
+}
+
+#[test]
+fn a_hosts_words_that_are_not_plain_yaml_are_quoted_in_the_frontmatter() {
+    let project = tempfile::tempdir().expect("project");
+    let personal = tempfile::tempdir().expect("personal");
+    for said in ["ticket: a unit", "Devflow #beta"] {
+        let words = Words::of_json(&json!({ "phrases": { "work item": said, "devflow": said } }));
+        for name in names() {
+            let skill = resolve_said(
+                &Dialect::DEVFLOW,
+                &words,
+                project.path(),
+                personal.path(),
+                &[],
+                name,
+            )
+            .unwrap_or_else(|why| panic!("{name}: {why}"));
+            assert!(skill.frontmatter["description"].is_string(), "{name}");
+        }
+        let completion = described_with(&Dialect::DEVFLOW, &words)
+            .into_iter()
+            .find(|(name, ..)| *name == "devflow-completion")
+            .expect("completion");
+        assert!(completion.2.contains(said), "{}", completion.2);
+    }
+}
+
+#[test]
+fn a_hosts_own_tool_reaches_the_phrases_its_shipped_words_say() {
+    let shipped = Words::shipped("devpit").expect("devpit's words");
+    for (key, said) in &shipped.phrases {
+        for tool in shipped.tools.values() {
+            assert!(!said.contains(tool.as_str()), "{key:?} says {tool} itself");
+        }
+    }
+    let words = Words::of_json(&json!({ "host": "devpit", "tools": { "brief": "`brief_v2`" } }));
+    let briefing = Dialect::DEVFLOW.assets.skills[0].2;
+    let said = rendered(briefing, &words);
+    assert!(!said.contains("devpit_devflow_brief"), "{said}");
+    assert!(said.contains("`brief_v2`"));
+}
+
+#[test]
+fn a_refused_skill_file_is_named_by_its_layer_and_its_place() {
+    let project = tempfile::tempdir().expect("project");
+    let personal = tempfile::tempdir().expect("personal");
+    write(
+        project.path(),
+        ".devflow/skills/devflow-plan/SKILL.md",
+        "no frontmatter\n",
+    );
+    let why = resolve(project.path(), personal.path(), "devflow-plan").expect_err("refused");
+    assert!(
+        why.starts_with("the project .devflow/skills/devflow-plan/SKILL.md: "),
+        "{why}"
+    );
+}
+
+#[test]
+fn a_record_names_the_parts_of_the_skills_it_followed() {
+    let made = made_by(&["devflow-review"]);
+    assert!(made["skills"]["devflow-review/verify"]
+        .as_str()
+        .is_some_and(|said| said.starts_with("sha256:")));
+    assert!(made["skills"].get("devflow-plan").is_none());
 }

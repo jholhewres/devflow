@@ -158,17 +158,23 @@ pub fn made_by(skills: &[&str]) -> Value {
 
 /// [`made_by`] in `dialect`: its version, and the digests of its skills.
 pub fn made_by_in(dialect: &Dialect, skills: &[&str]) -> Value {
-    let digests: serde_json::Map<String, Value> = dialect
+    let digest = |text: &str| {
+        let text = rendered(text, &Words::default());
+        Value::from(format!("sha256:{:x}", Sha256::digest(text.as_bytes())))
+    };
+    let mut digests: serde_json::Map<String, Value> = dialect
         .assets
         .skills
         .iter()
         .filter(|(name, _, _)| skills.contains(name))
-        .map(|(name, _, text)| {
-            let text = rendered(text, &Words::default());
-            let digest = format!("sha256:{:x}", Sha256::digest(text.as_bytes()));
-            ((*name).to_owned(), Value::from(digest))
-        })
+        .map(|(name, _, text)| ((*name).to_owned(), digest(text)))
         .collect();
+    // Each part a skill loads is named too, by `<skill>/<part>`.
+    for (skill, part, text) in dialect.assets.parts {
+        if skills.contains(skill) {
+            digests.insert(format!("{skill}/{part}"), digest(text));
+        }
+    }
     json!({ "version": dialect.version, "skills": digests })
 }
 
@@ -242,9 +248,9 @@ pub fn described_with(
         .skills
         .iter()
         .map(|(name, stage, text)| {
-            let said = frontmatter(&rendered(text, words), name)
+            let said = said_whole(text, words, name)
                 .ok()
-                .and_then(|front| front.get("description")?.as_str().map(str::to_owned))
+                .and_then(|(_, front)| front.get("description")?.as_str().map(str::to_owned))
                 .unwrap_or_default();
             (*name, *stage, said)
         })
@@ -317,23 +323,18 @@ pub fn resolve_said(
         personal,
         teams,
     };
-    let Some((layer, file, text)) = places.file(name, "SKILL.md")? else {
-        let text = rendered(built_in, words);
+    let Some((layer, file, text, at)) = places.file(name, "SKILL.md")? else {
+        let (text, frontmatter) = said_whole(built_in, words, name)?;
         return Ok(Skill {
             name,
             stage,
             layer: Layer::BuiltIn,
             file: None,
-            frontmatter: frontmatter(&text, name)?,
+            frontmatter,
             text,
         });
     };
-    let frontmatter = frontmatter(&text, name).map_err(|why| {
-        let at = file
-            .as_ref()
-            .map_or(name.to_owned(), |file| file.display().to_string());
-        format!("the {} {at}: {why}", layer.word())
-    })?;
+    let frontmatter = frontmatter(&text, name).map_err(|why| format!("{at}: {why}"))?;
     Ok(Skill {
         name,
         stage,
@@ -344,8 +345,9 @@ pub fn resolve_said(
     })
 }
 
-/// A skill's file as a layer had it: the layer, where it was read, its text.
-type InLayer = (Layer, Option<PathBuf>, String);
+/// A skill's file as a layer had it: the layer, where it was read, its
+/// text, and how a refusal names it.
+type InLayer = (Layer, Option<PathBuf>, String, String);
 
 /// Where a skill's files are looked for, the first that has one winning.
 struct Layers<'a> {
@@ -360,18 +362,20 @@ impl Layers<'_> {
     /// there but cannot be used is refused, never passed over.
     fn file(&self, name: &str, file: &str) -> Result<Option<InLayer>, String> {
         let mine = |layer: Layer, base: &Path, relative: String| {
-            let refused = |why: String| format!("the {} {relative}: {why}", layer.word());
+            let at = format!("the {} {relative}", layer.word());
             read_in(base, &relative)
-                .map_err(refused)
-                .map(|read| read.map(|(path, text)| (layer, Some(path), text)))
+                .map_err(|why| format!("{at}: {why}"))
+                .map(|read| read.map(|(path, text)| (layer, Some(path), text, at.clone())))
         };
         let project = format!("{}/{name}/{file}", dir(self.project));
         if let Some(found) = mine(Layer::Project, self.project, project)? {
             return Ok(Some(found));
         }
         for team in self.teams {
-            if let Some(text) = team.read(&format!("skills/{name}/{file}"))? {
-                return Ok(Some((Layer::Team, None, text)));
+            let relative = format!("skills/{name}/{file}");
+            if let Some(text) = team.read(&relative)? {
+                let at = format!("{}'s {relative}", team.name);
+                return Ok(Some((Layer::Team, None, text, at)));
             }
         }
         mine(Layer::Personal, self.personal, format!("{name}/{file}"))
@@ -443,9 +447,16 @@ pub fn resolve_part(
         personal,
         teams,
     };
-    let (layer, file, text) = layers
+    let (layer, file, text, _) = layers
         .file(skill, &format!("{part}.md"))?
-        .unwrap_or_else(|| (Layer::BuiltIn, None, rendered(built_in, words)));
+        .unwrap_or_else(|| {
+            (
+                Layer::BuiltIn,
+                None,
+                rendered(built_in, words),
+                String::new(),
+            )
+        });
     Ok(Part {
         skill,
         part,
@@ -579,6 +590,35 @@ fn frontmatter(text: &str, name: &str) -> Result<Value, String> {
     Ok(front)
 }
 
+/// A built-in SKILL.md said in `words`, and its frontmatter. A host's words
+/// that would not read as a plain YAML value are put in quotes, so its
+/// description is what the host said, never cut short or refused.
+fn said_whole(template: &str, words: &Words, name: &str) -> Result<(String, Value), String> {
+    let text = rendered(template, words);
+    let line = fenced(template).and_then(|yaml| {
+        yaml.lines()
+            .find_map(|line| line.strip_prefix("description: "))
+    });
+    let Some(line) = line else {
+        return frontmatter(&text, name).map(|front| (text, front));
+    };
+    let wanted = rendered(line, words);
+    if let Ok(front) = frontmatter(&text, name) {
+        if front["description"] == wanted.as_str() {
+            return Ok((text, front));
+        }
+    }
+    let plain = format!("description: {wanted}\n");
+    let quoted = format!(
+        "description: {}\n",
+        serde_json::to_string(&wanted).unwrap_or_default()
+    );
+    let text = text.replacen(&plain, &quoted, 1);
+    let front = frontmatter(&text, name)
+        .map_err(|why| format!("`{name}` said in the host's words: {why}"))?;
+    Ok((text, front))
+}
+
 /// The YAML between the opening `---` and the next line that is only `---`.
 fn fenced(text: &str) -> Option<&str> {
     let body = text
@@ -601,7 +641,7 @@ impl Skill {
     }
 
     /// The extension's entry: what `skills/list` and `skills/get` will answer
-    /// once hosts ask for them. SKILL.md is the skill's only file.
+    /// once hosts ask for them. Its SKILL.md; a part is a resource of its own.
     pub fn entry(&self) -> Value {
         let uri = uri(self.name);
         json!({

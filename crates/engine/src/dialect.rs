@@ -27,7 +27,7 @@ pub struct Assets {
     /// Each skill's name, its stage (none for the setup's) and its text.
     pub skills: [(&'static str, Option<&'static str>, &'static str); 7],
     /// The parts a skill loads only when asked: its name, the part's, the text.
-    pub parts: [(&'static str, &'static str, &'static str); 5],
+    pub parts: &'static [(&'static str, &'static str, &'static str)],
     /// Each persona's name and text.
     pub personas: [(&'static str, &'static str); 4],
     /// Each rubric's name and text: finding, brief, plan.
@@ -77,7 +77,7 @@ impl Assets {
                 include_str!("../../../flow/skills/devflow-setup/SKILL.md"),
             ),
         ],
-        parts: [
+        parts: &[
             (
                 "devflow-review",
                 "verify",

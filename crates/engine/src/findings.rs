@@ -1313,7 +1313,7 @@ pub fn counted(findings: &[Value], severity: Severity) -> usize {
         .count()
 }
 
-/// The comment's first line, as the review skill writes it.
+/// The comment's first line: `[devflow] review: <n> findings (…) · verdict: <verdict>`.
 pub fn headline(findings: &Value) -> String {
     let list = findings["findings"]
         .as_array()
