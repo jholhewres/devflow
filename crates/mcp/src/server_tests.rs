@@ -130,3 +130,33 @@ fn the_skills_are_prompts_and_resources_too() {
     );
     assert_eq!(missing["error"]["code"], -32602);
 }
+
+#[test]
+fn a_skills_part_is_served_by_the_tool_and_as_a_resource() {
+    let dir = tempfile::tempdir().unwrap();
+    let server = server(dir.path());
+    let listed = handle(
+        r#"{"jsonrpc":"2.0","id":1,"method":"resources/list"}"#,
+        &server,
+    )
+    .unwrap();
+    assert!(
+        listed.contains("skill://devflow/devflow-review/verify.md"),
+        "{listed}"
+    );
+    let read = handle(
+        r#"{"jsonrpc":"2.0","id":2,"method":"resources/read","params":{"uri":"skill://devflow/devflow-review/retro.md"}}"#,
+        &server,
+    )
+    .unwrap();
+    assert!(read.contains("retro, code already in production"), "{read}");
+    let said = crate::flow::skill::skill(
+        &server,
+        serde_json::json!({ "name": "devflow-review", "part": "by-hand" }),
+    )
+    .unwrap();
+    assert!(said["text"]
+        .as_str()
+        .unwrap()
+        .contains("When `review` is not listed"));
+}

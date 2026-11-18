@@ -51,7 +51,8 @@ pub static TOOLS: [Tool; 18] = [
         name: "skill",
         description: "The devflow skill to follow for a stage, as this project resolves it: its own <folder>/skills/<name>/SKILL.md, else a team layer's, else the person's, else the built-in one. Call it before each stage and follow what it returns; devflow-setup is for changing the setup. Any stage's skill is given when asked, to run that stage on demand, with or without a devflow.yaml.",
         input: || json!({ "type": "object", "properties": {
-            "name": { "type": "string", "enum": ["devflow-briefing", "devflow-context", "devflow-plan", "devflow-execution", "devflow-review", "devflow-completion", "devflow-setup"], "description": "The skill: devflow-<stage>, or devflow-setup." }
+            "name": { "type": "string", "enum": ["devflow-briefing", "devflow-context", "devflow-plan", "devflow-execution", "devflow-review", "devflow-completion", "devflow-setup"], "description": "The skill: devflow-<stage>, or devflow-setup." },
+            "part": { "type": "string", "description": "One of the parts a skill loads only when it says so, such as devflow-review's verify, without-card, retro, publish or by-hand." }
         }, "required": ["name"] }),
         call: skill::skill,
     },

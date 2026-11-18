@@ -14,7 +14,37 @@ pub fn skill(server: &Server, params: Value) -> Result<Value, String> {
         .iter()
         .find_map(|key| params.get(key).and_then(Value::as_str))
         .ok_or("pass the skill's `name`, such as devflow-plan")?;
-    one(&project, asked)
+    if let Some((skill, part)) = skills::part_named(asked) {
+        return part_of(&project, skill, part);
+    }
+    match params.get("part").and_then(Value::as_str) {
+        Some(part) => {
+            let name =
+                skills::named(asked).ok_or_else(|| format!("`{asked}` is not a devflow skill"))?;
+            part_of(&project, name, part)
+        }
+        None => one(&project, asked),
+    }
+}
+
+/// One part of a skill, as the project resolves it.
+pub fn part_of(project: &Project, skill: &str, part: &str) -> Result<Value, String> {
+    let teams = project.teams();
+    let found = skills::resolve_part(
+        &devflow_engine::Dialect::DEVFLOW,
+        &skills::Words::default(),
+        (&project.root, &project::personal_skills(), &teams),
+        skill,
+        part,
+    )?;
+    Ok(json!({
+        "name": found.skill,
+        "part": found.part,
+        "uri": skills::part_uri(found.skill, found.part),
+        "layer": found.layer.word(),
+        "file": found.file.as_ref().map(|file| file.display().to_string()),
+        "text": found.text,
+    }))
 }
 
 /// One skill, by name or URI, with its text: any stage's, so a stage runs on
@@ -57,19 +87,26 @@ pub fn prompt(project: &Project, params: &Value) -> Result<Value, String> {
     }))
 }
 
-/// The skills as MCP resources, `skill://devflow/<name>/SKILL.md`.
+/// The skills as MCP resources, `skill://devflow/<name>/SKILL.md`, and
+/// their parts beside them.
 pub fn resources() -> Value {
-    let resources: Vec<Value> = skills::described()
-        .into_iter()
-        .map(|(name, _, description)| {
-            json!({
-                "uri": skills::uri(name),
-                "name": name,
-                "description": description,
+    let mut resources: Vec<Value> = Vec::new();
+    for (name, _, description) in skills::described() {
+        resources.push(json!({
+            "uri": skills::uri(name),
+            "name": name,
+            "description": description,
+            "mimeType": "text/markdown",
+        }));
+        for part in skills::parts(name) {
+            resources.push(json!({
+                "uri": skills::part_uri(name, part),
+                "name": format!("{name}/{part}"),
+                "description": format!("Part of {name}, loaded only when it says so."),
                 "mimeType": "text/markdown",
-            })
-        })
-        .collect();
+            }));
+        }
+    }
     json!({ "resources": resources })
 }
 
@@ -78,7 +115,10 @@ pub fn resource(project: &Project, params: &Value) -> Result<Value, String> {
         .get("uri")
         .and_then(Value::as_str)
         .ok_or("pass the resource's `uri`")?;
-    let skill = one(project, uri)?;
+    let skill = match skills::part_named(uri) {
+        Some((name, part)) => part_of(project, name, part)?,
+        None => one(project, uri)?,
+    };
     Ok(json!({
         "contents": [{ "uri": uri, "mimeType": "text/markdown", "text": skill["text"] }],
     }))

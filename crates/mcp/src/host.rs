@@ -11,6 +11,7 @@ use std::sync::Mutex;
 use devflow_engine::folder::{self, State};
 use devflow_engine::{proposal, security, setup, skills};
 use serde_json::{json, Value};
+use sha2::Digest;
 
 use crate::consent::Consent;
 use crate::server::Server;
@@ -329,6 +330,7 @@ fn listed(session: &Session) -> Value {
                 "stage": skill.stage,
                 "description": skill.frontmatter["description"],
                 "source": source(&skill),
+                "parts": skills::parts(name),
             }),
             Err(why) => json!({ "name": name, "error": why }),
         })
@@ -348,9 +350,32 @@ fn skill(session: &Session, params: &Value) -> Result<Value, Failed> {
                 format!("pass a skill's `name`: {}", known.join(", ")),
             )
         })?;
-    match params["part"].as_str() {
-        None | Some("SKILL.md") => {}
-        Some(part) => return Err((PARAMS, format!("{name} has no part `{part}`"))),
+    if let Some(part) = params["part"].as_str().filter(|part| *part != "SKILL.md") {
+        let part = part.trim_end_matches(".md");
+        if !skills::parts(name).contains(&part) {
+            return Err((PARAMS, format!("{name} has no part `{part}`")));
+        }
+        let project = session.server.project();
+        let teams = project.teams();
+        let found = skills::resolve_part(
+            &devflow_engine::Dialect::DEVFLOW,
+            &session.words,
+            (&project.root, &session.personal, &teams),
+            name,
+            part,
+        )
+        .map_err(|why| (FAILED, why))?;
+        let digest = sha2::Sha256::digest(found.text.as_bytes());
+        return Ok(json!({
+            "name": name,
+            "part": found.part,
+            "text": found.text,
+            "sha256": format!("{digest:x}"),
+            "source": {
+                "layer": found.layer.word(),
+                "file": found.file.as_ref().map(|file| file.display().to_string()),
+            },
+        }));
     }
     let skill = resolved(session, name).map_err(|why| (FAILED, why))?;
     let digest = skill.digest();

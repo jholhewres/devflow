@@ -363,12 +363,58 @@ fn a_built_in_skill_is_got_in_the_hosts_words_with_its_digest() {
     assert_eq!(said["source"]["layer"], "built-in");
     for (params, code) in [
         (
-            json!({ "name": "devflow-execution", "part": "verify.md" }),
+            json!({ "name": "devflow-execution", "part": "verify" }),
             PARAMS,
         ),
+        (json!({ "name": "devflow-review", "part": "nope" }), PARAMS),
         (json!({ "name": "nope" }), PARAMS),
     ] {
         let refused = ask(&mut session, dir.path(), "skills/get", params);
         assert_eq!(refused["error"]["code"], code, "{refused}");
     }
+}
+
+#[test]
+fn devpits_host_gets_devflows_skills_and_parts_in_devpits_words() {
+    let dir = project(Some(FILE));
+    let personal = tempfile::tempdir().unwrap();
+    let mut session = None;
+    ask(
+        &mut session,
+        dir.path(),
+        "initialize",
+        json!({ "protocol": 1, "dialect": { "host": "devpit" }, "personal": { "skills": personal.path() } }),
+    );
+    let listed = &ask(&mut session, dir.path(), "skills/list", json!({}))["result"]["skills"];
+    let review = listed
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|one| one["name"] == "devflow-review")
+        .unwrap();
+    assert_eq!(
+        review["parts"],
+        json!(["verify", "without-card", "retro", "publish", "by-hand"])
+    );
+    let brief = &ask(
+        &mut session,
+        dir.path(),
+        "skills/get",
+        json!({ "name": "devflow-briefing" }),
+    )["result"];
+    let text = brief["text"].as_str().unwrap();
+    assert!(text.contains("an epic card on the board"), "{text}");
+    assert!(!text.contains("[[") && !text.contains("{{"));
+    let verify = &ask(
+        &mut session,
+        dir.path(),
+        "skills/get",
+        json!({ "name": "devflow-review", "part": "verify" }),
+    )["result"];
+    let text = verify["text"].as_str().unwrap();
+    assert!(
+        text.contains("for a card whose `devflow.yaml` sets"),
+        "{text}"
+    );
+    assert_eq!(verify["source"]["layer"], "built-in");
 }
