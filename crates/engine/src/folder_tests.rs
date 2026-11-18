@@ -136,3 +136,20 @@ fn a_project_is_read_where_it_keeps_devflow() {
     std::fs::write(legacy.path().join(FILE), "version: 2\n").expect("write");
     assert_eq!(Layout::of(legacy.path()), Layout::default());
 }
+
+#[test]
+fn a_project_on_devpits_folder_is_compared_as_it_is_read() {
+    let dir = tempfile::tempdir().expect("dir");
+    std::fs::create_dir_all(dir.path().join(LEGACY)).expect("folder");
+    let text = "version: 1\nreview:\n  consolidate: jev # ours\n";
+    std::fs::write(dir.path().join(crate::locate::DEVPIT), text).expect("write");
+    let State::Valid(_, before) = read(dir.path()) else {
+        panic!("valid");
+    };
+    let after = with_set(&before, "review.consolidate", &json!("none")).expect("set");
+    let layout = Layout::of(dir.path());
+    let (edited, laid_out) =
+        rewritten_at(&layout, Some(text), &changes(Some(&before), &after), &after);
+    assert!(!laid_out, "{edited}");
+    assert_eq!(edited, text.replace("jev #", "none #"));
+}

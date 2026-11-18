@@ -107,11 +107,13 @@ impl Default for Layout {
 
 /// `config` as `root` keeps it: a project in devpit's folder that never
 /// moved its E2E specs keeps them in that folder.
-pub fn relocated(root: &Path, mut config: Config) -> Config {
-    if pinned().is_none()
-        && dir(root) == LEGACY
-        && config.stages.execution.e2e_dir == config::E2E_DIR
-    {
+pub fn relocated(root: &Path, config: Config) -> Config {
+    relocated_in(dir(root), config)
+}
+
+/// [`relocated`], for a project that keeps devflow in `dir`.
+fn relocated_in(dir: &str, mut config: Config) -> Config {
+    if pinned().is_none() && dir == LEGACY && config.stages.execution.e2e_dir == config::E2E_DIR {
         config.stages.execution.e2e_dir = config::LEGACY_E2E_DIR.to_owned();
     }
     config
@@ -184,6 +186,24 @@ pub fn rewritten_in(
         }
     }
     (render_in(dialect, after), true)
+}
+
+/// [`rewritten_in`] for a project laid out as `layout`: the edited text is
+/// read as the project's file is, relocated, before it is compared.
+pub fn rewritten_at(
+    layout: &Layout,
+    text: Option<&str>,
+    changed: &[Change],
+    after: &Config,
+) -> (String, bool) {
+    if let Some(edited) = text.and_then(|text| in_place(text, changed)) {
+        let read = config::parse_in(layout.dialect, &edited)
+            .map(|config| relocated_in(layout.dir, config));
+        if read.as_ref() == Ok(after) {
+            return (edited, false);
+        }
+    }
+    (render_in(layout.dialect, after), true)
 }
 
 /// The JSON form of a file that parses as YAML, valid or not: what a change

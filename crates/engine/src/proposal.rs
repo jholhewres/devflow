@@ -131,7 +131,7 @@ pub fn setup_in(
     let changes = preset::diff(&before, &config.to_json());
     // A setup run again over the person's file keeps their comments, unless
     // what it changes is more than a word.
-    let (yaml, laid_out) = folder::rewritten_in(layout.dialect, text_of(state), &changes, &config);
+    let (yaml, laid_out) = folder::rewritten_at(layout, text_of(state), &changes, &config);
     Ok(Proposal {
         changes,
         files: setup::planned_in(layout, &yaml, &scripts, playwright.as_deref()),
@@ -280,7 +280,7 @@ fn written(
     } else {
         preset::diff(before, &config.to_json())
     };
-    let (yaml, laid_out) = folder::rewritten_in(layout.dialect, Some(text), &changes, &config);
+    let (yaml, laid_out) = folder::rewritten_at(layout, Some(text), &changes, &config);
     Ok(Proposal {
         files: setup::config_only_in(layout, &yaml, &scripts),
         config,

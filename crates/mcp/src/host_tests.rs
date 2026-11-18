@@ -232,3 +232,27 @@ fn status_reads_the_hosts_switch_not_the_consent_file() {
     }
     assert_ne!(said_off["state"], said_on["state"], "{said_off} {said_on}");
 }
+
+#[test]
+fn a_project_on_devpits_folder_is_edited_in_place_too() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join(".devpit/devflow/devflow.yaml");
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    let text = "version: 1\nreview:\n  consolidate: jev # ours\n";
+    std::fs::write(&file, text).unwrap();
+    let mut session = started(dir.path(), false);
+    let said = ask(
+        &mut session,
+        dir.path(),
+        "config/write",
+        json!({ "changes": [
+            { "path": "review.consolidate", "value": "none" },
+            { "path": "review.block_on", "value": ["critical"] },
+        ] }),
+    );
+    assert_eq!(said["result"]["changed"], true, "{said}");
+    assert_eq!(
+        std::fs::read_to_string(&file).unwrap(),
+        "version: 1\nreview:\n  consolidate: none # ours\n  block_on:\n    - critical\n"
+    );
+}
