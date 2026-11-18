@@ -302,10 +302,9 @@ linking the engine, and the binary keeps itself current.
   not name is said as devflow says it, so devflow's own text is unchanged.
   `skills/list` and `skills/get` resolve each skill project → team →
   personal → built-in and say its layer, file and sha256.
-- Next, each adding to `methods`: the phrases where a host's text differs by
-  more than a tool's name and the review skill's parts, then the gate and its
-  hooks over the host's work items, evidence, review, brief and plan, publish
-  and stage, and the host's screens.
+- Next, each adding to `methods`: the gate and its hooks over the host's work
+  items, evidence, review, brief and plan, publish and stage, and the host's
+  screens.
 
 **devflow.yaml keeps what it does not read**
 
@@ -316,6 +315,39 @@ linking the engine, and the binary keeps itself current.
   `config/write` refuses instead.
 - A field this build does not read is left out of the layers too, not
   refused: a file a newer devflow wrote still reads, and `unread` names it.
+
+## Skills in the host's words: 0.5.0
+
+0.5.0 adds to 0.4.0's API. A project's own skills, and a team's or the
+person's, are served as written.
+
+- flow/skills/ is one text for every host. A tool is `{{tool:<name>}}`, and a
+  phrase a host says otherwise is `[[devflow's words]]`, or `[[key::devflow's
+  words]]` when the same words read differently elsewhere. A host's words
+  replace a phrase by its key; what a host does not say is said as devflow
+  says it (`skills::rendered`, `skills::Words`).
+- devflow ships each host's words in flow/hosts/: devpit's in
+  `devpit.json`. A host sends `"dialect": {"host": "devpit"}` and nothing
+  else; its own `tools` or `phrases` win per key. Every phrase a skill marks
+  has devpit's words, and every word in `devpit.json` is said somewhere.
+- `tests/fixtures/devpit/` is the golden for every skill and part said in
+  devpit's words, compared word by word. It was checked against devpit's
+  own flow/ at 118996ca. What differs from that text does so on purpose:
+  - devflow's newer text, in devpit's words: abuse cases and trust boundaries,
+    the attack and its exploit tests, SARIF, models and security targets.
+  - What both said, now said once, with the engine as the reference: a
+    release-only E2E still gets its spec; the recommended setup's defaults;
+    `consolidate`'s default `none`; the advisory plan rubric; and the review
+    skill's shorter wording.
+  - What only one host does: devflow's `next` tool, devpit's orchestrator
+    applying a plan, the activation (a terminal command or a click), and the
+    handoff's arguments.
+- The review skill loads its parts only when asked: `verify`,
+  `without-card`, `retro`, `publish` and `by-hand`. They are in
+  `Assets::parts`, resolved through the layers like a SKILL.md
+  (`skills::resolve_part`), and served by the `skill` tool's `part`, as
+  `skill://devflow/devflow-review/<part>.md` resources, and by the host's
+  `skills/get {name, part}`. `skills/list` names each skill's `parts`.
 
 ## Release
 
