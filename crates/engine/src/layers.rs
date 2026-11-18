@@ -408,7 +408,7 @@ pub fn layered_in(
             fields.insert("locked".to_owned(), Value::from(own.locked.clone()));
         }
     }
-    let config = folder::relocated(root, config::from_json_in(dialect, &merged)?);
+    let config = folder::relocated(root, config::from_files_in(dialect, &merged)?);
     Ok(Layered {
         config,
         teams,

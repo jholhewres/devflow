@@ -341,3 +341,17 @@ fn a_project_without_a_file_reviews_with_the_persons_reviewers() {
     assert_eq!(personas, ["devflow-security", "devflow-spec"]);
     assert!(!mine.enabled, "a layer never switches a project on");
 }
+
+#[test]
+fn a_field_this_build_does_not_read_is_left_out_of_the_layers_not_refused() {
+    let root = tempfile::tempdir().expect("root");
+    let home = tempfile::tempdir().expect("home");
+    let home = Home {
+        personal: home.path().join("personal"),
+        teams: home.path().join("teams"),
+    };
+    let text = "version: 2\nenabled: true\nnewer: { field: 1 }\nreview:\n  later: yes\n";
+    let layered = layered(root.path(), text, &home).expect("a newer file still reads");
+    assert!(layered.config.enabled);
+    assert_eq!(crate::config::unread(text).len(), 2);
+}

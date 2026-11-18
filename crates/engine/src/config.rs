@@ -635,6 +635,18 @@ pub fn from_json_in(
     read(dialect, &node::from_json(value), false)
 }
 
+/// [`from_json_in`] for what the files said, layered: a field this build
+/// does not read is left out, as [`parse`] leaves it, not refused.
+pub(crate) fn from_files_in(
+    dialect: &crate::Dialect,
+    value: &serde_json::Value,
+) -> Result<Config, Invalid> {
+    let before = UNREAD.with(|unread| unread.replace(Some(Vec::new())));
+    let config = read(dialect, &node::from_json(value), false);
+    UNREAD.with(|unread| unread.replace(before));
+    config
+}
+
 pub(crate) fn joined(path: &str, name: &str) -> String {
     if path.is_empty() {
         name.to_owned()
