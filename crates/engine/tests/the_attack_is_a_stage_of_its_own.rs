@@ -398,6 +398,30 @@ fn the_gate_holds_an_item_the_attack_is_due_on_until_it_ran_and_its_holes_are_sh
         stale.iter().any(|said| said.contains("prove it again")),
         "{stale:?}"
     );
+    let many = |severity: &str| {
+        let hypotheses: Vec<Value> = (0..7)
+            .map(|at| json!({ "id": format!("h{at}"), "status": "confirmed", "severity": severity,
+                "file": SENSITIVE, "line": at + 1, "title": format!("hole {at}"),
+                "verified": { "by": "sandbox", "result": "confirmed" }, "exploit": { "test": "t" } }))
+            .collect();
+        vec![(
+            config::ATTACK.to_owned(),
+            Some((
+                "20261119T110000Z".to_owned(),
+                json!({ "hypotheses": hypotheses }),
+            )),
+        )]
+    };
+    let seven = missing(&many("high"), true, None);
+    assert!(
+        seven.iter().any(|said| said.contains("and 1 more")),
+        "every one is checked: {seven:?}"
+    );
+    let below = missing(&many("medium"), true, None);
+    assert!(
+        below.iter().all(|said| !said.contains("hypothes")),
+        "below block_on is followed up: {below:?}"
+    );
 
     let per_item = parsed("version: 1\nstages:\n  attack: per-item\n");
     let evidence = evidence(true);
@@ -653,4 +677,35 @@ fn a_confirmed_exploit_is_proven_red_at_its_base_and_green_at_head() {
         .expect("reason")
         .contains("does not reproduce"));
     assert!(one.get("verified").is_none());
+}
+
+/// The proof runs at HEAD's commit: a fix left uncommitted is refused
+/// before any sandbox is looked for.
+#[cfg(unix)]
+#[test]
+fn a_proof_waits_for_the_fix_to_be_committed() {
+    use std::time::SystemTime;
+    let (dir, root, holed, fixed) = fixed_repo();
+    std::fs::write(
+        root.join("src/auth/session.rs"),
+        "check the key, and more\n",
+    )
+    .expect("edit");
+    let folder = dir.path().join("run");
+    std::fs::create_dir_all(&folder).expect("run");
+    std::fs::write(
+        folder.join(attack::REPORT),
+        json!({ "head": holed, "hypotheses": [] }).to_string(),
+    )
+    .expect("report");
+    let refused = attack::prove(&attack::Proving {
+        root: &root,
+        folder: &folder,
+        config: &Config::default(),
+        head: &fixed,
+        scratch: &dir.path().join("trees"),
+        at: SystemTime::now(),
+    })
+    .expect_err("dirty");
+    assert!(refused.contains("commit the fix first"), "{refused}");
 }

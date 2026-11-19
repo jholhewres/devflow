@@ -82,7 +82,8 @@ evidence from then on, whatever its severity. A confirmed hypothesis below
 [[item.]]
 
 A hypothesis the sandbox confirmed is closed by its **proof** instead. Once
-it is fixed, call {{tool:attack}} with the attack's `run` and `"prove": true`:
+the fix is committed, call {{tool:attack}} with the attack's `run` and
+`"prove": true`:
 devflow runs its exploit again in the sandbox, at the commit it was confirmed
 on (its base: red, the hole shown) and at HEAD (green, the hole shut), and
 keeps the proof on it. The gate wants base red and HEAD green, no older than

@@ -618,26 +618,39 @@ fn attacked(looked: &Looked, missing: &mut Vec<String>) {
 /// Each hypothesis the sandbox confirmed, closed only by its proof: red at
 /// its base, green at HEAD, and no older than the last change.
 fn proofs(looked: &Looked, report: &Value, missing: &mut Vec<String>) {
-    let confirmed = list(report, "hypotheses")
+    let block_on = &looked.config.review.block_on;
+    // Every one is checked; the messages name the first few.
+    let open: Vec<String> = list(report, "hypotheses")
         .iter()
-        .filter(|one| word(one, "status") == "confirmed" && crate::attack::by_sandbox(one));
-    for one in confirmed.take(NAMED) {
-        let named = format!(
-            "the confirmed hypothesis `{}:{}` {}",
-            word(one, "file"),
-            one.get("line").and_then(Value::as_u64).unwrap_or_default(),
-            word(one, "title")
-        );
-        if let Some(why) = crate::attack::unproven(one) {
-            missing.push(format!("{named}: {why} (devflow-attack)"));
-            continue;
-        }
-        let proven = word(&one["proof"], "ran_at");
-        if let Some(changed) = looked.changed.filter(|changed| after(changed, proven)) {
-            missing.push(format!(
-                "{named}: its proof ({proven}) is older than the last change ({changed}): prove it again (devflow-attack)"
-            ));
-        }
+        .filter(|one| word(one, "status") == "confirmed" && crate::attack::by_sandbox(one))
+        .filter(|one| {
+            crate::findings::severity_of(word(one, "severity"))
+                .is_some_and(|severity| block_on.contains(&severity))
+        })
+        .filter_map(|one| {
+            let named = format!(
+                "the confirmed hypothesis `{}:{}` {}",
+                word(one, "file"),
+                one.get("line").and_then(Value::as_u64).unwrap_or_default(),
+                word(one, "title")
+            );
+            if let Some(why) = crate::attack::unproven(one) {
+                return Some(format!("{named}: {why} (devflow-attack)"));
+            }
+            let proven = word(&one["proof"], "ran_at");
+            looked.changed.filter(|changed| after(changed, proven)).map(|changed| {
+                format!(
+                    "{named}: its proof ({proven}) is older than the last change ({changed}): prove it again (devflow-attack)"
+                )
+            })
+        })
+        .collect();
+    missing.extend(open.iter().take(NAMED).cloned());
+    if open.len() > NAMED {
+        missing.push(format!(
+            "and {} more confirmed hypotheses without a proof that holds (devflow-attack)",
+            open.len() - NAMED
+        ));
     }
 }
 

@@ -117,6 +117,11 @@ fn an_item_on_a_sensitive_path_is_held_until_its_attack_ran_and_its_hole_is_shut
             .contains("the exploit test `forged-cookie`"),
         "{held}"
     );
+    assert!(mcp
+        .refused("attack", json!({ "item": item, "prove": true }))
+        .contains("`run`"));
+    let unproven = mcp.refused("attack", json!({ "item": item, "run": run, "prove": true }));
+    assert!(unproven.contains("stages.attack.test"), "{unproven}");
     drop(mcp);
 
     let said = Command::new(env!("CARGO_BIN_EXE_devflow"))

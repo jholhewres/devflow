@@ -116,3 +116,16 @@ fn a_proof_says_which_side_failed() {
         .collect();
     assert_eq!(wanted, [json!("b")], "the sandbox's is held by its proof");
 }
+
+#[test]
+fn only_its_proof_changes_what_the_sandbox_confirmed() {
+    let mut report = json!({ "hypotheses": [{ "id": "h1", "status": "confirmed",
+        "verified": { "by": "sandbox", "result": "confirmed", "evidence": "red" }, "exploit": { "test": "t" } }] });
+    let refused = verified_on(
+        &mut report,
+        &[json!({ "hypothesis": "h1", "result": "refuted", "evidence": "green here" })],
+    )
+    .expect_err("the sandbox ran it");
+    assert!(refused.contains("prove"), "{refused}");
+    assert_eq!(report["hypotheses"][0]["status"], "confirmed");
+}

@@ -519,6 +519,11 @@ pub fn verified_on(report: &mut Value, verified: &[Value]) -> Result<(), String>
             .ok_or_else(|| {
                 format!("`verified.{at}.hypothesis` names no hypothesis of the report")
             })?;
+        if by_sandbox(hypothesis) {
+            return Err(format!(
+                "`verified.{at}`: the sandbox ran {id}, so only its proof (`prove`) changes it"
+            ));
+        }
         let test = text(one, "test");
         if result == "confirmed" {
             if test.is_empty() && hypothesis["exploit"]["test"].as_str().is_none() {
@@ -706,7 +711,6 @@ pub struct Proving<'a> {
 
 /// One side of a proof: the exploit run at `commit` in a worktree of its
 /// own, removed whatever happens. `red`, `green` or `error`, and why.
-#[allow(clippy::too_many_arguments)]
 fn side(
     found: &sandbox::Sandbox,
     root: &Path,
@@ -743,6 +747,18 @@ pub fn prove(given: &Proving) -> Result<Value, String> {
         .ok()
         .and_then(|text| serde_json::from_str(&text).ok())
         .ok_or_else(|| format!("{} has no {REPORT}", given.folder.display()))?;
+    // The proof runs at HEAD's commit: a fix not committed is not in it.
+    let dirty = crate::git::dirty(given.root).map_err(|err| err.to_string())?;
+    let untracked = crate::git::untracked(given.root).map_err(|err| err.to_string())?;
+    let code = |path: &&String| {
+        !untracked.contains(path)
+            && ![crate::folder::DIR, ".devpit"]
+                .iter()
+                .any(|ours| path.starts_with(&format!("{ours}/")))
+    };
+    if dirty.iter().any(|path| code(&path)) {
+        return Err("commit the fix first: the proof runs at HEAD's commit, and tracked files changed since".to_owned());
+    }
     let attack = &given.config.stages.attack;
     let command = attack
         .test
@@ -771,8 +787,10 @@ pub fn prove(given: &Proving) -> Result<Value, String> {
         };
         let code = crate::fsguard::resolve(given.folder, saved)
             .ok()
-            .and_then(|at| std::fs::read_to_string(at).ok())
-            .ok_or_else(|| format!("{saved} is not in the run"))?;
+            .and_then(|at| std::fs::File::open(at).ok())
+            .and_then(|file| crate::fsguard::read_within(file, MOST_CODE as u64).ok()?)
+            .and_then(|raw| String::from_utf8(raw).ok())
+            .ok_or_else(|| format!("{saved} is not in the run, or past {MOST_CODE} bytes"))?;
         let id = plain_id(one["id"].as_str().unwrap_or("h"));
         let exploit_at = one["exploit"]["path"]
             .as_str()
