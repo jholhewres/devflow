@@ -610,6 +610,33 @@ fn attacked(looked: &Looked, missing: &mut Vec<String>) {
                     "the attack is older than the last change ({changed}) and runs per-item: run the attack stage again (devflow-attack)"
                 ));
             }
+            proofs(looked, report, missing);
+        }
+    }
+}
+
+/// Each hypothesis the sandbox confirmed, closed only by its proof: red at
+/// its base, green at HEAD, and no older than the last change.
+fn proofs(looked: &Looked, report: &Value, missing: &mut Vec<String>) {
+    let confirmed = list(report, "hypotheses")
+        .iter()
+        .filter(|one| word(one, "status") == "confirmed" && crate::attack::by_sandbox(one));
+    for one in confirmed.take(NAMED) {
+        let named = format!(
+            "the confirmed hypothesis `{}:{}` {}",
+            word(one, "file"),
+            one.get("line").and_then(Value::as_u64).unwrap_or_default(),
+            word(one, "title")
+        );
+        if let Some(why) = crate::attack::unproven(one) {
+            missing.push(format!("{named}: {why} (devflow-attack)"));
+            continue;
+        }
+        let proven = word(&one["proof"], "ran_at");
+        if let Some(changed) = looked.changed.filter(|changed| after(changed, proven)) {
+            missing.push(format!(
+                "{named}: its proof ({proven}) is older than the last change ({changed}): prove it again (devflow-attack)"
+            ));
         }
     }
 }

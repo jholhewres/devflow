@@ -359,6 +359,46 @@ fn the_gate_holds_an_item_the_attack_is_due_on_until_it_ran_and_its_holes_are_sh
         "{failed:?}"
     );
 
+    let sandboxed = |proof: Value| {
+        vec![(
+            config::ATTACK.to_owned(),
+            Some((
+                "20261119T110000Z".to_owned(),
+                json!({ "hypotheses": [{ "id": "h1", "status": "confirmed", "severity": "high",
+                    "file": SENSITIVE, "line": 2, "title": "unsigned cookie",
+                    "verified": { "by": "sandbox", "result": "confirmed" },
+                    "exploit": { "test": "exploit-x" }, "proof": proof }] }),
+            )),
+        )]
+    };
+    let unproven = missing(&sandboxed(Value::Null), true, None);
+    assert!(
+        unproven.iter().any(|said| said.contains("no proof")),
+        "{unproven:?}"
+    );
+    let open = missing(
+        &sandboxed(
+            json!({ "base": { "commit": "a", "result": "red" }, "head": { "commit": "b", "result": "red" }, "ran_at": "20261119T115000Z" }),
+        ),
+        true,
+        None,
+    );
+    assert!(
+        open.iter().any(|said| said.contains("still open")),
+        "{open:?}"
+    );
+    let shut = json!({ "base": { "commit": "a", "result": "red" }, "head": { "commit": "b", "result": "green" }, "ran_at": "20261119T115000Z" });
+    let proven = missing(&sandboxed(shut.clone()), true, Some("20261119T114000Z"));
+    assert!(
+        proven.iter().all(|said| !said.contains("hypothesis")),
+        "{proven:?}"
+    );
+    let stale = missing(&sandboxed(shut), true, Some("20261119T115959Z"));
+    assert!(
+        stale.iter().any(|said| said.contains("prove it again")),
+        "{stale:?}"
+    );
+
     let per_item = parsed("version: 1\nstages:\n  attack: per-item\n");
     let evidence = evidence(true);
     let older = checked(&looked_with(
@@ -511,5 +551,106 @@ fn in_the_sandbox_each_exploit_comes_back_confirmed_or_refuted() {
     assert_eq!(hypotheses[0]["verified"]["by"], "sandbox");
     assert_eq!(hypotheses[1]["status"], "refuted", "{:#}", hypotheses[1]);
     assert_eq!(report["verdict"], "request_changes");
-    assert_eq!(attack::exploits(&report)[0]["test"], "forged-cookie");
+    assert!(
+        attack::exploits(&report).is_empty(),
+        "the sandbox's confirmation is held by its proof"
+    );
+    assert!(attack::unproven(&hypotheses[0]).is_some());
+}
+
+/// A repository whose first commit has the hole the exploit shows and whose
+/// second shuts it, with the exploit kept in an attack's run as confirmed.
+#[cfg(unix)]
+fn fixed_repo() -> (tempfile::TempDir, std::path::PathBuf, String, String) {
+    let dir = tempfile::tempdir().expect("dir");
+    let root = dir.path().canonicalize().expect("root").join("checkout");
+    std::fs::create_dir_all(root.join("src/auth")).expect("checkout");
+    git(&root, &["init", "-q"]);
+    git(&root, &["config", "user.email", "test@example.invalid"]);
+    git(&root, &["config", "user.name", "Test"]);
+    git(&root, &["config", "commit.gpgsign", "false"]);
+    std::fs::write(root.join("src/auth/session.rs"), "accept any key\n").expect("hole");
+    git(&root, &["add", "-A"]);
+    git(&root, &["commit", "-q", "-m", "hole"]);
+    let holed = devflow_engine::git::head_of(&root).expect("head");
+    std::fs::write(root.join("src/auth/session.rs"), "check the key\n").expect("fix");
+    git(&root, &["commit", "-q", "-am", "fix"]);
+    let fixed = devflow_engine::git::head_of(&root).expect("head");
+    (dir, root, holed, fixed)
+}
+
+/// An attack's report confirmed on the commit with the hole, or on the one
+/// already fixed, proven at HEAD (the fixed one) where a sandbox is.
+#[cfg(unix)]
+fn proven_report(on_fixed: bool) -> (tempfile::TempDir, std::path::PathBuf, Value) {
+    use std::time::{Duration, SystemTime};
+    let (dir, root, holed, fixed) = fixed_repo();
+    let confirmed_on = if on_fixed { &fixed } else { &holed };
+    let folder = dir.path().join("run");
+    std::fs::create_dir_all(folder.join("exploits/h1")).expect("run");
+    std::fs::write(
+        folder.join("exploits/h1/forged.sh"),
+        "grep -q 'check the key' src/auth/session.rs && exit 0; echo 'FAIL forged-cookie'; exit 1\n",
+    )
+    .expect("exploit");
+    let report = json!({ "version": 1, "head": confirmed_on, "mode": "item", "hypotheses": [{
+        "id": "h1", "title": "a forged cookie is accepted", "file": SENSITIVE, "line": 1, "severity": "high",
+        "status": "confirmed", "reason": "never checked", "verified": { "by": "sandbox", "result": "confirmed", "evidence": "red" },
+        "exploit": { "path": "tests/forged.sh", "test": "forged-cookie", "saved": "exploits/h1/forged.sh" } }] });
+    std::fs::write(folder.join(attack::REPORT), report.to_string()).expect("report");
+    let image = std::env::var("DEVFLOW_SANDBOX_IMAGE").unwrap_or_default();
+    let config = parsed(&format!(
+        "version: 1\nstages:\n  attack: {{ run: sensitive, test: 'sh \"$DEVFLOW_EXPLOIT\"', image: '{image}' }}\n"
+    ));
+    let scratch = dir.path().join("trees");
+    let proved = attack::prove(&attack::Proving {
+        root: &root,
+        folder: &folder,
+        config: &config,
+        head: &fixed,
+        scratch: &scratch,
+        at: SystemTime::UNIX_EPOCH + Duration::from_secs(1_792_000_000),
+    })
+    .expect("proved");
+    (dir, scratch, proved)
+}
+
+/// Proven where a sandbox is: the exploit red at the commit it was
+/// confirmed on and green at HEAD closes it; green at its base, it does not
+/// reproduce and goes back to the hypotheses. Every worktree is gone after.
+#[cfg(unix)]
+#[test]
+fn a_confirmed_exploit_is_proven_red_at_its_base_and_green_at_head() {
+    let image = std::env::var("DEVFLOW_SANDBOX_IMAGE").unwrap_or_default();
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    if let Err(why) =
+        devflow_engine::sandbox::found(config::SandboxChoice::Auto, Some(&image), &path)
+    {
+        eprintln!("not run here: {why}");
+        return;
+    }
+    let (_dir, scratch, proved) = proven_report(false);
+    let one = &proved["hypotheses"][0];
+    assert_eq!(one["proof"]["base"]["result"], "red", "{one:#}");
+    assert_eq!(one["proof"]["head"]["result"], "green", "{one:#}");
+    assert!(attack::unproven(one).is_none());
+    let left: Vec<_> = std::fs::read_dir(&scratch)
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+        .flat_map(|entry| std::fs::read_dir(entry.path()).into_iter().flatten())
+        .collect();
+    assert!(
+        left.is_empty(),
+        "the throwaway worktrees are gone: {left:?}"
+    );
+
+    let (_dir, _, not_shown) = proven_report(true);
+    let one = &not_shown["hypotheses"][0];
+    assert_eq!(one["status"], "tried", "{one:#}");
+    assert!(one["reason"]
+        .as_str()
+        .expect("reason")
+        .contains("does not reproduce"));
+    assert!(one.get("verified").is_none());
 }

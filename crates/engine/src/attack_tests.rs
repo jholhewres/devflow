@@ -87,3 +87,32 @@ fn an_attacker_that_gave_nothing_is_no_attack() {
         "an attack that found nothing ran"
     );
 }
+
+#[test]
+fn a_proof_says_which_side_failed() {
+    let proof = |base: &str, head: &str| {
+        json!({ "status": "confirmed", "verified": { "by": "sandbox" }, "proof": {
+            "base": { "commit": "aaaaaaaaaaaaaaaa", "result": base },
+            "head": { "commit": "bbbbbbbbbbbbbbbb", "result": head },
+            "ran_at": "20261119T120000Z" } })
+    };
+    let none = json!({ "status": "confirmed", "verified": { "by": "sandbox" } });
+    assert!(unproven(&none).expect("unproven").contains("no proof"));
+    let at_base = unproven(&proof("green", "green")).expect("base");
+    assert!(at_base.contains("at its base aaaaaaaaaaaa"), "{at_base}");
+    let at_head = unproven(&proof("red", "red")).expect("head");
+    assert!(
+        at_head.contains("at HEAD bbbbbbbbbbbb") && at_head.contains("still open"),
+        "{at_head}"
+    );
+    assert!(unproven(&proof("red", "green")).is_none());
+    let report = json!({ "hypotheses": [
+        { "status": "confirmed", "verified": { "by": "sandbox" }, "exploit": { "test": "a" } },
+        { "status": "confirmed", "verified": { "by": "session" }, "exploit": { "test": "b" } },
+    ] });
+    let wanted: Vec<Value> = exploits(&report)
+        .iter()
+        .map(|one| one["test"].clone())
+        .collect();
+    assert_eq!(wanted, [json!("b")], "the sandbox's is held by its proof");
+}

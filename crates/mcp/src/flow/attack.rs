@@ -52,6 +52,46 @@ pub fn on_item(
     let item = item_here(project, &id)?;
     let runs = project.runs();
     let verified = verified_of(params)?;
+    let proving = match params.get("prove") {
+        None | Some(Value::Null) | Some(Value::Bool(false)) => false,
+        Some(Value::Bool(true)) => true,
+        Some(_) => return Err("`prove` is true or false".to_owned()),
+    };
+    if proving {
+        let run = super::text(params, "run").ok_or("`prove` goes with the attack's `run`")?;
+        if !verified.is_empty() {
+            return Err("`prove` and `verified` are two calls".to_owned());
+        }
+        let at = runs
+            .found(&item.id, Some(&run), attack::REPORT)
+            .ok_or_else(|| format!("run {run} of {} has no {}", item.id, attack::REPORT))?;
+        let folder = at.parent().ok_or("a run has a folder")?.to_path_buf();
+        let root = project.root.as_path();
+        let head = devflow_engine::git::head_of(root).map_err(|err| err.to_string())?;
+        let report = attack::prove(&attack::Proving {
+            root,
+            folder: &folder,
+            config,
+            head: &head,
+            scratch: &project.cache().join("trees"),
+            at: SystemTime::now(),
+        })?;
+        let done = attack::Done {
+            folder: folder.display().to_string(),
+            stamp: run,
+            report,
+        };
+        signed(project, &item.id, &attack::comment(&done));
+        let mut answer = attack::summary(&done);
+        answer["proofs"] = json!(done.report["hypotheses"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|one| !one["proof"].is_null())
+            .map(|one| json!({ "id": one["id"], "status": one["status"], "proof": one["proof"] }))
+            .collect::<Vec<_>>());
+        return Ok(answer);
+    }
     if let Some(run) = super::text(params, "run") {
         if verified.is_empty() {
             return Err("with `run`, send `verified`: what each exploit run showed".to_owned());

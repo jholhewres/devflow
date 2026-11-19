@@ -151,7 +151,8 @@ pub static TOOLS: [Tool; 19] = [
         input: || json!({ "type": "object", "properties": {
             "item": item_field(),
             "base": { "type": "string", "description": "The branch or commit the diff starts from, when it is not where the item started or the default branch." },
-            "run": { "type": "string", "description": "The attack's run, which `verified` completes." },
+            "run": { "type": "string", "description": "The attack's run, which `verified` completes or `prove` proves." },
+            "prove": { "type": "boolean", "description": "With `run`, once fixed: run each confirmed exploit again in the sandbox at the commit it was confirmed on (red, the hole shown) and at HEAD (green, the hole shut), and keep the proof on its hypothesis. The gate closes a hypothesis the sandbox confirmed only on that proof." },
             "verified": { "type": "array", "items": { "type": "object", "properties": {
                 "hypothesis": { "type": "string", "description": "The hypothesis's id in the report." },
                 "result": { "enum": ["confirmed", "refuted", "not_run"] },

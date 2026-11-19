@@ -257,3 +257,24 @@ fn the_toolchains_under_home_are_shown_and_its_secrets_are_not() {
         assert!(!shown.contains(&home.join(never)), "{never}: {shown:?}");
     }
 }
+
+#[test]
+fn a_throwaway_worktree_is_removed_when_its_run_fails() {
+    let (dir, root) = repo();
+    let head = crate::git::head_of(&root).expect("head");
+    let at = dir.path().join("trees/failed");
+    let failed = (|| -> Result<(), String> {
+        let tree = tree_at(&root, &head, &at)?;
+        place(&tree.at, ".git/hooks/pre-commit", "x")?;
+        Ok(())
+    })();
+    assert!(failed.is_err());
+    assert!(!at.exists(), "gone even when the run failed");
+    assert!(
+        crate::git::worktrees(&root)
+            .expect("worktrees")
+            .iter()
+            .all(|tree| !tree.contains("failed")),
+        "git forgets it too"
+    );
+}

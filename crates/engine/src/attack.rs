@@ -405,7 +405,8 @@ pub fn exploits(report: &Value) -> Vec<Value> {
         .as_array()
         .into_iter()
         .flatten()
-        .filter(|one| one["status"] == "confirmed")
+        // One the sandbox confirmed is held by its proof instead.
+        .filter(|one| one["status"] == "confirmed" && !by_sandbox(one))
         .filter_map(|one| {
             let test = one["exploit"]["test"].as_str()?.trim();
             (!test.is_empty()).then(|| {
@@ -413,6 +414,47 @@ pub fn exploits(report: &Value) -> Vec<Value> {
             })
         })
         .collect()
+}
+
+/// Whether the sandbox confirmed a hypothesis: then its proof, red at its
+/// base and green at HEAD, closes it.
+pub fn by_sandbox(hypothesis: &Value) -> bool {
+    hypothesis["verified"]["by"] == "sandbox"
+}
+
+/// What a confirmed hypothesis's proof still lacks, as one line naming the
+/// side that failed; `None` once red at its base and green at HEAD.
+pub fn unproven(hypothesis: &Value) -> Option<String> {
+    let proof = &hypothesis["proof"];
+    let side = |key: &str| {
+        (
+            proof[key]["result"].as_str().unwrap_or_default(),
+            proof[key]["commit"]
+                .as_str()
+                .unwrap_or_default()
+                .chars()
+                .take(12)
+                .collect::<String>(),
+        )
+    };
+    if proof.is_null() {
+        return Some(
+            "it has no proof yet: once fixed, prove it with the attack tool's `prove`".to_owned(),
+        );
+    }
+    let (base, at) = side("base");
+    if base != "red" {
+        return Some(format!(
+            "its exploit is {base} at its base {at}, not red: it does not show the hole"
+        ));
+    }
+    let (head, at) = side("head");
+    if head != "green" {
+        return Some(format!(
+            "its exploit is {head} at HEAD {at}, not green: the hole is still open"
+        ));
+    }
+    None
 }
 
 /// How many hypotheses ended each way.
@@ -646,6 +688,133 @@ pub fn verified(folder: &Path, config: &Config, verified: &[Value]) -> Result<Va
     verified_on(&mut report, verified)?;
     settled(&mut report, &config.review.block_on);
     write(folder, REPORT, &pretty(&report))?;
+    Ok(report)
+}
+
+/// What proving a report's confirmed exploits is given.
+pub struct Proving<'a> {
+    pub root: &'a Path,
+    /// The attack's run folder: its report and its exploits.
+    pub folder: &'a Path,
+    pub config: &'a Config,
+    /// HEAD now, where each exploit must be green.
+    pub head: &'a str,
+    /// Where the throwaway worktrees go, out of the checkout.
+    pub scratch: &'a Path,
+    pub at: SystemTime,
+}
+
+/// One side of a proof: the exploit run at `commit` in a worktree of its
+/// own, removed whatever happens. `red`, `green` or `error`, and why.
+#[allow(clippy::too_many_arguments)]
+fn side(
+    found: &sandbox::Sandbox,
+    root: &Path,
+    at: &Path,
+    commit: &str,
+    exploit: (&str, &str, &str),
+    command: &str,
+    limits: sandbox::Limits,
+) -> (&'static str, String) {
+    let (path, test, code) = exploit;
+    let tree = match sandbox::tree_at(root, commit, at) {
+        Ok(tree) => tree,
+        Err(why) => return ("error", why),
+    };
+    if let Err(why) = sandbox::place(&tree.at, path, code) {
+        return ("error", why);
+    }
+    let ran = sandbox::run(found, &tree, command, (path, test), limits);
+    match ran.outcome {
+        Outcome::Red if reached(&ran.tail, test) => ("red", "red, naming its test".to_owned()),
+        Outcome::Green => ("green", "green".to_owned()),
+        Outcome::Red => ("error", "it failed before its assertion".to_owned()),
+        Outcome::TimedOut => ("error", "it ran past its time".to_owned()),
+        Outcome::Failed(why) => ("error", why),
+    }
+}
+
+/// Each confirmed exploit run again in the sandbox, at the commit the
+/// attack confirmed it on (its base: red, the hole shown) and at HEAD
+/// (green, the hole shut), the proof kept on its hypothesis. One green at its
+/// base does not reproduce and goes back to the hypotheses, `tried`.
+pub fn prove(given: &Proving) -> Result<Value, String> {
+    let mut report: Value = std::fs::read_to_string(given.folder.join(REPORT))
+        .ok()
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .ok_or_else(|| format!("{} has no {REPORT}", given.folder.display()))?;
+    let attack = &given.config.stages.attack;
+    let command = attack
+        .test
+        .as_deref()
+        .filter(|test| !test.trim().is_empty())
+        .ok_or("proving needs stages.attack.test, the command that runs one exploit")?;
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    let choice = attack.sandbox.unwrap_or(crate::config::SandboxChoice::Auto);
+    let found = sandbox::found(choice, attack.image.as_deref(), &path)
+        .map_err(|why| format!("proving needs a sandbox: {why}"))?;
+    let base = report["head"].as_str().unwrap_or_default().to_owned();
+    let stamp = crate::runs::stamp(given.at);
+    let limits = sandbox::Limits {
+        time: EXPLOIT_TIME,
+        ..sandbox::Limits::default()
+    };
+    let trees = given.scratch.join(format!("{stamp}-proof"));
+    for one in report["hypotheses"]
+        .as_array_mut()
+        .into_iter()
+        .flatten()
+        .filter(|one| one["status"] == "confirmed")
+    {
+        let Some(saved) = one["exploit"]["saved"].as_str() else {
+            continue;
+        };
+        let code = crate::fsguard::resolve(given.folder, saved)
+            .ok()
+            .and_then(|at| std::fs::read_to_string(at).ok())
+            .ok_or_else(|| format!("{saved} is not in the run"))?;
+        let id = plain_id(one["id"].as_str().unwrap_or("h"));
+        let exploit_at = one["exploit"]["path"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned();
+        let test = one["exploit"]["test"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned();
+        let exploit = (exploit_at.as_str(), test.as_str(), code.as_str());
+        let run = |commit: &str, label: &str| {
+            side(
+                &found,
+                given.root,
+                &trees.join(format!("{id}-{label}")),
+                commit,
+                exploit,
+                command,
+                limits,
+            )
+        };
+        let (at_base, why_base) = run(&base, "base");
+        let (at_head, why_head) = run(given.head, "head");
+        one["proof"] = json!({
+            "base": { "commit": base, "result": at_base, "reason": why_base },
+            "head": { "commit": given.head, "result": at_head, "reason": why_head },
+            "ran_at": stamp, "by": found.kind.word(),
+        });
+        if at_base == "green" {
+            let short: String = base.chars().take(12).collect();
+            one["status"] = json!("tried");
+            one["reason"] = json!(format!(
+                "it does not reproduce: green at its base {short}. {}",
+                one["reason"].as_str().unwrap_or_default()
+            ));
+            if let Some(fields) = one.as_object_mut() {
+                fields.remove("verified");
+            }
+        }
+    }
+    settled(&mut report, &given.config.review.block_on);
+    write(given.folder, REPORT, &pretty(&report))?;
     Ok(report)
 }
 

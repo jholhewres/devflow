@@ -81,7 +81,16 @@ evidence from then on, whatever its severity. A confirmed hypothesis below
 `block_on`, a refuted one and one not run are followed up, never fixed in this
 card.
 
-Done when no confirmed hypothesis at `block_on` has a red exploit test.
+A hypothesis the sandbox confirmed is closed by its **proof** instead. Once
+it is fixed, call `attack` with the attack's `run` and `"prove": true`:
+devflow runs its exploit again in the sandbox, at the commit it was confirmed
+on (its base: red, the hole shown) and at HEAD (green, the hole shut), and
+keeps the proof on it. The gate wants base red and HEAD green, no older than
+the last change, and names the side that failed. One green at its base does
+not reproduce: it goes back to the hypotheses as `tried`.
+
+Done when no confirmed hypothesis at `block_on` has a red exploit test, and
+each one the sandbox confirmed is proven.
 
 ### 4. Hand back, then stop
 

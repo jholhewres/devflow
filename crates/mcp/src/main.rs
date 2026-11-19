@@ -93,6 +93,10 @@ enum Command {
         /// Where the diff starts, when not where the item started.
         #[arg(long)]
         base: Option<String>,
+        /// Prove the confirmed exploits of this attack run: red at the
+        /// commit each was confirmed on, green at HEAD.
+        #[arg(long, value_name = "RUN")]
+        prove: Option<String>,
     },
     /// The project's own stages.
     Stage {
@@ -160,11 +164,20 @@ struct Registering {
 }
 
 /// `devflow attack`: the attack tool's answer, printed as JSON.
-fn attacking(root: &std::path::Path, item: &str, base: Option<&str>) -> ExitCode {
+fn attacking(
+    root: &std::path::Path,
+    item: &str,
+    base: Option<&str>,
+    prove: Option<&str>,
+) -> ExitCode {
     let server = server::Server::new(root);
     let mut asked = serde_json::json!({ "item": item });
     if let Some(base) = base {
         asked["base"] = serde_json::json!(base);
+    }
+    if let Some(run) = prove {
+        asked["run"] = serde_json::json!(run);
+        asked["prove"] = serde_json::json!(true);
     }
     match flow::attack::attack(&server, asked) {
         Ok(said) => {
@@ -193,7 +206,9 @@ fn main() -> ExitCode {
         Command::Update { check, json } => update::command(check, json),
         Command::Host => host::run(&root),
         Command::Status => status(&root),
-        Command::Attack { item, base } => attacking(&root, &item, base.as_deref()),
+        Command::Attack { item, base, prove } => {
+            attacking(&root, &item, base.as_deref(), prove.as_deref())
+        }
         Command::Setup(how) => setup_cli::run(&root, &how),
         Command::Doctor => doctor::run(&root),
         Command::Register(how) => registering(&how, true),
