@@ -38,6 +38,7 @@ pub mod layers;
 pub mod locate;
 pub mod models;
 mod node;
+pub mod payloads;
 pub mod pinning;
 pub mod plan;
 pub mod playwright;

@@ -116,6 +116,12 @@ enum Command {
         #[command(subcommand)]
         action: Personas,
     },
+    /// The attack's payload repertoire: generic cases by class, as test
+    /// tables, and the project's own.
+    Payloads {
+        #[command(subcommand)]
+        action: Payloads,
+    },
     /// The project's own stages.
     Stage {
         #[command(subcommand)]
@@ -159,6 +165,27 @@ enum Judging {
     Send,
     /// Never send this project's state to Decisions.
     Withhold,
+}
+
+#[derive(Subcommand)]
+enum Payloads {
+    /// The classes, with their count of cases.
+    List,
+    /// Print a class's test table for a runner: jest, vitest, go or pytest.
+    Table {
+        class: String,
+        #[arg(long, default_value = "jest")]
+        runner: String,
+    },
+    /// Keep a case an attack proposed in the project's own cases, after your
+    /// yes on a terminal.
+    Add {
+        item: String,
+        case: String,
+        /// The attack run that proposed it; the newest when not said.
+        #[arg(long)]
+        run: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -268,6 +295,7 @@ fn main() -> ExitCode {
         Command::Persona {
             action: Personas::Show { name },
         } => persona_show(&root, &name),
+        Command::Payloads { action } => payloads(&root, action),
         Command::Status { attack: false } => status(&root),
         Command::Status { attack: true } => attack_status(&root),
         Command::Attack {
@@ -359,6 +387,82 @@ fn registering(how: &Registering, on: bool) -> ExitCode {
         ExitCode::FAILURE
     } else {
         ExitCode::SUCCESS
+    }
+}
+
+/// `devflow payloads`: the repertoire, its tables, and keeping a case.
+fn payloads(root: &std::path::Path, action: Payloads) -> ExitCode {
+    use devflow_engine::payloads;
+    let failed = |why: String| {
+        eprintln!("devflow payloads: {why}");
+        ExitCode::FAILURE
+    };
+    let project = project::Project::at(root);
+    match action {
+        Payloads::List => {
+            for name in payloads::names() {
+                match payloads::class(&project.root, name) {
+                    Ok(class) => println!("{name}\t{} cases\t{}", class.cases.len(), class.about),
+                    Err(why) => return failed(why),
+                }
+            }
+            ExitCode::SUCCESS
+        }
+        Payloads::Table { class, runner } => {
+            let Some(runner) = payloads::Runner::of(&runner) else {
+                return failed("--runner is jest, vitest, go or pytest".to_owned());
+            };
+            match payloads::class(&project.root, &class) {
+                Ok(class) => {
+                    print!("{}", payloads::table(&class, runner));
+                    ExitCode::SUCCESS
+                }
+                Err(why) => failed(why),
+            }
+        }
+        Payloads::Add { item, case, run } => {
+            let runs = project.runs();
+            let found = match run.as_deref() {
+                Some(run) => runs.found(&item, Some(run), devflow_engine::attack::REPORT),
+                None => runs
+                    .newest_with(&item, devflow_engine::attack::REPORT)
+                    .map(|(_, at)| at),
+            };
+            let Some(report) = found.as_deref().and_then(flow::json_at) else {
+                return failed(format!("{item} has no attack report to take a case from"));
+            };
+            let Some(proposed) = report["proposed_cases"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|one| one["id"] == case.as_str())
+                .cloned()
+            else {
+                return failed(format!("the attack report proposes no case `{case}`"));
+            };
+            let class = proposed["class"].as_str().unwrap_or_default();
+            println!(
+                "class: {class}\ninput: {}\nwant: {}\nwhy: {}",
+                serde_json::to_string(&proposed["input"]).unwrap_or_default(),
+                proposed["want"].as_str().unwrap_or_default(),
+                proposed["why"].as_str().unwrap_or_default()
+            );
+            let question = format!("Keep it in {}?", payloads::kept_path(&project.root, class));
+            match cli::confirmed(&question) {
+                Ok(true) => match payloads::keep(&project.root, &proposed) {
+                    Ok(at) => {
+                        println!("kept in {at}");
+                        ExitCode::SUCCESS
+                    }
+                    Err(why) => failed(why),
+                },
+                Ok(false) => {
+                    println!("not kept");
+                    ExitCode::SUCCESS
+                }
+                Err(why) => failed(why),
+            }
+        }
     }
 }
 

@@ -1,0 +1,61 @@
+{
+  "class": "sqli",
+  "about": "Inputs that change a query built by joining text. Safe code (bound parameters) takes each as plain data: no error, no extra rows, no delay. Nothing in them writes or drops.",
+  "cases": [
+    {
+      "id": "quote-or-true",
+      "input": "' OR '1'='1",
+      "want": "inert"
+    },
+    {
+      "id": "quote-or-true-comment",
+      "input": "' OR 1=1 -- ",
+      "want": "inert"
+    },
+    {
+      "id": "numeric-or-true",
+      "input": "1 OR 1=1",
+      "want": "inert"
+    },
+    {
+      "id": "union-null",
+      "input": "' UNION SELECT NULL -- ",
+      "want": "inert"
+    },
+    {
+      "id": "stacked-select",
+      "input": "1; SELECT 1",
+      "want": "inert"
+    },
+    {
+      "id": "double-quote",
+      "input": "\" OR \"1\"=\"1",
+      "want": "inert"
+    },
+    {
+      "id": "backslash-quote",
+      "input": "\\' OR 1=1 -- ",
+      "want": "inert"
+    },
+    {
+      "id": "hash-comment",
+      "input": "' OR 1=1 #",
+      "want": "inert"
+    },
+    {
+      "id": "block-comment",
+      "input": "'/**/OR/**/1=1/**/--",
+      "want": "inert"
+    },
+    {
+      "id": "order-by-probe",
+      "input": "1 ORDER BY 99",
+      "want": "inert"
+    },
+    {
+      "id": "sleep-zero",
+      "input": "' OR SLEEP(0) -- ",
+      "want": "inert"
+    }
+  ]
+}

@@ -127,7 +127,7 @@ fn fake_claude(dir: &std::path::Path, answer: &Value) -> std::path::PathBuf {
     std::fs::write(
         &script,
         format!(
-            "#!/bin/sh\ncat > /dev/null\ncat '{}/answer.json'\n",
+            "#!/bin/sh\ncat > '{0}/prompt.txt'\ncat '{0}/answer.json'\n",
             dir.display()
         ),
     )
@@ -991,4 +991,97 @@ fn the_attack_reads_the_threat_model_and_keeps_what_it_refuted_refuted() {
         context.contains("## Personas") && context.contains("devflow-security.overlay.md"),
         "{context}"
     );
+}
+
+/// `stages.attack.regression` names payload classes: every attack is given
+/// their cases, and a case the attacker proposes stays in its report until a
+/// person keeps it.
+#[cfg(unix)]
+#[test]
+fn a_regression_class_goes_to_every_attack_and_a_proposed_case_waits_for_a_person() {
+    use std::time::{Duration, SystemTime};
+    let said = parsed(
+        "version: 1\nstages:\n  attack:\n    run: per-item\n    regression: [ssrf, redos, ssrf]\n",
+    );
+    assert_eq!(said.stages.attack.regression, ["ssrf", "redos"]);
+    let written = devflow_engine::render::render(&said);
+    assert_eq!(
+        parsed(&written).stages.attack,
+        said.stages.attack,
+        "{written}"
+    );
+    let refused = config::parse(
+        "version: 1\nstages:\n  attack:\n    run: per-item\n    regression: [ssrf, lfi]\n",
+    )
+    .expect_err("no such class");
+    assert!(refused.field.ends_with("regression.1"), "{refused}");
+
+    let dir = tempfile::tempdir().expect("dir");
+    let root = dir.path().canonicalize().expect("root");
+    let checkout = root.join("checkout");
+    std::fs::create_dir_all(&checkout).expect("checkout");
+    let runs = devflow_engine::runs::Runs {
+        dialect: &Dialect::DEVFLOW,
+        home: root.join("home"),
+        checkout: checkout.clone(),
+    };
+    let bin = root.join("bin");
+    std::fs::create_dir_all(&bin).expect("bin");
+    let claude = fake_claude(
+        &bin,
+        &json!({ "version": 1, "hypotheses": [], "cases": [
+            { "class": "ssrf", "input": "http://[::]:1/", "want": "rejected", "why": "the guard reads only dotted IPv4" },
+        ] }),
+    );
+    let reach =
+        move |_: config::Agent| -> Result<String, String> { Ok(claude.display().to_string()) };
+    let redact = |text: &str| text.to_owned();
+    let files = vec![SENSITIVE.to_owned()];
+    let done = attack::attacked(&attack::Given {
+        root: &checkout,
+        runs: &runs,
+        config: &said,
+        card: devflow_engine::evidence::Card {
+            id: "card_1",
+            title: "Sessions",
+            body: "",
+        },
+        git: devflow_engine::review::Git {
+            base: "b4se",
+            head: "he4d",
+            files: &files,
+            diff: DIFF,
+        },
+        brief: None,
+        evidence: None,
+        review: None,
+        env: &[],
+        at: SystemTime::UNIX_EPOCH + Duration::from_secs(1_792_000_000),
+        budget: Duration::from_secs(60),
+        reach: &reach,
+        redact: &redact,
+        personas: devflow_engine::review::Personas::default(),
+        retro: false,
+        scratch: None,
+    })
+    .expect("attacked");
+    let prompt = std::fs::read_to_string(bin.join("prompt.txt")).expect("prompt");
+    assert!(
+        prompt.contains("## Regression cases"),
+        "the classes' cases are given"
+    );
+    assert!(prompt.contains("http://2130706433:1/") && prompt.contains("letters-then-bang"));
+    assert_eq!(done.report["regression"], json!(["ssrf", "redos"]));
+    let proposed = &done.report["proposed_cases"];
+    assert_eq!(proposed[0]["id"], "c1", "{proposed}");
+    assert_eq!(proposed[0]["input"], "http://[::]:1/");
+    assert!(
+        devflow_engine::payloads::kept(&checkout, "ssrf")
+            .expect("kept")
+            .is_empty(),
+        "an attack keeps nothing itself"
+    );
+    assert!(attack::summary(&done)["proposed_cases"]
+        .as_str()
+        .is_some_and(|said| said.contains("devflow payloads add card_1")));
 }

@@ -1,0 +1,46 @@
+{
+  "class": "deserialization",
+  "about": "Data that becomes code or changes shared objects when it is read: prototype keys, typed YAML tags, serialized objects. Safe code refuses each or reads it as plain data. Nothing in them runs a command other than `true`, which does nothing.",
+  "cases": [
+    {
+      "id": "proto-key",
+      "input": "{\"__proto__\": {\"devflowPolluted\": true}}",
+      "want": "inert"
+    },
+    {
+      "id": "constructor-prototype",
+      "input": "{\"constructor\": {\"prototype\": {\"devflowPolluted\": true}}}",
+      "want": "inert"
+    },
+    {
+      "id": "yaml-python-tag",
+      "input": "!!python/object/apply:os.system [\"true\"]",
+      "want": "rejected"
+    },
+    {
+      "id": "yaml-ruby-tag",
+      "input": "--- !ruby/object:OpenStruct\ntable: {}\n",
+      "want": "rejected"
+    },
+    {
+      "id": "yaml-java-tag",
+      "input": "!!javax.script.ScriptEngineManager []",
+      "want": "rejected"
+    },
+    {
+      "id": "php-object",
+      "input": "O:8:\"stdClass\":0:{}",
+      "want": "rejected"
+    },
+    {
+      "id": "java-serialized-null",
+      "input": "rO0ABXA=",
+      "want": "rejected"
+    },
+    {
+      "id": "pickle-string",
+      "input": "gAJYBwAAAGRldmZsb3dxAC4=",
+      "want": "rejected"
+    }
+  ]
+}

@@ -277,6 +277,9 @@ pub(crate) fn step_json(config: &Config, step: &Step) -> Json {
             if !stages.attack.budget.is_empty() {
                 item["budget"] = json!(stages.attack.budget);
             }
+            if !stages.attack.regression.is_empty() {
+                item["regression"] = json!(stages.attack.regression);
+            }
         }
         (None, Some(own)) => {
             if let Some(approve) = own.approve {

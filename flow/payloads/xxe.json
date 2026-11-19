@@ -1,0 +1,36 @@
+{
+  "class": "xxe",
+  "about": "XML that asks its parser to read a file, fetch a URL or expand without end. Safe code refuses the DOCTYPE or leaves its entities unexpanded. The file is /etc/hostname and the URL is loopback on port 1.",
+  "cases": [
+    {
+      "id": "external-file",
+      "input": "<?xml version=\"1.0\"?><!DOCTYPE x [<!ENTITY e SYSTEM \"file:///etc/hostname\">]><x>&e;</x>",
+      "want": "rejected"
+    },
+    {
+      "id": "external-url",
+      "input": "<?xml version=\"1.0\"?><!DOCTYPE x [<!ENTITY e SYSTEM \"http://127.0.0.1:1/\">]><x>&e;</x>",
+      "want": "rejected"
+    },
+    {
+      "id": "external-dtd",
+      "input": "<?xml version=\"1.0\"?><!DOCTYPE x SYSTEM \"http://127.0.0.1:1/x.dtd\"><x/>",
+      "want": "rejected"
+    },
+    {
+      "id": "parameter-entity",
+      "input": "<?xml version=\"1.0\"?><!DOCTYPE x [<!ENTITY % p SYSTEM \"file:///etc/hostname\">%p;]><x/>",
+      "want": "rejected"
+    },
+    {
+      "id": "small-expansion",
+      "input": "<?xml version=\"1.0\"?><!DOCTYPE x [<!ENTITY a \"aaaaaaaaaa\"><!ENTITY b \"&a;&a;&a;&a;&a;&a;&a;&a;&a;&a;\"><!ENTITY c \"&b;&b;&b;&b;&b;&b;&b;&b;&b;&b;\">]><x>&c;</x>",
+      "want": "rejected"
+    },
+    {
+      "id": "xinclude",
+      "input": "<x xmlns:xi=\"http://www.w3.org/2001/XInclude\"><xi:include parse=\"text\" href=\"file:///etc/hostname\"/></x>",
+      "want": "rejected"
+    }
+  ]
+}

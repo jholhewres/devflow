@@ -52,6 +52,12 @@ comes back as a diff in the report, with the whole text beside it as
 earlier attack refuted is not tried again while the file of the control that
 refuted it is unchanged.
 
+`stages.attack.regression` names payload classes (`devflow payloads list`)
+whose generic cases every attack is given to run again. A case the attacker
+proposes for a class stays in its report until the person keeps it with
+`devflow payloads add <item> <case>` on a terminal; never write a project's
+`payloads/` folder yourself.
+
 Done when the answer names the run and its counts.
 
 ### 2. Run each tried exploit

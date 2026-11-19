@@ -1,0 +1,63 @@
+{
+  "class": "redos",
+  "about": "Long runs that make a backtracking pattern take exponential or polynomial time: nested or overlapping quantifiers fed a near match. Safe code answers within the time.",
+  "within_ms": 1000,
+  "cases": [
+    {
+      "id": "letters-then-bang",
+      "input": "a",
+      "times": 50000,
+      "then": "!",
+      "want": "fast"
+    },
+    {
+      "id": "digits-then-letter",
+      "input": "1",
+      "times": 50000,
+      "then": "x",
+      "want": "fast"
+    },
+    {
+      "id": "dotted-run",
+      "input": "a.",
+      "times": 25000,
+      "then": "!",
+      "want": "fast"
+    },
+    {
+      "id": "spaces-then-letter",
+      "input": " ",
+      "times": 50000,
+      "then": "x",
+      "want": "fast"
+    },
+    {
+      "id": "letters-then-at",
+      "input": "a",
+      "times": 50000,
+      "then": "@",
+      "want": "fast"
+    },
+    {
+      "id": "dashes-run",
+      "input": "-",
+      "times": 50000,
+      "then": "x",
+      "want": "fast"
+    },
+    {
+      "id": "tabs-run",
+      "input": "\t",
+      "times": 50000,
+      "then": "x",
+      "want": "fast"
+    },
+    {
+      "id": "quote-backslash-run",
+      "input": "\"\\",
+      "times": 20000,
+      "then": "x",
+      "want": "fast"
+    }
+  ]
+}

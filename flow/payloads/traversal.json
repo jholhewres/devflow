@@ -1,0 +1,61 @@
+{
+  "class": "traversal",
+  "about": "Paths that climb out of the folder they are joined to, in their encodings. Safe code refuses each. The target is /etc/hostname, which every Linux host has and which holds nothing secret.",
+  "cases": [
+    {
+      "id": "dot-dot",
+      "input": "../../../../../../etc/hostname",
+      "want": "rejected"
+    },
+    {
+      "id": "absolute",
+      "input": "/etc/hostname",
+      "want": "rejected"
+    },
+    {
+      "id": "encoded-slash",
+      "input": "..%2f..%2f..%2f..%2fetc%2fhostname",
+      "want": "rejected"
+    },
+    {
+      "id": "encoded-dots",
+      "input": "%2e%2e/%2e%2e/%2e%2e/%2e%2e/etc/hostname",
+      "want": "rejected"
+    },
+    {
+      "id": "double-encoded",
+      "input": "..%252f..%252f..%252fetc%252fhostname",
+      "want": "rejected"
+    },
+    {
+      "id": "overlong-utf8",
+      "input": "..%c0%af..%c0%af..%c0%afetc%c0%afhostname",
+      "want": "rejected"
+    },
+    {
+      "id": "backslash",
+      "input": "..\\..\\..\\..\\etc\\hostname",
+      "want": "rejected"
+    },
+    {
+      "id": "stripped-once",
+      "input": "....//....//....//etc/hostname",
+      "want": "rejected"
+    },
+    {
+      "id": "nul-byte",
+      "input": "../../../../etc/hostname\u0000.png",
+      "want": "rejected"
+    },
+    {
+      "id": "dot-segment-mid",
+      "input": "uploads/../../../../etc/hostname",
+      "want": "rejected"
+    },
+    {
+      "id": "file-url",
+      "input": "file:///etc/hostname",
+      "want": "rejected"
+    }
+  ]
+}

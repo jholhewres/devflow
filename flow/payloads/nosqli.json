@@ -1,0 +1,41 @@
+{
+  "class": "nosqli",
+  "about": "Operators where a value belongs: a document query that takes a request's JSON as it is. Safe code refuses an object where it wants a string.",
+  "cases": [
+    {
+      "id": "not-equal-null",
+      "input": "{\"$ne\": null}",
+      "want": "rejected"
+    },
+    {
+      "id": "greater-than-empty",
+      "input": "{\"$gt\": \"\"}",
+      "want": "rejected"
+    },
+    {
+      "id": "regex-any",
+      "input": "{\"$regex\": \".*\"}",
+      "want": "rejected"
+    },
+    {
+      "id": "where-true",
+      "input": "{\"$where\": \"true\"}",
+      "want": "rejected"
+    },
+    {
+      "id": "in-list",
+      "input": "{\"$in\": [\"\", null]}",
+      "want": "rejected"
+    },
+    {
+      "id": "exists",
+      "input": "{\"$exists\": true}",
+      "want": "rejected"
+    },
+    {
+      "id": "bracket-form",
+      "input": "username[$ne]=x",
+      "want": "rejected"
+    }
+  ]
+}

@@ -132,6 +132,19 @@ security persona: it comes after the persona's rules and cannot remove one.
 `devflow persona show devflow-security` prints what a reader reads, and each
 run's context names the persona and the overlay by their digests.
 
+## Payload repertoire
+
+devflow ships generic cases by attack class: SSRF, ReDoS, path traversal, SQL
+and NoSQL injection, XXE and deserialization. Each case is a neutral input
+and what safe code does with it. Its hosts are loopback, private or reserved
+names on port 1, never a cloud's metadata address, and it names no real
+project or person. `devflow payloads table <class> --runner
+jest|vitest|go|pytest` prints a test table with a `check` function you fill
+in for the code under test. `stages.attack.regression: [ssrf, redos]` gives
+those classes' cases to every attack. A case an attack proposes stays in its
+report until you keep it with `devflow payloads add <item> <case>` on a
+terminal, in `payloads/<class>.json` of devflow's folder.
+
 ## Where exploits run
 
 With the attack stage, set `stages.attack.test` to the command that runs one

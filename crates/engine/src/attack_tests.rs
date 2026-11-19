@@ -166,12 +166,27 @@ fn the_attacks_own_safety_rules_are_said_whatever_the_persona_says() {
         &[],
         Some("assets: none"),
         &[json!({ "title": "x", "control": "src/guard.rs" })],
+        "### ssrf: loopback\n{\"id\":\"loopback\"}\n",
     );
     assert!(said
         .contains("Never another host, never a third party's, never a cloud's metadata address."));
     assert!(said.contains("is never worked around"));
     assert!(said.contains("assets: none"));
     assert!(said.contains("src/guard.rs"));
+    assert!(said.contains("## Regression cases") && said.contains("### ssrf: loopback"));
+    assert!(!prompt("p", "packet", "claude", &[]).contains("## Regression cases"));
+}
+
+#[test]
+fn an_answer_proposes_only_neutral_cases_of_a_known_class() {
+    let said = json!({ "hypotheses": [], "cases": [
+        { "class": "traversal", "input": "..;/..;/etc/hostname", "want": "rejected", "why": "a ;-split path" },
+        { "class": "ssrf", "input": "http://metadata.someone.com/", "want": "rejected" },
+    ] });
+    let read = read_answer(&said.to_string()).expect("read");
+    let cases = read["cases"].as_array().expect("cases");
+    assert_eq!(cases.len(), 1, "{cases:?}");
+    assert_eq!(cases[0]["class"], "traversal");
 }
 
 #[test]

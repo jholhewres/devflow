@@ -369,6 +369,9 @@ fn attack_fields(out: &mut String, attack: &Attack) {
     if let Some(image) = &attack.image {
         let _ = writeln!(out, "    image: {}", scalar(image));
     }
+    if !attack.regression.is_empty() {
+        let _ = writeln!(out, "    regression: [{}]", attack.regression.join(", "));
+    }
     let budget = &attack.budget;
     if !budget.is_empty() {
         out.push_str("    budget:\n");

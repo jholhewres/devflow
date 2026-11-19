@@ -369,6 +369,9 @@ pub struct Attack {
     /// What one run and the month's runs may spend.
     #[serde(skip_serializing_if = "Budget::is_empty")]
     pub budget: Budget,
+    /// Payload classes whose cases every attack runs again.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub regression: Vec<String>,
 }
 
 /// `stages.attack.budget`: US$ per run and per calendar month, kept in
@@ -448,6 +451,7 @@ impl Default for Attack {
             sandbox: None,
             image: None,
             budget: Budget::default(),
+            regression: Vec::new(),
         }
     }
 }
@@ -1500,6 +1504,17 @@ pub(crate) fn attack_in(fields: &mut Fields) -> Result<Attack, Invalid> {
         Some((node, path)) => budget(node, &path)?,
         None => Budget::default(),
     };
+    let mut regression: Vec<String> = Vec::new();
+    if let Some((node, path)) = fields.get("regression") {
+        for (index, item) in items(node, &path)?.iter().enumerate() {
+            let at = format!("{path}.{index}");
+            let class = text(item, &at, 40)?;
+            crate::payloads::shipped(&class).map_err(|why| Invalid::at(item.line(), &at, &why))?;
+            if !regression.contains(&class) {
+                regression.push(class);
+            }
+        }
+    }
     Ok(Attack {
         run: if enabled { run } else { AttackRun::Off },
         model,
@@ -1507,6 +1522,7 @@ pub(crate) fn attack_in(fields: &mut Fields) -> Result<Attack, Invalid> {
         sandbox,
         image,
         budget,
+        regression,
     })
 }
 

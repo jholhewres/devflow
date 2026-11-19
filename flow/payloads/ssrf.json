@@ -1,0 +1,96 @@
+{
+  "class": "ssrf",
+  "about": "URLs that lead back inside: loopback in its spellings, the unspecified address, private and link-local ranges, and schemes other than http(s). Safe code refuses each before it connects. Every port is 1, where nothing listens.",
+  "cases": [
+    {
+      "id": "loopback",
+      "input": "http://127.0.0.1:1/",
+      "want": "rejected"
+    },
+    {
+      "id": "loopback-name",
+      "input": "http://localhost:1/",
+      "want": "rejected"
+    },
+    {
+      "id": "loopback-trailing-dot",
+      "input": "http://localhost.:1/",
+      "want": "rejected"
+    },
+    {
+      "id": "loopback-ipv6",
+      "input": "http://[::1]:1/",
+      "want": "rejected"
+    },
+    {
+      "id": "loopback-mapped-ipv6",
+      "input": "http://[::ffff:127.0.0.1]:1/",
+      "want": "rejected"
+    },
+    {
+      "id": "loopback-decimal",
+      "input": "http://2130706433:1/",
+      "want": "rejected"
+    },
+    {
+      "id": "loopback-hex",
+      "input": "http://0x7f000001:1/",
+      "want": "rejected"
+    },
+    {
+      "id": "loopback-octal",
+      "input": "http://0177.0.0.1:1/",
+      "want": "rejected"
+    },
+    {
+      "id": "loopback-short",
+      "input": "http://127.1:1/",
+      "want": "rejected"
+    },
+    {
+      "id": "unspecified",
+      "input": "http://0.0.0.0:1/",
+      "want": "rejected"
+    },
+    {
+      "id": "private-10",
+      "input": "http://10.0.0.1:1/",
+      "want": "rejected"
+    },
+    {
+      "id": "private-172",
+      "input": "http://172.16.0.1:1/",
+      "want": "rejected"
+    },
+    {
+      "id": "private-192",
+      "input": "http://192.168.0.1:1/",
+      "want": "rejected"
+    },
+    {
+      "id": "link-local",
+      "input": "http://169.254.0.1:1/",
+      "want": "rejected"
+    },
+    {
+      "id": "userinfo-confusion",
+      "input": "http://example.com@127.0.0.1:1/",
+      "want": "rejected"
+    },
+    {
+      "id": "file-scheme",
+      "input": "file:///etc/hostname",
+      "want": "rejected"
+    },
+    {
+      "id": "gopher-scheme",
+      "input": "gopher://127.0.0.1:1/",
+      "want": "rejected"
+    },
+    {
+      "id": "dict-scheme",
+      "input": "dict://127.0.0.1:1/",
+      "want": "rejected"
+    }
+  ]
+}
