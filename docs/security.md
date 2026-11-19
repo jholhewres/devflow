@@ -83,6 +83,12 @@ devflow config set security.targets '["http://localhost:8080"]'
   with `devflow config set security.targets`. The MCP `set` and `setup` tools
   refuse any `security` path, and a devflow.yaml an agent edited is not the
   person's yes.
+- The addresses a name resolves to when the person confirms it are kept with
+  the yes (`consent.json`). A later answer of the resolver that leads
+  anywhere else takes the target out of force, as does a name confirmed
+  before devflow kept them: running the same `devflow config set` again
+  shows where it resolves now and asks again. Every name is resolved at
+  once, under one deadline of a few seconds.
 - The targets in force reach checks and readers only as
   `DEVFLOW_SECURITY_TARGETS`. A PoC run recorded against any other target is
   refused.

@@ -8,6 +8,7 @@ use std::path::Path;
 use std::process::ExitCode;
 
 use devflow_engine::folder::State;
+use devflow_engine::security::Pins;
 use devflow_engine::{preset, proposal, setup, Ask, Proposal};
 use serde_json::Value;
 
@@ -145,7 +146,16 @@ fn setting(root: &Path, path: &str, value: &Value, consent: &Consent) -> Result<
     let after = preset::value_at(&proposal.config.to_json(), path).clone();
     let targets = layered.config.security.targets;
     let kept = consent.confirmed_targets(&project.root);
-    let new = unconfirmed(&targets, &kept);
+    let pins = consent.pinned(&project.root);
+    // Every name resolved once, together: what it is shown with and kept as.
+    let found = match kind {
+        Kind::Targets => devflow_engine::security::resolved(
+            &targets,
+            &devflow_engine::security::resolved_here_all,
+        ),
+        _ => Pins::new(),
+    };
+    let new = to_confirm(&targets, &kept, &pins, &found);
     let already = proposal.changes.is_empty()
         && match kind {
             Kind::Field => true,
@@ -165,7 +175,13 @@ fn setting(root: &Path, path: &str, value: &Value, consent: &Consent) -> Result<
         Kind::Switch(Ask::Enforce) => "Let Decisions hold work in this project (enforce)?",
         Kind::Targets if !new.is_empty() => {
             for target in &new {
-                println!("  new here: {}", shown(target));
+                let again = unconfirmed(std::slice::from_ref(target), &kept).is_empty();
+                let said = if again {
+                    "to confirm again"
+                } else {
+                    "new here"
+                };
+                println!("  {said}: {}", shown(target, &found));
             }
             "devflow's attack and checks may send requests, exploits included, to these \
              targets. They are this project's own instances, never a third party's. Allow them, \
@@ -182,7 +198,10 @@ fn setting(root: &Path, path: &str, value: &Value, consent: &Consent) -> Result<
     }
     match kind {
         Kind::Switch(ask) => consent.remember(&project.root, ask, true)?,
-        Kind::Targets => consent.confirm_targets(&project.root, &targets)?,
+        Kind::Targets => {
+            let pins = pins_after(&targets, &new, &pins, &found);
+            consent.confirm_targets(&project.root, &targets, &pins)?;
+        }
         Kind::Field => {}
     }
     if path == "enabled" && *value == Value::Bool(false) {
@@ -208,13 +227,62 @@ pub(crate) fn unconfirmed(after: &[String], confirmed: &[String]) -> Vec<String>
         .collect()
 }
 
+/// The targets of `after` the person is asked to confirm: those not yet
+/// confirmed, and each name whose addresses were never kept or that
+/// resolves elsewhere now (`found`), so a moved name is shown again.
+pub(crate) fn to_confirm(
+    after: &[String],
+    confirmed: &[String],
+    pins: &Pins,
+    found: &Pins,
+) -> Vec<String> {
+    use devflow_engine::security::target;
+    let new = unconfirmed(after, confirmed);
+    let moved = |url: &String| {
+        target(url).is_ok_and(|one| {
+            let now = found.get(&one.origin()).map_or(&[][..], Vec::as_slice);
+            one.named
+                && pins
+                    .get(&one.origin())
+                    .is_none_or(|then| now.iter().any(|address| !then.contains(address)))
+        })
+    };
+    after
+        .iter()
+        .filter(|url| new.contains(url) || moved(url))
+        .cloned()
+        .collect()
+}
+
+/// The addresses kept with the yes to `after`: what each name in `shown`
+/// resolves to now, and for the rest what was kept before.
+pub(crate) fn pins_after(after: &[String], shown: &[String], pins: &Pins, found: &Pins) -> Pins {
+    use devflow_engine::security::target;
+    after
+        .iter()
+        .filter_map(|url| {
+            target(url)
+                .ok()
+                .filter(|one| one.named)
+                .map(|one| (url, one))
+        })
+        .filter_map(|(url, one)| {
+            let origin = one.origin();
+            let from = if shown.contains(url) { found } else { pins };
+            from.get(&origin)
+                .map(|addresses| (origin, addresses.clone()))
+        })
+        .collect()
+}
+
 /// What a target new to this machine is shown with before the yes: what
-/// its name resolves to here, which is what an attack would reach.
-fn shown(url: &str) -> String {
-    use devflow_engine::security::{resolved_here, target};
+/// its name resolves to here (`found`), which is what an attack would reach
+/// and what is kept with the yes.
+fn shown(url: &str, found: &Pins) -> String {
+    use devflow_engine::security::target;
     match target(url) {
         Ok(one) if one.named => {
-            let found = resolved_here(&one.host, one.port);
+            let found = found.get(&one.origin()).cloned().unwrap_or_default();
             if found.is_empty() {
                 format!("{url} (resolves to nothing here)")
             } else {

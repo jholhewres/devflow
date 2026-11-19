@@ -6,6 +6,7 @@
 //! only through `DEVFLOW_SECURITY_TARGETS`. A third party's host is never a
 //! target, whatever trick spells it.
 
+use std::collections::BTreeMap;
 use std::net::IpAddr;
 
 use serde_json::Value;
@@ -218,6 +219,16 @@ pub fn private(address: IpAddr) -> bool {
 /// What a name resolves to, as this machine's resolver answers.
 pub type Resolve<'a> = &'a dyn Fn(&str, u16) -> Vec<IpAddr>;
 
+/// What each of several hosts resolves to, in their order.
+pub type ResolveAll<'a> = &'a dyn Fn(&[(String, u16)]) -> Vec<Vec<IpAddr>>;
+
+/// By a target's origin: the addresses its name resolved to when the person
+/// confirmed it.
+pub type Pins = BTreeMap<String, Vec<IpAddr>>;
+
+/// The most addresses kept for one name.
+pub const MOST_PINNED: usize = 16;
+
 /// How long a target's names have to resolve before they count as
 /// resolving to nothing.
 pub const RESOLVING: std::time::Duration = std::time::Duration::from_secs(3);
@@ -244,25 +255,40 @@ pub fn resolved_within(
     port: u16,
     limit: std::time::Duration,
 ) -> Vec<IpAddr> {
+    let asked = names.iter().map(|name| (0, name.clone(), port)).collect();
+    answered_within(lookup, asked, 1, limit).concat()
+}
+
+/// What `lookup` answers for each `(slot, name, port)` asked, by slot: all
+/// asked at once and read until the one `limit`.
+fn answered_within(
+    lookup: fn(&str, u16) -> Vec<IpAddr>,
+    asked: Vec<(usize, String, u16)>,
+    slots: usize,
+    limit: std::time::Duration,
+) -> Vec<Vec<IpAddr>> {
     let (sent, said) = std::sync::mpsc::channel();
-    for name in names {
-        let (sent, name) = (sent.clone(), name.clone());
+    let count = asked.len();
+    for (slot, name, port) in asked {
+        let sent = sent.clone();
         std::thread::spawn(move || {
-            let _ = sent.send(lookup(&name, port));
+            let _ = sent.send((slot, lookup(&name, port)));
         });
     }
     drop(sent);
     let until = std::time::Instant::now() + limit;
-    let mut found = Vec::new();
-    for _ in names {
+    let mut found = vec![Vec::new(); slots];
+    for _ in 0..count {
         let left = until.saturating_duration_since(std::time::Instant::now());
         match said.recv_timeout(left) {
-            Ok(answer) => found.extend(answer),
+            Ok((slot, answer)) => found[slot].extend(answer),
             Err(_) => break,
         }
     }
-    found.sort();
-    found.dedup();
+    for one in &mut found {
+        one.sort();
+        one.dedup();
+    }
     found
 }
 
@@ -273,6 +299,59 @@ fn looked_up(name: &str, port: u16) -> Vec<IpAddr> {
         .to_socket_addrs()
         .map(|found| found.map(|address| address.ip()).collect())
         .unwrap_or_default()
+}
+
+/// Every address `lookup` answers for each of `hosts`, in their order:
+/// every name of every host ([`asked_as`]) asked at once, under the one
+/// `limit`, so twenty targets take no longer than one.
+pub fn resolved_all(
+    lookup: fn(&str, u16) -> Vec<IpAddr>,
+    hosts: &[(String, u16)],
+    limit: std::time::Duration,
+) -> Vec<Vec<IpAddr>> {
+    let hosts = &hosts[..hosts.len().min(MOST_TARGETS)];
+    let asked = hosts
+        .iter()
+        .enumerate()
+        .flat_map(|(slot, (host, port))| {
+            asked_as(host)
+                .into_iter()
+                .map(move |name| (slot, name, *port))
+        })
+        .collect();
+    answered_within(lookup, asked, hosts.len(), limit)
+}
+
+/// [`resolved_all`] with this machine's resolver, within [`RESOLVING`].
+pub fn resolved_here_all(hosts: &[(String, u16)]) -> Vec<Vec<IpAddr>> {
+    resolved_all(looked_up, hosts, RESOLVING)
+}
+
+/// What each named target of `urls` resolves to, by origin, all asked in
+/// one call of `resolve`.
+pub fn resolved(urls: &[String], resolve: ResolveAll) -> Pins {
+    let mut named: Vec<Target> = Vec::new();
+    for one in urls
+        .iter()
+        .take(MOST_TARGETS)
+        .filter_map(|url| target(url).ok())
+    {
+        if one.named && !named.iter().any(|seen| seen.origin() == one.origin()) {
+            named.push(one);
+        }
+    }
+    if named.is_empty() {
+        return Pins::new();
+    }
+    let hosts: Vec<(String, u16)> = named
+        .iter()
+        .map(|one| (one.host.clone(), one.port))
+        .collect();
+    named
+        .iter()
+        .zip(resolve(&hosts))
+        .map(|(one, found)| (one.origin(), found))
+        .collect()
 }
 
 /// The resolver this machine uses, asked for each of [`asked_as`] within
@@ -296,7 +375,12 @@ pub fn reachable(target: &Target, resolve: Resolve) -> Result<(), String> {
     if !target.named {
         return Ok(());
     }
-    let found = resolve(&target.host, target.port);
+    answered(target, &resolve(&target.host, target.port))
+}
+
+/// Whether what a target's name resolved to is only this machine or a
+/// private network.
+fn answered(target: &Target, found: &[IpAddr]) -> Result<(), String> {
     match found.iter().find(|address| !private(**address)) {
         _ if found.is_empty() => Err(format!(
             "`{}` resolves to nothing here, so it is not reached",
@@ -310,28 +394,83 @@ pub fn reachable(target: &Target, resolve: Resolve) -> Result<(), String> {
     }
 }
 
+/// What a target that must be confirmed again is told.
+const AGAIN: &str = "the person confirms it again with `devflow config set security.targets` \
+     in a terminal, which shows where it resolves now";
+
+/// Whether a confirmed name leads only where it led when the person
+/// confirmed it: this machine or a private network, and none but the
+/// addresses kept with their yes (`pinned`). A later answer of the resolver
+/// cannot move it; a pin never makes a public address one.
+pub fn pinned_to(
+    target: &Target,
+    found: &[IpAddr],
+    pinned: Option<&[IpAddr]>,
+) -> Result<(), String> {
+    if !target.named {
+        return Ok(());
+    }
+    let host = &target.host;
+    let Some(pinned) = pinned else {
+        return Err(format!(
+            "`{host}` was confirmed before devflow kept the addresses it resolved to: {AGAIN}"
+        ));
+    };
+    answered(target, found)?;
+    match found.iter().find(|address| !pinned.contains(address)) {
+        None => Ok(()),
+        Some(address) => {
+            let then: Vec<String> = pinned.iter().map(ToString::to_string).collect();
+            Err(format!(
+                "`{host}` resolves to {address}, not to what it resolved to when it was \
+                 confirmed ({}): {AGAIN}",
+                if then.is_empty() {
+                    "nothing".to_owned()
+                } else {
+                    then.join(", ")
+                }
+            ))
+        }
+    }
+}
+
 /// The targets in force: those devflow.yaml lists that the person
-/// confirmed, each read and its name resolved to this machine or a private
-/// network, by origin. What was left out, with why, is the second list.
+/// confirmed, each read and its name resolved, every name at once in one
+/// call of `resolve`, to the addresses it resolved to when confirmed
+/// ([`pinned_to`]), by origin. What was left out, with why, is the second
+/// list.
 pub fn in_force(
     declared: &[String],
     confirmed: &[String],
-    resolve: Resolve,
+    pins: &Pins,
+    resolve: ResolveAll,
 ) -> (Vec<String>, Vec<String>) {
     let confirmed = origins(confirmed);
+    let declared = &declared[..declared.len().min(MOST_TARGETS)];
+    // Only a name the person confirmed, its addresses kept, is sent to the
+    // network's resolver.
+    let asked: Vec<String> = declared
+        .iter()
+        .filter(|url| {
+            target(url).is_ok_and(|one| {
+                confirmed.contains(&one.origin()) && pins.contains_key(&one.origin())
+            })
+        })
+        .cloned()
+        .collect();
+    let found = resolved(&asked, resolve);
     let mut kept = Vec::new();
     let mut left = Vec::new();
-    for url in declared.iter().take(MOST_TARGETS) {
-        // Confirmed first: a name the person never agreed to is not even
-        // sent to the network's resolver.
+    for url in declared {
         let read = target(url).and_then(|one| {
-            if confirmed.contains(&one.origin()) {
-                reachable(&one, resolve)
-            } else {
-                Err(format!(
+            let origin = one.origin();
+            if !confirmed.contains(&origin) {
+                return Err(format!(
                     "`{url}` is not confirmed: the person runs `devflow config set security.targets` in a terminal"
-                ))
+                ));
             }
+            let now = found.get(&origin).map_or(&[][..], Vec::as_slice);
+            pinned_to(&one, now, pins.get(&origin).map(Vec::as_slice))
         });
         match read {
             Err(why) => left.push(why),

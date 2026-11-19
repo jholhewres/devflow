@@ -1,7 +1,8 @@
 //! What an attack may reach is the person's: no tool writes
 //! `security.targets`, a target listed by hand is not in force until the
-//! person confirmed it on this machine, and a plan's boundary item that
-//! names no abuse case is flagged.
+//! person confirmed it on this machine, a name confirmed before devflow kept
+//! the addresses it resolved to is confirmed again, and a plan's boundary
+//! item that names no abuse case is flagged.
 
 mod common;
 
@@ -107,11 +108,17 @@ fn what_an_attack_may_reach_is_the_persons_to_widen() {
     };
     assert_eq!(given(&mut mcp), "");
 
-    consent(json!({ key.clone(): ["http://127.0.0.1:9000"] }));
+    // `localhost` as an older consent.json kept it, with no addresses.
+    consent(json!({ key.clone(): ["http://127.0.0.1:9000", "http://localhost:8080"] }));
     let (_, status) = mcp.answer("status", json!({}));
     assert_eq!(
         status["targets"]["in_force"],
         json!(["http://127.0.0.1:9000"]),
+        "{status}"
+    );
+    let left = status["targets"]["left_out"][0].as_str().unwrap();
+    assert!(
+        left.contains("`localhost`") && left.contains("again"),
         "{status}"
     );
     assert_eq!(given(&mut mcp), "http://127.0.0.1:9000");

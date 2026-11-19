@@ -1,12 +1,14 @@
 //! What only the person decides, kept on their machine: devflow switched on
 //! in a project, Decisions moved to `enforce` there, a team layer's command
-//! confirmed at its commit, and the targets an attack may reach there. A terminal command with a confirmation
+//! confirmed at its commit, and the targets an attack may reach there, with
+//! the addresses each name resolved to then. A terminal command with a confirmation
 //! writes it (`devflow config set`, `devflow stage confirm`); an MCP tool
 //! only reads it, and answers with the command to run.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
+use devflow_engine::security::{Pins, MOST_PINNED};
 use devflow_engine::Ask;
 use serde::{Deserialize, Serialize};
 
@@ -25,6 +27,10 @@ struct Kept {
     /// By project: the `security.targets` the person confirmed there.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     targets: BTreeMap<String, Vec<String>>,
+    /// By project: the addresses each confirmed name resolved to then. A
+    /// file from before has none, and its names are confirmed again.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pinned: BTreeMap<String, Pins>,
 }
 
 /// The person's decisions, in one file.
@@ -119,9 +125,24 @@ impl Consent {
             .unwrap_or_default()
     }
 
-    /// Keeps `targets` as what the person confirmed in the project: a
-    /// target left out is no longer confirmed.
-    pub fn confirm_targets(&self, root: &Path, targets: &[String]) -> Result<(), String> {
+    /// The addresses each confirmed name resolved to then, by origin.
+    pub fn pinned(&self, root: &Path) -> Pins {
+        let mut pins = self.kept().pinned.remove(&key_of(root)).unwrap_or_default();
+        for addresses in pins.values_mut() {
+            addresses.truncate(MOST_PINNED);
+        }
+        pins
+    }
+
+    /// Keeps `targets` as what the person confirmed in the project, with
+    /// the addresses `pins` holds for them: a target left out is no longer
+    /// confirmed, and its addresses go.
+    pub fn confirm_targets(
+        &self,
+        root: &Path,
+        targets: &[String],
+        pins: &Pins,
+    ) -> Result<(), String> {
         let mut kept = self.kept();
         let key = key_of(root);
         let listed: Vec<String> = targets
@@ -129,10 +150,24 @@ impl Consent {
             .take(devflow_engine::security::MOST_TARGETS)
             .cloned()
             .collect();
+        let origins = devflow_engine::security::origins(&listed);
+        let pins: Pins = pins
+            .iter()
+            .filter(|(origin, _)| origins.contains(origin))
+            .map(|(origin, addresses)| {
+                let most = addresses.len().min(MOST_PINNED);
+                (origin.clone(), addresses[..most].to_vec())
+            })
+            .collect();
         if listed.is_empty() {
             kept.targets.remove(&key);
         } else {
-            kept.targets.insert(key, listed);
+            kept.targets.insert(key.clone(), listed);
+        }
+        if pins.is_empty() {
+            kept.pinned.remove(&key);
+        } else {
+            kept.pinned.insert(key, pins);
         }
         self.keep(&kept)
     }

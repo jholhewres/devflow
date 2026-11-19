@@ -9,8 +9,11 @@ use std::time::{Duration, SystemTime};
 use devflow_engine::{config, review, runs, security, Dialect};
 use serde_json::{json, Value};
 
-fn docker(_: &str, _: u16) -> Vec<IpAddr> {
-    vec!["172.18.0.3".parse().expect("ip")]
+fn docker(hosts: &[(String, u16)]) -> Vec<Vec<IpAddr>> {
+    hosts
+        .iter()
+        .map(|_| vec!["172.18.0.3".parse().expect("ip")])
+        .collect()
 }
 
 fn ran(target: &str) -> Vec<Value> {
@@ -27,7 +30,11 @@ fn a_target_outside_the_confirmed_list_is_refused() {
     ];
     // The person confirmed only the first one on this machine.
     let confirmed = vec!["http://localhost:8080".to_owned()];
-    let (in_force, left) = security::in_force(&declared, &confirmed, &docker);
+    let pins = security::Pins::from([(
+        "http://localhost:8080".to_owned(),
+        vec!["172.18.0.3".parse().expect("ip")],
+    )]);
+    let (in_force, left) = security::in_force(&declared, &confirmed, &pins, &docker);
     assert_eq!(in_force, ["http://localhost:8080"]);
     assert!(left[0].contains("not confirmed"), "{left:?}");
 

@@ -43,13 +43,65 @@ fn the_targets_confirmed_are_kept_by_project_and_narrowed_by_a_shorter_list() {
         "http://localhost:8080".to_owned(),
         "http://api:8000".to_owned(),
     ];
-    consent.confirm_targets(one.path(), &both).expect("both");
+    consent
+        .confirm_targets(one.path(), &both, &Pins::new())
+        .expect("both");
     assert_eq!(consent.confirmed_targets(one.path()), both);
     assert!(consent.confirmed_targets(other.path()).is_empty());
     consent
-        .confirm_targets(one.path(), &both[..1])
+        .confirm_targets(one.path(), &both[..1], &Pins::new())
         .expect("narrowed");
     assert_eq!(consent.confirmed_targets(one.path()), both[..1]);
-    consent.confirm_targets(one.path(), &[]).expect("none");
+    consent
+        .confirm_targets(one.path(), &[], &Pins::new())
+        .expect("none");
     assert!(consent.kept().targets.is_empty());
+}
+
+#[test]
+fn the_addresses_a_name_resolved_to_are_kept_with_the_yes() {
+    let (folder, one) = (
+        tempfile::tempdir().expect("folder"),
+        tempfile::tempdir().expect("one"),
+    );
+    let consent = Consent::at(folder.path());
+    let both = [
+        "http://localhost:8080".to_owned(),
+        "http://api:8000".to_owned(),
+    ];
+    let pins = Pins::from([
+        (
+            "http://api:8000".to_owned(),
+            vec!["172.18.0.3".parse().expect("ip")],
+        ),
+        (
+            "http://localhost:8080".to_owned(),
+            vec!["127.0.0.1".parse().expect("ip")],
+        ),
+    ]);
+    consent
+        .confirm_targets(one.path(), &both, &pins)
+        .expect("both");
+    assert_eq!(consent.pinned(one.path()), pins);
+    consent
+        .confirm_targets(one.path(), &both[..1], &pins)
+        .expect("narrowed");
+    let left: Vec<String> = consent.pinned(one.path()).into_keys().collect();
+    assert_eq!(left, ["http://localhost:8080"]);
+}
+
+#[test]
+fn a_record_from_before_the_addresses_were_kept_still_reads() {
+    let (folder, one) = (
+        tempfile::tempdir().expect("folder"),
+        tempfile::tempdir().expect("one"),
+    );
+    let key = key_of(one.path());
+    let old =
+        serde_json::json!({ "enabled": [key], "targets": { key.clone(): ["http://api:8000"] } });
+    std::fs::write(folder.path().join(FILE), old.to_string()).expect("old");
+    let consent = Consent::at(folder.path());
+    assert!(consent.made(one.path(), Ask::Enable));
+    assert_eq!(consent.confirmed_targets(one.path()), ["http://api:8000"]);
+    assert!(consent.pinned(one.path()).is_empty());
 }

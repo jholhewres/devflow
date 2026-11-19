@@ -120,7 +120,8 @@ pub fn targets_in_force(project: &Project, config: &Config, consent: &Consent) -
     devflow_engine::security::in_force(
         &config.security.targets,
         &consent.confirmed_targets(&project.root),
-        &devflow_engine::security::resolved_here,
+        &consent.pinned(&project.root),
+        &devflow_engine::security::resolved_here_all,
     )
     .0
 }

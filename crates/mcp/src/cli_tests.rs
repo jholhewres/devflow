@@ -67,3 +67,36 @@ fn what_only_the_person_decides_is_told_apart_from_a_field() {
         super::Kind::Field
     );
 }
+
+#[test]
+fn a_name_never_pinned_or_now_elsewhere_is_shown_and_pinned_again() {
+    use std::net::IpAddr;
+    let ip = |text: &str| -> Vec<IpAddr> { vec![text.parse().expect("ip")] };
+    let after = [
+        "http://localhost:8080".to_owned(),
+        "http://api:8000".to_owned(),
+        "http://db:5432".to_owned(),
+        "http://127.0.0.1:9000".to_owned(),
+    ];
+    // All confirmed; `db` before its addresses were kept.
+    let pins = Pins::from([
+        ("http://localhost:8080".to_owned(), ip("127.0.0.1")),
+        ("http://api:8000".to_owned(), ip("172.18.0.3")),
+    ]);
+    let found = Pins::from([
+        ("http://localhost:8080".to_owned(), ip("127.0.0.1")),
+        ("http://api:8000".to_owned(), ip("172.18.0.9")),
+        ("http://db:5432".to_owned(), ip("172.18.0.5")),
+    ]);
+    let new = super::to_confirm(&after, &after, &pins, &found);
+    assert_eq!(new, ["http://api:8000", "http://db:5432"]);
+    assert_eq!(
+        super::pins_after(&after, &new, &pins, &found),
+        Pins::from([
+            ("http://localhost:8080".to_owned(), ip("127.0.0.1")),
+            ("http://api:8000".to_owned(), ip("172.18.0.9")),
+            ("http://db:5432".to_owned(), ip("172.18.0.5")),
+        ])
+    );
+    assert!(super::to_confirm(&after, &after, &found, &found).is_empty());
+}

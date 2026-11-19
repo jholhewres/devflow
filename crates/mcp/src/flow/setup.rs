@@ -95,7 +95,8 @@ pub fn status_of(project: &Project, server: &Server) -> Value {
                 let (in_force, left) = devflow_engine::security::in_force(
                     &config.security.targets,
                     &server.consent.confirmed_targets(&project.root),
-                    &devflow_engine::security::resolved_here,
+                    &server.consent.pinned(&project.root),
+                    &devflow_engine::security::resolved_here_all,
                 );
                 said["targets"] = json!({ "in_force": in_force, "left_out": left });
             }

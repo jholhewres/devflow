@@ -97,6 +97,23 @@ fn resolving(to: &'static [&'static str]) -> impl Fn(&str, u16) -> Vec<IpAddr> {
     move |_, _| to.iter().map(|one| one.parse().expect("ip")).collect()
 }
 
+fn ips(to: &[&str]) -> Vec<IpAddr> {
+    to.iter().map(|one| one.parse().expect("ip")).collect()
+}
+
+/// A resolver that answers `to` for every host it is asked.
+fn all(to: &'static [&'static str]) -> impl Fn(&[(String, u16)]) -> Vec<Vec<IpAddr>> {
+    move |hosts| hosts.iter().map(|_| ips(to)).collect()
+}
+
+/// Each of `urls` confirmed while it resolved to `to`.
+fn pinned(urls: &[String], to: &[&str]) -> Pins {
+    urls.iter()
+        .filter_map(|url| target(url).ok())
+        .map(|one| (one.origin(), ips(to)))
+        .collect()
+}
+
 #[test]
 fn a_one_label_name_the_resolver_completes_elsewhere_is_refused() {
     let api = target("http://api:8000").expect("a docker service's name");
@@ -123,7 +140,8 @@ fn only_what_is_listed_and_confirmed_is_in_force() {
         "http://localhost:8080/".to_owned(),
         "http://api:8000".to_owned(),
     ];
-    let (kept, left) = in_force(&declared, &confirmed, &resolving(&["172.18.0.3"]));
+    let pins = pinned(&confirmed, &["172.18.0.3"]);
+    let (kept, left) = in_force(&declared, &confirmed, &pins, &all(&["172.18.0.3"]));
     assert_eq!(kept, ["http://localhost:8080", "http://api:8000"]);
     assert_eq!(left.len(), 1);
     assert!(
@@ -191,12 +209,16 @@ fn a_clouds_metadata_service_is_never_a_private_address() {
 #[test]
 fn a_name_the_person_never_confirmed_is_not_sent_to_the_resolver() {
     let asked = std::cell::RefCell::new(Vec::new());
-    let resolve = |host: &str, _: u16| -> Vec<IpAddr> {
-        asked.borrow_mut().push(host.to_owned());
-        vec!["172.18.0.3".parse().expect("ip")]
+    let resolve = |hosts: &[(String, u16)]| -> Vec<Vec<IpAddr>> {
+        asked
+            .borrow_mut()
+            .extend(hosts.iter().map(|(host, _)| host.clone()));
+        hosts.iter().map(|_| ips(&["172.18.0.3"])).collect()
     };
     let declared = vec!["http://api:8000".to_owned(), "http://db:5432".to_owned()];
-    let (kept, _) = in_force(&declared, &["http://db:5432".to_owned()], &resolve);
+    let confirmed = ["http://db:5432".to_owned()];
+    let pins = pinned(&declared, &["172.18.0.3"]);
+    let (kept, _) = in_force(&declared, &confirmed, &pins, &resolve);
     assert_eq!(kept, ["http://db:5432"]);
     assert_eq!(*asked.borrow(), ["db"]);
 }
@@ -262,4 +284,97 @@ fn a_path_spelled_with_spaces_around_its_dots_is_still_the_persons() {
         assert!(persons_only(path), "{path:?}");
     }
     assert!(!persons_only("securityx.targets"));
+}
+
+#[test]
+fn a_confirmed_name_keeps_its_addresses_and_a_later_answer_elsewhere_is_refused() {
+    let declared = vec![
+        "http://api:8000".to_owned(),
+        "http://127.0.0.1:9000".to_owned(),
+    ];
+    let pins = pinned(&declared[..1], &["172.18.0.3"]);
+    let (kept, _) = in_force(&declared, &declared, &pins, &all(&["172.18.0.3"]));
+    assert_eq!(kept, declared);
+    const MOVED: [(&[&str], &str); 2] = [
+        (&["172.18.0.9"], "172.18.0.9"),
+        (&["172.18.0.3", "10.0.0.9"], "10.0.0.9"),
+    ];
+    for (answers, elsewhere) in MOVED {
+        let (kept, left) = in_force(&declared, &declared, &pins, &all(answers));
+        assert_eq!(kept, ["http://127.0.0.1:9000"], "{answers:?}");
+        assert!(
+            left[0].contains(elsewhere) && left[0].contains("again"),
+            "{left:?}"
+        );
+    }
+
+    // Confirmed before its addresses were kept: out of force, and not even
+    // sent to the resolver, until the person confirms it again.
+    let asked = std::cell::Cell::new(0);
+    let counted = |hosts: &[(String, u16)]| -> Vec<Vec<IpAddr>> {
+        asked.set(asked.get() + hosts.len());
+        hosts.iter().map(|_| ips(&["172.18.0.3"])).collect()
+    };
+    let (kept, left) = in_force(&declared, &declared, &Pins::new(), &counted);
+    assert_eq!(kept, ["http://127.0.0.1:9000"]);
+    assert!(
+        left[0].contains("`api`") && left[0].contains("again"),
+        "{left:?}"
+    );
+    assert_eq!(asked.get(), 0);
+}
+
+fn slow_or_fast(name: &str, _: u16) -> Vec<IpAddr> {
+    if name.starts_with("fast") {
+        return ips(&["172.18.0.3"]);
+    }
+    std::thread::sleep(std::time::Duration::from_secs(5));
+    ips(&["172.18.0.4"])
+}
+
+#[test]
+fn every_target_resolves_under_one_deadline_not_one_per_name() {
+    let limit = std::time::Duration::from_millis(250);
+    let mut hosts: Vec<(String, u16)> = (0..8).map(|at| (format!("slow{at}"), 80)).collect();
+    hosts.push(("fast".to_owned(), 80));
+    let started = std::time::Instant::now();
+    let found = resolved_all(slow_or_fast, &hosts, limit);
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(1),
+        "{:?}",
+        started.elapsed()
+    );
+    assert_eq!(found.len(), hosts.len());
+    assert_eq!(found[8], ips(&["172.18.0.3"]));
+    assert!(found[..8].iter().all(Vec::is_empty), "{found:?}");
+
+    // `in_force` asks for every confirmed name in one call.
+    let calls = std::cell::RefCell::new(Vec::new());
+    let once = |hosts: &[(String, u16)]| -> Vec<Vec<IpAddr>> {
+        calls.borrow_mut().push(hosts.len());
+        hosts.iter().map(|_| ips(&["172.18.0.3"])).collect()
+    };
+    let declared = vec!["http://api:8000".to_owned(), "http://db:5432".to_owned()];
+    let pins = pinned(&declared, &["172.18.0.3"]);
+    let (kept, _) = in_force(&declared, &declared, &pins, &once);
+    assert_eq!(kept, declared);
+    assert_eq!(*calls.borrow(), [2]);
+}
+
+#[test]
+fn a_name_that_resolves_to_a_public_address_after_it_was_confirmed_is_refused() {
+    let declared = vec!["http://api:8000".to_owned()];
+    let private = pinned(&declared, &["172.18.0.3"]);
+    let (kept, left) = in_force(&declared, &declared, &private, &all(&["93.184.216.34"]));
+    assert!(kept.is_empty());
+    assert!(left[0].contains("93.184.216.34"), "{left:?}");
+    // A pin never says yes to a public address: a consent.json edited to
+    // keep one puts nothing in force.
+    let public = pinned(&declared, &["93.184.216.34"]);
+    let (kept, left) = in_force(&declared, &declared, &public, &all(&["93.184.216.34"]));
+    assert!(kept.is_empty());
+    assert!(
+        left[0].contains("neither this machine nor a private network"),
+        "{left:?}"
+    );
 }
