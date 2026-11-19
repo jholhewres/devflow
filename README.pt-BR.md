@@ -92,25 +92,32 @@ devflow status   # o modelo de cada etapa e revisor, e de onde veio
 O `status` também diz o que o review mais recente gastou por etapa e modelo
 (`spent`).
 
-Segurança: `review.attack` (`off` se não disser; `sensitive`, `per-item` ou
-`release`) faz o `devflow-security` tentar explorar a mudança, e só um
-achado confirmado por um teste de exploração segura o trabalho; o resto vira
-acompanhamento. Itens do plano que cruzam uma fronteira de confiança dizem
-seus casos de abuso, cada um um critério provado por teste. Um check com
-`report: sarif` lê o SARIF de qualquer analisador estático (semgrep, gosec,
-trivy, gitleaks…) como achados, que nunca seguram nada. As instâncias que um
-ataque pode alcançar quem libera é você:
+## Segurança e ataque
+
+Duas coisas olham a segurança de uma mudança. O **revisor de segurança**
+(`devflow-security`) a lê durante o review, como os revisores de spec e de
+standards, e seus achados críticos e altos seguram o trabalho. O **ataque**
+(`review.attack`: `off` se não disser, `sensitive`, `per-item` ou `release`)
+tenta explorar a mudança, e só um achado confirmado por um teste de
+exploração segura o trabalho; o resto vira acompanhamento. Itens do plano que
+cruzam uma fronteira de confiança dizem seus casos de abuso, cada um um
+critério provado por teste, e um check com `report: sarif` lê o SARIF de
+qualquer analisador estático como achados, que nunca seguram nada.
 
 ```sh
 devflow config set review.attack sensitive
-devflow config set security.targets '["http://localhost:8080"]'   # pede confirmação de cada alvo
+devflow config set security.targets '["http://localhost:8080"]'   # pede confirmação de cada alvo, no terminal
 ```
 
-Só loopback, `localhost`, `host.docker.internal` e nomes de serviço do
-docker são aceitos; nunca o host de outra pessoa. O devflow não isola o
-shell do próprio agente: veja o [SECURITY.md](SECURITY.md).
+Um ataque só alcança as instâncias do próprio projeto que você confirmou
+(loopback, `localhost`, `host.docker.internal`, nomes de serviço do docker),
+nunca um terceiro nem os metadados da nuvem, e nunca contorna a recusa de um
+modelo. Hoje um leitor sem interface não roda as próprias PoCs, então quem
+roda é a sessão; o devflow não isola o shell do próprio agente. Quando cada
+um roda, quanto custa e como ler `confirmed`, `refuted` e `not_run`:
+[docs/security.md](docs/security.md) (em inglês) e [SECURITY.md](SECURITY.md).
 
-Mais: [integrações](docs/integrations.md) · [plano](docs/plan.md) ·
+Mais: [integrações](docs/integrations.md) · [segurança](docs/security.md) · [plano](docs/plan.md) ·
 [contribuir](CONTRIBUTING.md).
 
 ## Licença

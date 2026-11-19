@@ -42,6 +42,8 @@ Worth knowing before you run it, and worth keeping in mind when reviewing:
   private network's.
   A way to make a third party's host a target, or to record a PoC against
   one, is a vulnerability.
+  What the security reviewer and the attack do, and their limits:
+  [docs/security.md](docs/security.md).
 - It **reads static analysers' SARIF** from a check's report folder; a
   location outside the project's root is left out unread, and the report is
   kept without the code and file contents it quotes. A rule's message may

@@ -90,24 +90,32 @@ devflow status   # each stage's and reviewer's model, and where it came from
 `status` also says what the newest review spent by stage and model
 (`spent`).
 
-Security: `review.attack` (`off` unless set; `sensitive`, `per-item` or
-`release`) has `devflow-security` try to exploit the change, and only a
-finding an exploit test confirmed holds the work; the rest is followed up.
-Plan items that cross a trust boundary name their abuse cases, each a
-criterion proven by a test. A check with `report: sarif` reads any static
-analyser's SARIF (semgrep, gosec, trivy, gitleaks…) as findings, never a
-hold. The running instances an attack may reach are yours to allow:
+## Security and attack
+
+Two things look at a change's security. The **security reviewer**
+(`devflow-security`) reads it during review, like the spec and standards
+reviewers, and its critical and high findings hold the work. The **attack**
+(`review.attack`: `off` unless set, `sensitive`, `per-item` or `release`)
+tries to exploit the change, and only a finding an exploit test confirmed
+holds the work; the rest is followed up. Plan items that cross a trust
+boundary name their abuse cases, each a criterion proven by a test, and a
+check with `report: sarif` reads any static analyser's SARIF as findings,
+never a hold.
 
 ```sh
 devflow config set review.attack sensitive
-devflow config set security.targets '["http://localhost:8080"]'   # asks you to confirm each
+devflow config set security.targets '["http://localhost:8080"]'   # asks you to confirm each, on a terminal
 ```
 
-Only loopback, `localhost`, `host.docker.internal` and docker service names
-are accepted; never someone else's host. devflow does not sandbox the
-agent's own shell: see [SECURITY.md](SECURITY.md).
+An attack reaches only the project's own instances you confirmed (loopback,
+`localhost`, `host.docker.internal`, docker service names), never a third
+party or a cloud's metadata, and never works around a model's refusal. Today
+a headless reader cannot run its own PoCs, so the session runs them; devflow
+does not sandbox the agent's own shell. When each runs, what it costs and how
+to read `confirmed`, `refuted` and `not_run`: [docs/security.md](docs/security.md)
+and [SECURITY.md](SECURITY.md).
 
-More: [integrations](docs/integrations.md) · [plan](docs/plan.md) ·
+More: [integrations](docs/integrations.md) · [security](docs/security.md) · [plan](docs/plan.md) ·
 [contributing](CONTRIBUTING.md).
 
 ## License
