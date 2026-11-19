@@ -11,6 +11,7 @@
 
 pub mod adhoc;
 pub mod agents;
+pub mod attack;
 pub mod autopilot;
 pub mod available;
 pub mod brief;

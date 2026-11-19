@@ -26,14 +26,19 @@ pub const V1: u64 = 1;
 pub const BUILTIN: &str = "builtin";
 
 /// The stages, in the order the work goes through them.
-pub const STAGES: [&str; 6] = [
+pub const STAGES: [&str; 7] = [
     "briefing",
     "context",
     "plan",
     "execution",
     "review",
+    "attack",
     "completion",
 ];
+
+/// The stage that tries to exploit the change, after review: on, as
+/// `sensitive`, unless devflow.yaml says otherwise.
+pub const ATTACK: &str = "attack";
 
 /// Where the E2E specs Devflow writes go, unless `stages.execution.e2e_dir` moves them.
 pub const E2E_DIR: &str = ".devflow/e2e";
@@ -227,6 +232,8 @@ pub struct Stages {
     pub plan: Approved,
     pub execution: Execution,
     pub review: Stage,
+    /// Off when its `run` is `off`.
+    pub attack: Attack,
     pub completion: Completion,
 }
 
@@ -321,8 +328,8 @@ pub struct Review {
     /// past `scale`'s small; not said, it is on only with `models` said.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub analysis: Option<Analysis>,
-    /// The attack's reading: `devflow-security` trying to exploit the
-    /// change. Off unless said; `models` never switches it on.
+    /// `review.attack` as the file said it: the older name of
+    /// `stages.attack`, which holds what is in force.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub attack: Option<Attack>,
 }
@@ -334,13 +341,25 @@ pub struct Analysis {
     pub model: Option<String>,
 }
 
-/// `review.attack`: a word, or a map of `run` and `model`.
+/// `stages.attack` (or its older name `review.attack`): a word, or a map of
+/// `run` and `model`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Attack {
     pub run: AttackRun,
     /// A tier (`small`, `default`, `large`) or an id; `large` when not said.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+}
+
+impl Default for Attack {
+    /// `sensitive`: the attack runs on a diff `review.scale` does not call
+    /// small.
+    fn default() -> Self {
+        Attack {
+            run: AttackRun::Sensitive,
+            model: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -409,6 +428,7 @@ impl Default for Config {
                     enabled: true,
                     model: None,
                 },
+                attack: Attack::default(),
                 completion: Completion {
                     enabled: true,
                     gate: GATE.to_owned(),
@@ -463,6 +483,7 @@ impl Stages {
             "plan" => self.plan.enabled,
             "execution" => self.execution.enabled,
             "review" => self.review.enabled,
+            ATTACK => self.attack.run != AttackRun::Off,
             "completion" => self.completion.enabled,
             _ => false,
         }
@@ -475,6 +496,8 @@ impl Stages {
             "plan" => self.plan.enabled = on,
             "execution" => self.execution.enabled = on,
             "review" => self.review.enabled = on,
+            ATTACK if !on => self.attack.run = AttackRun::Off,
+            ATTACK if self.attack.run == AttackRun::Off => self.attack.run = AttackRun::Sensitive,
             "completion" => self.completion.enabled = on,
             _ => {}
         }
@@ -488,6 +511,7 @@ impl Stages {
             "plan" => self.plan.model.as_deref(),
             "execution" => self.execution.model.as_deref(),
             "review" => self.review.model.as_deref(),
+            ATTACK => self.attack.model.as_deref(),
             "completion" => self.completion.model.as_deref(),
             _ => None,
         }
@@ -497,6 +521,7 @@ impl Stages {
         match stage {
             "context" => self.context.model = model,
             "review" => self.review.model = model,
+            ATTACK => self.attack.model = model,
             _ => {}
         }
     }
@@ -544,6 +569,10 @@ impl Config {
     /// version 2's list.
     pub fn to_json(&self) -> serde_json::Value {
         let mut json = serde_json::to_value(self).unwrap_or_default();
+        // Said once, where it is in force.
+        if let Some(review) = json["review"].as_object_mut() {
+            review.remove(ATTACK);
+        }
         if self.review.scale.is_none() && self.review.scale_off {
             json["review"]["scale"] = serde_json::Value::Bool(false);
         }
@@ -900,6 +929,17 @@ fn read(dialect: &crate::Dialect, root: &Node, from_file: bool) -> Result<Config
         Some((node, path)) => review(node, &path)?,
         None => defaults.review,
     };
+    let mut stages = stages;
+    if let Some(said) = &review.attack {
+        if stages.attack != Attack::default() && stages.attack != *said {
+            return Err(Invalid::at(
+                None,
+                "review.attack",
+                "say the attack once: stages.attack, of which review.attack is the older name",
+            ));
+        }
+        stages.attack = said.clone();
+    }
     let decisions = match fields.get("decisions") {
         Some((node, path)) => decisions(node, &path)?,
         None => defaults.decisions,
@@ -1073,6 +1113,16 @@ fn stages(node: &Node, path: &str) -> Result<Stages, Invalid> {
         None => Config::default().stages.execution,
     };
     let review = stage(fields.get("review"))?;
+    let attack = match fields.get(ATTACK) {
+        Some((node, path)) if matches!(node.value, Value::Scalar(..)) => attack(node, &path)?,
+        Some((node, path)) => {
+            let mut fields = Fields::of(node, &path)?;
+            let attack = attack_in(&mut fields)?;
+            fields.done()?;
+            attack
+        }
+        None => Attack::default(),
+    };
     let completion = match fields.get("completion") {
         Some((node, path)) => {
             let mut fields = Fields::of(node, &path)?;
@@ -1098,6 +1148,7 @@ fn stages(node: &Node, path: &str) -> Result<Stages, Invalid> {
         plan,
         execution,
         review,
+        attack,
         completion,
     })
 }
@@ -1303,6 +1354,21 @@ fn attack(node: &Node, path: &str) -> Result<Attack, Invalid> {
     let model = model(fields.get("model"))?;
     fields.done()?;
     Ok(Attack { run: said, model })
+}
+
+/// The attack stage's own fields: `enabled` (`false` is `run: off`), `run`
+/// (`sensitive` when not said) and `model`.
+pub(crate) fn attack_in(fields: &mut Fields) -> Result<Attack, Invalid> {
+    let enabled = boolean(fields.get("enabled"), true)?;
+    let run = match fields.get("run") {
+        Some((node, path)) => word(node, &path, AttackRun::of, AttackRun::ALL, AttackRun::word)?,
+        None => Attack::default().run,
+    };
+    let model = model(fields.get("model"))?;
+    Ok(Attack {
+        run: if enabled { run } else { AttackRun::Off },
+        model,
+    })
 }
 
 /// `analysis: true` or `false`, or a map of `enabled` and `model`.

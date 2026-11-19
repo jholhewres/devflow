@@ -92,7 +92,7 @@ fn read(runs: &Runs, item: &str, config: &Config) -> Read {
             .map_or(name, runs::stamp);
         (written, value)
     });
-    let stages = config
+    let mut stages: Vec<(String, Option<(String, Value)>)> = config
         .own_on()
         .iter()
         .map(|step| {
@@ -101,6 +101,10 @@ fn read(runs: &Runs, item: &str, config: &Config) -> Read {
             (name, seen)
         })
         .collect();
+    if attack_due(runs, item, config) {
+        let seen = newest(runs, item, devflow_engine::attack::REPORT);
+        stages.push((devflow_engine::config::ATTACK.to_owned(), seen));
+    }
     let unreviewed = review
         .as_ref()
         .and_then(|(_, findings)| unreviewed_since(root, findings));
@@ -117,6 +121,21 @@ fn read(runs: &Runs, item: &str, config: &Config) -> Read {
         unreviewed,
         no_code: false,
     }
+}
+
+/// Whether the attack stage is due on the item's diff, from where it started
+/// to HEAD; an item git cannot diff is not held for it.
+fn attack_due(runs: &Runs, item: &str, config: &Config) -> bool {
+    let root = runs.checkout.as_path();
+    let started = devflow_engine::started::start_of(runs, item);
+    let Ok(base) = devflow_engine::git::review_base(root, started.as_deref()) else {
+        return false;
+    };
+    let Ok(head) = devflow_engine::git::head_of(root) else {
+        return false;
+    };
+    devflow_engine::git::review_diff(root, &base, &head)
+        .is_ok_and(|read| devflow_engine::models::attack_on(config, &read.files, &read.diff))
 }
 
 /// The commit a review read, when the code changed between it and `HEAD`.

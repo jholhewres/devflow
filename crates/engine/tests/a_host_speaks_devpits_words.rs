@@ -44,7 +44,7 @@ macro_rules! flow {
 static DEVPIT_FLOW: Assets = Assets {
     // devpit's flow at that commit had no parts.
     parts: &[],
-    skills: [
+    skills: &[
         (
             "devflow-briefing",
             Some("briefing"),
@@ -819,7 +819,7 @@ fn the_skills_personas_rubrics_and_schema_served_are_devpits() {
     let empty = tempfile::tempdir().expect("empty");
     let empty = empty.path();
     let mut said = Vec::new();
-    for name in b::skills::names() {
+    for (name, ..) in DEVPIT.assets.skills {
         let skill = b::skills::resolve_with_in(&DEVPIT, empty, empty, &[], name).expect("skill");
         said.push(pretty(&skill.to_json()));
     }

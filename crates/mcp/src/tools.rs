@@ -3,7 +3,9 @@
 
 use serde_json::{json, Value};
 
-use crate::flow::{brief, evidence, gate, items, next, publish, review, setup, skill, stage};
+use crate::flow::{
+    attack, brief, evidence, gate, items, next, publish, review, setup, skill, stage,
+};
 use crate::server::Server;
 
 /// What the agent reads at the handshake.
@@ -20,7 +22,7 @@ fn item_field() -> Value {
     json!({ "type": "string", "description": "The work item's id." })
 }
 
-pub static TOOLS: [Tool; 18] = [
+pub static TOOLS: [Tool; 19] = [
     Tool {
         name: "status",
         description: "devflow in this project: its state (no file, disabled, active or invalid, with the line and field of the error), what was detected with the file each fact came from (test, E2E and lint commands, Playwright or Cypress, the agent CLIs installed, a Decisions key, the glossary and ADRs), the checks it recommends, the decisions detection left open, the current devflow.yaml, the model each stage and reviewer runs on and where it came from (`models.origins`: its own model, the reviewer's, the preset's or the CLI's default), what the newest review's readings spent by stage and model (`spent`), and `next`, the step that comes next. Read it first.",
@@ -51,7 +53,7 @@ pub static TOOLS: [Tool; 18] = [
         name: "skill",
         description: "The devflow skill to follow for a stage, as this project resolves it: its own <folder>/skills/<name>/SKILL.md, else a team layer's, else the person's, else the built-in one. Call it before each stage and follow what it returns; devflow-setup is for changing the setup. Any stage's skill is given when asked, to run that stage on demand, with or without a devflow.yaml.",
         input: || json!({ "type": "object", "properties": {
-            "name": { "type": "string", "enum": ["devflow-briefing", "devflow-context", "devflow-plan", "devflow-execution", "devflow-review", "devflow-completion", "devflow-setup"], "description": "The skill: devflow-<stage>, or devflow-setup." },
+            "name": { "type": "string", "enum": ["devflow-briefing", "devflow-context", "devflow-plan", "devflow-execution", "devflow-review", "devflow-attack", "devflow-completion", "devflow-setup"], "description": "The skill: devflow-<stage>, or devflow-setup." },
             "part": { "type": "string", "description": "One of the parts a skill loads only when it says so, such as devflow-review's verify, without-card, retro, publish or by-hand." }
         }, "required": ["name"] }),
         call: skill::skill,
@@ -142,6 +144,23 @@ pub static TOOLS: [Tool; 18] = [
             "attack": { "type": "boolean", "description": "With `item`: run the attack's reading on this review as well, by name: how review.attack: release runs, once for a release. Refused while review.attack is off." }
         } }),
         call: review::review,
+    },
+    Tool {
+        name: "attack",
+        description: "The attack stage on a work item, after its review: devflow-security tries to exploit the change headless on the first reviewer's CLI (stages.attack.model, large unless said), from the review's packet and its security findings, and answers with hypotheses, each tried, confirmed, refuted or not_run with its reason. Keeps attack.json in a run of the item, with each exploit's code in the run's exploits/ folder, never the checkout, and comments the item. Only a run of an exploit test confirms: with `run` and `verified`, what each exploit run showed is kept on its hypothesis. A confirmed hypothesis in review.block_on holds the item, and every confirmed exploit test must be green in the newest evidence from then on. stages.attack.run (review.attack is its older name) says when it is due: sensitive (the default), per-item, release (asked by name) or off. Takes as long as the attacker does.",
+        input: || json!({ "type": "object", "properties": {
+            "item": item_field(),
+            "base": { "type": "string", "description": "The branch or commit the diff starts from, when it is not where the item started or the default branch." },
+            "run": { "type": "string", "description": "The attack's run, which `verified` completes." },
+            "verified": { "type": "array", "items": { "type": "object", "properties": {
+                "hypothesis": { "type": "string", "description": "The hypothesis's id in the report." },
+                "result": { "enum": ["confirmed", "refuted", "not_run"] },
+                "evidence": { "type": "string", "description": "Where the exploit ran and what it showed, or why it was not run." },
+                "test": { "type": "string", "description": "The exploit test, as the runner names it: a confirmed hypothesis names one, and it must then stay green." },
+                "target": { "type": "string", "description": "The URL the exploit ran against, when it reached a running instance: one of the targets in force, or the call is refused." }
+            }, "required": ["hypothesis", "result", "evidence"] }, "description": "With `run`: what each exploit run showed." }
+        }, "required": ["item"] }),
+        call: attack::attack,
     },
     Tool {
         name: "publish",

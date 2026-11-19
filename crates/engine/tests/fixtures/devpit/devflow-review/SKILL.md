@@ -143,50 +143,39 @@ With `review.verify` at `advise` or `required`, read the `verify` part: the
 answer's `next` names the PoCs to run. With `off`, the default, skip this
 step.
 
-### 5b. Prove the attack's findings
+### 5b. The attack comes next
 
-With `review.attack` on in `devflow.yaml` (`sensitive`, `per-item`, or
-`release` asked by name with `"attack": true`), `devflow-security` also reads
-the change as an attacker: from its threat model it tries to exploit each
-boundary and sends each hypothesis it reproduced as a finding whose `poc` is
-an **exploit test**. Those findings carry `origin: attack`, and only proof
-lets one hold the card. The answer's `next` names them by their place in
-`findings.json`. For each:
+The attack is a stage of its own, after review (`devflow-attack`): review reads
+and judges, the attack acts. When it is due (`stages.attack.run`: `sensitive`,
+the default, on a diff past small or on a sensitive path; `per-item` on every
+card; `release` only when asked with `"attack": true`), the answer's
+`next` says so, and on `approve` it runs before the completion.
 
-1. Write its exploit test into the project, from its `poc`, at the seam the
-   hole is reached through. Run it: red is the hole, shown.
-2. Record it: call `devpit_devflow_evidence` with the test and its failing line in `red`.
-3. Call `devpit_devflow_review` with `run` and `verified`, naming the test:
+A review made before the attack was its own stage may still hold findings
+with `origin: attack`. Each holds the card only once proven: write its
+exploit test from its `poc` and run it (red is the hole, shown), record it with
+`devpit_devflow_evidence` in `red`, then call `devpit_devflow_review` with `run` and
+`verified`, naming the test:
 
 ```json
 { "card": "<card id>", "run": "<the run>", "verified": [{ "finding": 2, "result": "confirmed", "evidence": "<the run where it went red>", "test": "<the exploit test, as the runner names it>" }] }
 ```
 
-A confirmed finding in `review.block_on` then blocks, execution fixes it,
-and its test stays: the gate wants every confirmed exploit test green in the
-newest evidence run, after the fix and in every review after it. A finding
-you could not reproduce is `not_run` or `refuted`, or left without a run: it
-is **unconfirmed**, followed up under `left` in the answer and `Left` in the
-handoff, and holds nothing.
+`verified` takes a PoC run at any severity; only `review.block_on` decides what
+holds, and a confirmed exploit test stays green from then on. A PoC that
+needs the running application runs only against a target in force
+(`security.targets`, confirmed by the person on a terminal), named as
+`target`; a step a model refuses is `not_run`, never worked around.
 
-A PoC that needs the running application runs only against a target in
-force: a URL in `devflow.yaml`'s `security.targets` that the person
-confirmed on their terminal (`devflow config set security.targets`), which
-devflow gives the checks and the reader as `$DEVFLOW_SECURITY_TARGETS`. Name
-the one you reached as `target` in `verified`; any other is refused. Never
-send a request to another host, a third party's least of all, and never work
-around a model refusing a step, by rewording it or by switching to another
-model: a refused step is `not_run`, said why.
-
-Done when each attack finding has an exploit test seen red and a confirmed
-`verified` naming it, or stays unconfirmed with its reason.
+Done when the attack is due and named in `next`, or is not due; and each
+older attack finding is proven or stays unconfirmed with its reason.
 
 ### 6. Hand back, then stop
 
 Reply with the verdict and the worst finding **within each axis**; never pick
-one winner across axes. On `approve`, the next stage is the completion
-(`devflow-completion`); on `request_changes`, execution again, with the blocking
-findings. End the turn.
+one winner across axes. On `approve`, the next stage is the attack when it is
+due (`devflow-attack`), else the completion (`devflow-completion`); on
+`request_changes`, execution again, with the blocking findings. End the turn.
 
 **An approval closes the review.** Findings below `review.block_on`, the
 attack's unconfirmed ones and what a static analyser reported (a check with

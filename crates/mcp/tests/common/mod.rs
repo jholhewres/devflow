@@ -17,7 +17,20 @@ pub struct Mcp {
 
 impl Mcp {
     pub fn start(repo: &Path, home: &Path) -> Mcp {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_devflow"))
+        Mcp::start_with(repo, home, None)
+    }
+
+    /// [`Mcp::start`], with `bin` first on the PATH: the agent CLIs a test
+    /// fakes.
+    pub fn start_with(repo: &Path, home: &Path, bin: Option<&Path>) -> Mcp {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_devflow"));
+        if let Some(bin) = bin {
+            let path = std::env::var_os("PATH").unwrap_or_default();
+            let mut paths = vec![bin.to_path_buf()];
+            paths.extend(std::env::split_paths(&path));
+            command.env("PATH", std::env::join_paths(paths).unwrap());
+        }
+        let mut child = command
             .arg("mcp")
             .current_dir(repo)
             .env("HOME", home)

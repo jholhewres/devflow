@@ -4,7 +4,7 @@
 
 use std::fmt::Write;
 
-use crate::config::{Approved, Check, Config, Stage, StageGate, Step, V1};
+use crate::config::{Approved, Attack, Check, Config, Stage, StageGate, Step, V1};
 use crate::dialect::Dialect;
 
 /// The text of `config`, commented.
@@ -124,6 +124,11 @@ fn stages_v1(dialect: &Dialect, out: &mut String, config: &Config) {
     e2e_dir(out, &execution.e2e_dir);
     model(out, execution.model.as_deref());
     plain(out, "review", &stages.review);
+    if stages.attack != Attack::default() {
+        out.push_str(ATTACK_SAID);
+        let _ = writeln!(out, "  attack:\n    run: {}", stages.attack.run.word());
+        model(out, stages.attack.model.as_deref());
+    }
     let _ = writeln!(
         out,
         "  completion:\n    enabled: {}\n    gate: {}",
@@ -170,8 +175,17 @@ fn stages_v2(dialect: &Dialect, out: &mut String, config: &Config) {
         out.push_str("  []\n");
     }
     for step in &config.flow {
+        // At its default it goes unsaid: a file that never named it stays as
+        // it was, and reads the same.
+        if step.builtin() == Some(crate::config::ATTACK)
+            && config.stages.attack == Attack::default()
+        {
+            continue;
+        }
         let _ = writeln!(out, "  - uses: {}", scalar(&step.uses));
-        let _ = writeln!(out, "    enabled: {}", config.is_on(step));
+        if step.builtin() != Some(crate::config::ATTACK) {
+            let _ = writeln!(out, "    enabled: {}", config.is_on(step));
+        }
         stage_fields(dialect, out, config, step);
         if let Some(stage) = step.builtin() {
             model(out, config.stages.model(stage));
@@ -205,6 +219,10 @@ fn stage_fields(dialect: &Dialect, out: &mut String, config: &Config, step: &Ste
         }
         (Some("completion"), _) => {
             let _ = writeln!(out, "    gate: {}", scalar(&stages.completion.gate));
+        }
+        (Some(crate::config::ATTACK), _) => {
+            out.push_str(&ATTACK_SAID.replace("  #", "    #"));
+            let _ = writeln!(out, "    run: {}", stages.attack.run.word());
         }
         (None, Some(own)) => {
             if let Some(approve) = own.approve {
@@ -300,27 +318,6 @@ fn review(dialect: &Dialect, out: &mut String, config: &Config) {
             }
         }
     }
-    if let Some(attack) = &config.review.attack {
-        out.push_str(
-            "  # The attack: devflow-security tries to exploit the change, and only a\n  \
-             # finding an exploit test confirmed holds the item. off, sensitive (a\n  \
-             # diff past small or on a sensitive path), per-item, or release (asked\n  \
-             # by name).\n",
-        );
-        match &attack.model {
-            None => {
-                let _ = writeln!(out, "  attack: {}", attack.run.word());
-            }
-            Some(model) => {
-                let _ = writeln!(
-                    out,
-                    "  attack:\n    run: {}\n    model: {}",
-                    attack.run.word(),
-                    scalar(model)
-                );
-            }
-        }
-    }
 
     let _ = write!(
         out,
@@ -347,6 +344,13 @@ fn review(dialect: &Dialect, out: &mut String, config: &Config) {
         }
     }
 }
+
+/// What the attack stage's `run` says, above it.
+const ATTACK_SAID: &str =
+    "  # The attack: devflow-security tries to exploit the change, and only a\n  \
+     # finding an exploit test confirmed holds the item. off, sensitive (a\n  \
+     # diff past small or on a sensitive path), per-item, or release (asked\n  \
+     # by name).\n";
 
 fn plain(out: &mut String, name: &str, stage: &Stage) {
     let _ = writeln!(out, "  {name}:\n    enabled: {}", stage.enabled);

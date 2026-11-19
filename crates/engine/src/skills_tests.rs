@@ -273,7 +273,7 @@ fn a_built_in_skill_is_resolved_in_a_hosts_words_and_a_projects_own_as_written()
         said.text
     );
     let described = described_with(&Dialect::DEVFLOW, &words);
-    assert_eq!(described.len(), 7);
+    assert_eq!(described.len(), 8);
 }
 
 #[test]

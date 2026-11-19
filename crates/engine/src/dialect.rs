@@ -25,7 +25,7 @@ pub struct Tools {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Assets {
     /// Each skill's name, its stage (none for the setup's) and its text.
-    pub skills: [(&'static str, Option<&'static str>, &'static str); 7],
+    pub skills: &'static [(&'static str, Option<&'static str>, &'static str)],
     /// The parts a skill loads only when asked: its name, the part's, the text.
     pub parts: &'static [(&'static str, &'static str, &'static str)],
     /// Each persona's name and text.
@@ -40,7 +40,7 @@ pub struct Assets {
 impl Assets {
     /// What this build ships in `flow/`.
     pub const DEVFLOW: Assets = Assets {
-        skills: [
+        skills: &[
             (
                 "devflow-briefing",
                 Some("briefing"),
@@ -65,6 +65,11 @@ impl Assets {
                 "devflow-review",
                 Some("review"),
                 include_str!("../../../flow/skills/devflow-review/SKILL.md"),
+            ),
+            (
+                "devflow-attack",
+                Some("attack"),
+                include_str!("../../../flow/skills/devflow-attack/SKILL.md"),
             ),
             (
                 "devflow-completion",

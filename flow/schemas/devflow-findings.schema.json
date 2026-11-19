@@ -52,7 +52,7 @@
           "title": { "type": "string" }
         }
       },
-      "description": "Set by devflow: the exploit tests that confirmed an attack finding, in this review or one it re-reviews. Each stays a regression test: the gate wants it green in the newest evidence run."
+      "description": "Set by devflow: the exploit tests that confirmed a finding, whatever its severity, in this review or one it re-reviews. Each stays a regression test: the gate wants it green in the newest evidence run."
     },
     "verification": {
       "type": "object",

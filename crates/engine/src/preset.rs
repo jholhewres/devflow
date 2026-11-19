@@ -189,7 +189,29 @@ pub fn with_set_in(
     path: &str,
     value: &Value,
 ) -> Result<Config, Invalid> {
-    config::from_json_in(dialect, &set_path(dialect, config.to_json(), path, value)?)
+    let mut whole = config.to_json();
+    for (path, value) in attack_alias(path, value) {
+        whole = set_path(dialect, whole, &path, &value)?;
+    }
+    config::from_json_in(dialect, &whole)
+}
+
+/// A change to `review.attack`, the older name, made to `stages.attack`:
+/// a word is its `run`, a map its `run` and `model`.
+fn attack_alias(path: &str, value: &Value) -> Vec<(String, Value)> {
+    let Some(rest) = path.trim().strip_prefix("review.attack") else {
+        return vec![(path.to_owned(), value.clone())];
+    };
+    let stage = format!("stages.{}", config::ATTACK);
+    match (rest, value) {
+        ("", Value::Object(fields)) => fields
+            .iter()
+            .map(|(key, said)| (format!("{stage}.{key}"), said.clone()))
+            .collect(),
+        ("", _) => vec![(format!("{stage}.run"), value.clone())],
+        (rest, _) if rest.starts_with('.') => vec![(format!("{stage}{rest}"), value.clone())],
+        _ => vec![(path.to_owned(), value.clone())],
+    }
 }
 
 /// `whole` with the value at the dotted `path` replaced: a field, a list item

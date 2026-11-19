@@ -85,6 +85,15 @@ enum Command {
         #[command(subcommand)]
         action: Judging,
     },
+    /// The attack stage on a work item: devflow-security tries to exploit its
+    /// change headless and keeps attack.json in a run of the item.
+    Attack {
+        /// The work item's id.
+        item: String,
+        /// Where the diff starts, when not where the item started.
+        #[arg(long)]
+        base: Option<String>,
+    },
     /// The project's own stages.
     Stage {
         #[command(subcommand)]
@@ -150,6 +159,28 @@ struct Registering {
     bin: Option<PathBuf>,
 }
 
+/// `devflow attack`: the attack tool's answer, printed as JSON.
+fn attacking(root: &std::path::Path, item: &str, base: Option<&str>) -> ExitCode {
+    let server = server::Server::new(root);
+    let mut asked = serde_json::json!({ "item": item });
+    if let Some(base) = base {
+        asked["base"] = serde_json::json!(base);
+    }
+    match flow::attack::attack(&server, asked) {
+        Ok(said) => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&said).unwrap_or_default()
+            );
+            ExitCode::SUCCESS
+        }
+        Err(why) => {
+            eprintln!("devflow attack: {why}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
 fn main() -> ExitCode {
     let cli = Cli::parse();
     let root = cli.root.unwrap_or_else(|| PathBuf::from("."));
@@ -162,6 +193,7 @@ fn main() -> ExitCode {
         Command::Update { check, json } => update::command(check, json),
         Command::Host => host::run(&root),
         Command::Status => status(&root),
+        Command::Attack { item, base } => attacking(&root, &item, base.as_deref()),
         Command::Setup(how) => setup_cli::run(&root, &how),
         Command::Doctor => doctor::run(&root),
         Command::Register(how) => registering(&how, true),

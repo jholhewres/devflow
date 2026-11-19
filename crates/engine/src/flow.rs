@@ -5,8 +5,9 @@
 use serde_json::{json, Value as Json};
 
 use crate::config::{
-    approved_in, boolean, execution_in, is_name, items, joined, name, text, word, Approve, Config,
-    Extend, Fields, Invalid, Own, StageGate, Stages, Step, BUILTIN, GATE, STAGES,
+    approved_in, attack_in, boolean, execution_in, is_name, items, joined, name, text, word,
+    Approve, Attack, Config, Extend, Fields, Invalid, Own, StageGate, Stages, Step, ATTACK,
+    BUILTIN, GATE, STAGES,
 };
 use crate::node::{Node, Value};
 
@@ -14,7 +15,8 @@ use crate::node::{Node, Value};
 pub const PLACES: [&str; 3] = ["project", "personal", "skills"];
 
 /// The list's stages, and the built-in settings they carry. A built-in stage
-/// left out of the list is off.
+/// left out of the list is off, but for the attack: a list from before it
+/// has it after review, as `sensitive`.
 pub(crate) fn read(node: &Node, path: &str) -> Result<(Stages, Vec<Step>), Invalid> {
     let mut stages = Config::default().stages;
     for stage in STAGES {
@@ -36,6 +38,19 @@ pub(crate) fn read(node: &Node, path: &str) -> Result<(Stages, Vec<Step>), Inval
             ));
         }
         flow.push(step);
+    }
+    if !flow.iter().any(|step| step.builtin() == Some(ATTACK)) {
+        stages.attack = Attack::default();
+        let at = flow
+            .iter()
+            .position(|step| step.builtin() == Some("review"))
+            .map(|review| review + 1)
+            .or_else(|| {
+                flow.iter()
+                    .position(|step| step.builtin() == Some("completion"))
+            })
+            .unwrap_or(flow.len());
+        flow.insert(at, Step::of(ATTACK));
     }
     Ok((stages, flow))
 }
@@ -114,6 +129,7 @@ fn step(node: &Node, path: &str, stages: &mut Stages) -> Result<Step, Invalid> {
         "briefing" => stages.briefing = approved_in(&mut fields, false)?,
         "plan" => stages.plan = approved_in(&mut fields, true)?,
         "execution" => stages.execution = execution_in(&mut fields)?,
+        ATTACK => stages.attack = attack_in(&mut fields)?,
         "completion" => {
             stages.completion.enabled = boolean(fields.get("enabled"), true)?;
             stages.completion.model = crate::config::model(fields.get("model"))?;
@@ -243,6 +259,13 @@ pub(crate) fn step_json(config: &Config, step: &Step) -> Json {
             item["e2e_dir"] = json!(stages.execution.e2e_dir);
         }
         (Some("completion"), _) => item["gate"] = json!(stages.completion.gate),
+        // Its `run` says whether it is on: `off`, or when it is due.
+        (Some(ATTACK), _) => {
+            if let Some(fields) = item.as_object_mut() {
+                fields.remove("enabled");
+            }
+            item["run"] = json!(stages.attack.run);
+        }
         (None, Some(own)) => {
             if let Some(approve) = own.approve {
                 item["approve"] = json!(approve);

@@ -49,14 +49,16 @@ pub fn review(server: &Server, params: Value) -> Result<Value, String> {
     }
     let config = super::config_for(&project, &state, &server.consent, "review")?;
     let (params, attack) = attack_asked(params)?;
-    match attack {
-        // The attack asked by name: a release's, or one more on this diff.
-        true => {
-            let asked = devflow_engine::models::attack_asked(config)?;
-            on_item(server, &project, &asked, &params, &reach)
-        }
-        false => on_item(server, &project, config, &params, &reach),
+    if !attack {
+        return on_item(server, &project, config, &params, &reach);
     }
+    // The attack asked by name: a release's, or one more on this diff, as
+    // the attack stage after this review.
+    let asked = devflow_engine::models::attack_asked(config)?;
+    let mut answer = on_item(server, &project, config, &params, &reach)?;
+    let item = params["card"].as_str().unwrap_or_default().to_owned();
+    answer["attack"] = super::attack::after_review(server, &project, &asked, &item, &reach);
+    Ok(answer)
 }
 
 /// `attack: true` taken out of the tool's input, which the engine does not
@@ -187,6 +189,18 @@ pub fn on_item(
         &review::comment(&done, &links(project, &run, &done.files())),
     );
     let mut answer = review::summary(&done);
+    let due = pinned.as_ref().is_some_and(|(_, _, files, diff, _)| {
+        devflow_engine::models::attack_on(config, files, diff)
+    });
+    if due
+        && answer["next"]
+            .as_str()
+            .is_some_and(|next| next.contains("devflow-completion"))
+    {
+        answer["next"] = json!(
+            "The next stage is the attack (devflow-attack): it is due on this diff (stages.attack.run), so call `attack` with this item before the completion."
+        );
+    }
     let commits = pinned.as_ref().map_or(0, |pinned| pinned.4);
     let ranged = asked.base.is_some() || previous.is_some();
     if let Some(warning) = review::wide(commits, ranged) {

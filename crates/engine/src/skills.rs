@@ -30,7 +30,7 @@ pub const MOST_BYTES: u64 = 128 * 1024;
 
 /// Each skill's name, its stage (none for the setup's), and its text as this
 /// build ships it.
-const BUILT_IN: [(&str, Option<&str>, &str); 7] = Dialect::DEVFLOW.assets.skills;
+const BUILT_IN: &[(&str, Option<&str>, &str)] = Dialect::DEVFLOW.assets.skills;
 
 /// The words a built-in skill's text is said in. flow/skills/ names each
 /// tool by devflow's own name (`{{tool:evidence}}`), and marks each phrase a

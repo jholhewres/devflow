@@ -348,6 +348,8 @@ pub fn checked(looked: &Looked) -> Checked {
     }
     let review = reviewed(looked, &mut missing);
     own_stages(looked, &mut missing);
+    attacked(looked, &mut missing);
+    exploits_green(looked, &mut missing);
     Checked {
         dialect: said,
         card: looked.card.to_owned(),
@@ -533,7 +535,6 @@ fn reviewed(looked: &Looked, missing: &mut Vec<String>) -> Option<String> {
             word(finding, "severity")
         ));
     }
-    exploits_green(looked, review, missing);
     let pending: Vec<&str> = list(review.findings, "pending")
         .iter()
         .filter_map(Value::as_str)
@@ -575,16 +576,54 @@ fn reviewed(looked: &Looked, missing: &mut Vec<String>) -> Option<String> {
     ))
 }
 
-/// The exploit tests the review confirmed findings with, each wanted green
+/// The attack stage's newest report, when the gate was told it is due: an
+/// `attack` entry in `stages`, its report once it ran.
+fn attack_report<'a>(looked: &'a Looked) -> Option<Option<&'a (String, Value)>> {
+    looked
+        .stages
+        .iter()
+        .find(|(stage, _)| stage == crate::config::ATTACK)
+        .map(|(_, seen)| seen.as_ref())
+}
+
+/// The attack stage where it is due: it ran on the item, after the last
+/// change with `per-item`. What it confirmed is held by its exploit tests.
+fn attacked(looked: &Looked, missing: &mut Vec<String>) {
+    let Some(seen) = attack_report(looked) else {
+        return;
+    };
+    let item = looked.dialect.item;
+    match seen {
+        None => missing.push(format!(
+            "the attack stage has not run on this {item}: run it (devflow-attack), which keeps attack.json"
+        )),
+        Some((run, _)) => {
+            let per_item = looked.config.stages.attack.run == crate::config::AttackRun::PerItem;
+            if let Some(changed) = looked.changed.filter(|changed| per_item && after(changed, run)) {
+                missing.push(format!(
+                    "the attack is older than the last change ({changed}) and runs per-item: run the attack stage again (devflow-attack)"
+                ));
+            }
+        }
+    }
+}
+
+/// The exploit tests the review and the attack confirmed, each wanted green
 /// in the newest run: the hole they showed must stay shut. A test is green
 /// when the run saw it pass, as a red test now green or a criterion's.
-fn exploits_green(looked: &Looked, review: &Review, missing: &mut Vec<String>) {
+fn exploits_green(looked: &Looked, missing: &mut Vec<String>) {
     let Some(run) = &looked.run else {
         return;
     };
-    let kept = crate::findings::exploits_in(review.findings);
-    let confirmed = crate::findings::exploits(list(review.findings, "findings"));
-    let wanted = crate::findings::with_exploits(&kept, &confirmed);
+    let mut wanted = Vec::new();
+    if let Some(review) = &looked.review {
+        let kept = crate::findings::exploits_in(review.findings);
+        let confirmed = crate::findings::exploits(list(review.findings, "findings"));
+        wanted = crate::findings::with_exploits(&kept, &confirmed);
+    }
+    if let Some(Some((_, report))) = attack_report(looked) {
+        wanted = crate::findings::with_exploits(&wanted, &crate::attack::exploits(report));
+    }
     let passed = |test: &str| {
         list(run.evidence, "red")
             .iter()

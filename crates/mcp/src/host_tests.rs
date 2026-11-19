@@ -322,7 +322,7 @@ fn skills_are_listed_with_their_stage_and_where_they_come_from() {
     let mut session = with_words(dir.path(), personal.path());
     let said = &ask(&mut session, dir.path(), "skills/list", json!({}))["result"]["skills"];
     let all = said.as_array().unwrap();
-    assert_eq!(all.len(), 7, "{said}");
+    assert_eq!(all.len(), 8, "{said}");
     let plan = all
         .iter()
         .find(|one| one["name"] == "devflow-plan")

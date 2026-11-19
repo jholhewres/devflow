@@ -23,12 +23,20 @@ fn version_two_lists_own_stages_beside_the_built_in_ones() {
     let names: Vec<&str> = config.flow.iter().map(|step| step.name()).collect();
     assert_eq!(
         names,
-        ["ticket", "context", "plan", "execution", "review", "pr"]
+        [
+            "ticket",
+            "context",
+            "plan",
+            "execution",
+            "review",
+            "attack",
+            "pr"
+        ]
     );
     // Left out of the list is off.
     assert_eq!(
         config.stages_on(),
-        ["context", "plan", "execution", "review"]
+        ["context", "plan", "execution", "review", "attack"]
     );
     assert!(!config.stages.briefing.enabled && !config.stages.completion.enabled);
     assert_eq!(config.publish(), Publish::Board);
@@ -37,7 +45,7 @@ fn version_two_lists_own_stages_beside_the_built_in_ones() {
         config.locked,
         ["review.reviewers.devflow-security", "decisions.use"]
     );
-    let pr = &config.flow[5];
+    let pr = &config.flow[6];
     assert_eq!(
         pr.own.as_ref().and_then(|own| own.gate.clone()),
         Some(StageGate::Command("./scripts/pr-checklist.sh".into()))
@@ -50,7 +58,7 @@ fn version_one_is_still_read_and_stays_version_one() {
     let config = parse("version: 1\nstages:\n  plan:\n    approve: none\n").expect("v1 reads");
     assert_eq!(config.version, V1);
     assert_eq!(config.stages.plan.approve, Approve::Nobody);
-    assert_eq!(config.stages_on().len(), 6);
+    assert_eq!(config.stages_on().len(), 7);
     assert!(render(&config).contains("  plan:\n    enabled: true\n    approve: none\n"));
     // A list, `extends` or `locked` in a version 1 file is a hand edit to fix.
     let list = parse("version: 1\nstages:\n  - uses: builtin/plan\n").expect_err("v1 has no list");
@@ -97,7 +105,7 @@ fn a_stage_is_reached_by_its_name_in_either_version() {
     let v2 = parse(EXAMPLE).expect("reads");
     let off = crate::preset::with_set(&v2, "stages.pr.enabled", &serde_json::json!(false))
         .expect("set by name");
-    assert!(!off.is_on(&off.flow[5]));
+    assert!(!off.is_on(&off.flow[6]));
     let set = crate::preset::with_set(&v2, "stages.plan.publish", &serde_json::json!("jira"))
         .expect("set by name");
     let changes = crate::preset::changes(Some(&v2), &set);

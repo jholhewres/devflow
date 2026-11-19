@@ -13,6 +13,7 @@ use serde_json::Value;
 use crate::consent::Consent;
 use crate::project::Project;
 
+pub mod attack;
 pub mod brief;
 pub mod evidence;
 pub mod gate;

@@ -219,7 +219,7 @@ fn the_stages_switched_on_keep_their_order() {
             .expect("valid");
     assert_eq!(
         read.stages_on(),
-        ["briefing", "plan", "execution", "completion"]
+        ["briefing", "plan", "execution", "attack", "completion"]
     );
 }
 
@@ -364,7 +364,7 @@ fn security_targets_are_read_written_back_and_held_to_what_a_target_is() {
         ["http://localhost:8080", "http://api:8000"]
     );
     assert_eq!(parse(&crate::render::render(&read)).expect("again"), read);
-    assert!(!crate::render::render(&Config::default()).contains("security"));
+    assert!(!crate::render::render(&Config::default()).contains("\nsecurity:"));
     assert!(Config::default().to_json().get("security").is_none());
 
     let wrong = refused("version: 2\nsecurity:\n  targets:\n    - http://localhost@evil.com\n");

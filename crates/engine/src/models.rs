@@ -54,11 +54,6 @@ pub fn resolved(config: &Config, stage: &str) -> Resolved {
             .analysis
             .as_ref()
             .and_then(|analysis| analysis.model.as_deref()),
-        ATTACK => config
-            .review
-            .attack
-            .as_ref()
-            .and_then(|attack| attack.model.as_deref()),
         _ => config.stages.model(stage),
     };
     match (own, tier(preset(config), stage)) {
@@ -90,19 +85,15 @@ pub fn analysis_on(config: &Config) -> bool {
     }
 }
 
-/// When the attack runs as devflow.yaml says: `off` unless it says.
+/// When the attack runs as devflow.yaml says: `sensitive` unless it says.
 pub fn attack_run(config: &Config) -> AttackRun {
-    config
-        .review
-        .attack
-        .as_ref()
-        .map_or(AttackRun::Off, |attack| attack.run)
+    config.stages.attack.run
 }
 
-/// Whether a review of this diff gets the attack's reading: `per-item`
-/// always, `sensitive` when `review.scale` (its defaults when off) does not
-/// call it small; `off` and `release` never, a release's being asked by
-/// name ([`attack_asked`]).
+/// Whether the attack stage is due on this diff: `per-item` always,
+/// `sensitive` when `review.scale` (its defaults when off) does not call it
+/// small; `off` and `release` never, a release's being asked by name
+/// ([`attack_asked`]).
 pub fn attack_on(config: &Config, files: &[String], diff: &str) -> bool {
     match attack_run(config) {
         AttackRun::PerItem => true,
@@ -114,22 +105,14 @@ pub fn attack_on(config: &Config, files: &[String], diff: &str) -> bool {
 /// The configuration a review asked for the attack by name runs with: a
 /// release's attack, or one more on any diff. Refused while it is off.
 pub fn attack_asked(config: &Config) -> Result<Config, String> {
-    let Some(attack) = config
-        .review
-        .attack
-        .as_ref()
-        .filter(|attack| attack.run != AttackRun::Off)
-    else {
+    if config.stages.attack.run == AttackRun::Off {
         return Err(
-            "review.attack is off: the person sets it to release, sensitive or per-item first"
+            "stages.attack is off: the person sets its run to release, sensitive or per-item first"
                 .to_owned(),
         );
-    };
+    }
     let mut asked = config.clone();
-    asked.review.attack = Some(crate::config::Attack {
-        run: AttackRun::PerItem,
-        model: attack.model.clone(),
-    });
+    asked.stages.attack.run = AttackRun::PerItem;
     Ok(asked)
 }
 
@@ -164,7 +147,7 @@ fn reviewer_resolved(config: &Config, reviewer: &Reviewer) -> Resolved {
 
 /// The agent the extra readings run on: the first reviewer's, Claude Code
 /// with none.
-fn first_agent(config: &Config) -> Agent {
+pub fn first_agent(config: &Config) -> Agent {
     config
         .review
         .reviewers
@@ -231,7 +214,13 @@ pub fn origins(config: &Config, agent: Agent) -> Vec<Origin> {
                 "review" => review_resolved(config),
                 _ => resolved(config, stage),
             };
-            row(stage, None, agent, said)
+            // The attack runs where the analysis does, on the first reviewer's CLI.
+            let on = if *stage == ATTACK {
+                first_agent(config)
+            } else {
+                agent
+            };
+            row(stage, None, on, said)
         })
         .collect();
     for reviewer in &config.review.reviewers {
@@ -251,14 +240,6 @@ pub fn origins(config: &Config, agent: Agent) -> Vec<Origin> {
             resolved(config, ANALYSIS),
         ));
     }
-    if attack_run(config) != AttackRun::Off {
-        rows.push(row(
-            ATTACK,
-            None,
-            first_agent(config),
-            resolved(config, ATTACK),
-        ));
-    }
     rows
 }
 
@@ -271,9 +252,8 @@ pub struct Reader {
 
 /// Who reads a diff: the review's reviewers (one when `one`), each on its
 /// model, then the analysis's reader when it is on and the diff is past
-/// small or touches a sensitive path, then the attack's when
-/// [`attack_on`]. The analysis reads every axis and the attack security,
-/// each on the first reviewer's agent (Claude Code with none).
+/// small or touches a sensitive path, on the first reviewer's agent (Claude
+/// Code with none). The attack is a stage of its own, not a reader here.
 pub fn readers(config: &Config, one: bool, files: &[String], diff: &str) -> Vec<Reader> {
     let mut readers: Vec<Reader> = scale::reviewers(&config.review, one)
         .into_iter()
@@ -296,9 +276,6 @@ pub fn readers(config: &Config, one: bool, files: &[String], diff: &str) -> Vec<
     };
     if analysis_on(config) && !small(config, files, diff) {
         readers.push(extra(scale::ALL_AXES, ANALYSIS));
-    }
-    if attack_on(config, files, diff) {
-        readers.push(extra(ATTACK_PERSONA, ATTACK));
     }
     readers
 }
