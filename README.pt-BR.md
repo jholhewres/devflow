@@ -90,7 +90,7 @@ pequeno:
 devflow config set stages.plan.model large
 devflow config set stages.execution.model small
 devflow config set stages.review.model large   # todo revisor que não diz modelo próprio
-devflow config set review.reviewers.devflow-spec.model claude-opus-5-5   # um revisor, pela persona
+devflow config set review.reviewers.devflow-security.model claude-opus-5-5   # um revisor, pela persona
 devflow status   # o modelo de cada etapa e revisor, e de onde veio
 ```
 

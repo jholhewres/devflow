@@ -175,3 +175,36 @@ fn a_part_is_asked_with_or_without_its_extension_and_an_unknown_one_says_so() {
         ask(serde_json::json!({ "uri": "skill://devflow/devflow-review/nope.md" })).unwrap_err();
     assert!(why.contains("has no part `nope`"), "{why}");
 }
+
+#[test]
+fn the_evidence_tool_says_release_checks_run_only_when_named() {
+    let config = devflow_engine::config::parse(
+        "version: 2\nstages:\n  - uses: builtin/execution\n    checks:\n      - { name: unit, run: make test, report: junit }\n    release:\n      - { name: e2e, run: make e2e, report: junit }\n",
+    )
+    .expect("a config");
+    let names = |named: Option<&[String]>| -> Vec<String> {
+        let runnable = config.stages.execution.runnable(named);
+        runnable.into_iter().map(|check| check.name).collect()
+    };
+    assert_eq!(names(None), ["unit"]);
+    assert_eq!(names(Some(&["e2e".to_owned()])), ["unit", "e2e"]);
+
+    let dir = tempfile::tempdir().unwrap();
+    let said = answer(
+        r#"{"jsonrpc":"2.0","id":3,"method":"tools/list"}"#,
+        dir.path(),
+    );
+    let evidence = said["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|tool| tool["name"] == "evidence")
+        .unwrap();
+    let checks = evidence["inputSchema"]["properties"]["checks"]["description"]
+        .as_str()
+        .unwrap();
+    for text in [evidence["description"].as_str().unwrap(), checks] {
+        assert!(text.contains("release"), "{text}");
+        assert!(!text.contains("to run all"), "{text}");
+    }
+}
