@@ -77,34 +77,48 @@ fn at_home(home: &Path) -> Option<PathBuf> {
     crate::fsguard::resolve_new(home, LEDGER).ok()
 }
 
-/// The ledger's runs, the last line of each. Past its ceiling the newest
-/// part is read: what a month spent is never left uncounted for its size.
-pub fn ledger(home: &Path) -> Vec<Value> {
-    let read = at_home(home)
-        .and_then(|at| std::fs::File::open(at).ok())
-        .map(|mut file| {
-            let size = file.metadata().map_or(0, |meta| meta.len());
-            let from = size.saturating_sub(MOST_LEDGER);
-            let _ = file.seek(SeekFrom::Start(from));
-            let mut raw = Vec::new();
-            let _ = file.take(MOST_LEDGER).read_to_end(&mut raw);
-            let text = String::from_utf8_lossy(&raw).into_owned();
-            // Cut into a line: what is left of it is not a run.
-            match (from > 0, text.find('\n')) {
-                (true, Some(end)) => text[end + 1..].to_owned(),
-                _ => text,
-            }
-        })
-        .unwrap_or_default();
+/// The ledger's runs, the last line of each; none when nothing ran yet.
+/// Past its ceiling the newest part is read: what a month spent is never
+/// left uncounted for its size. One that is there and cannot be read is an
+/// error, never "nothing spent".
+pub fn read_ledger(home: &Path) -> Result<Vec<Value>, String> {
+    let at = at_home(home).ok_or_else(|| format!("{LEDGER} leads out of {}", home.display()))?;
+    let mut file = match std::fs::File::open(&at) {
+        Ok(file) => file,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(err) => return Err(format!("{}: {err}", at.display())),
+    };
+    let size = file
+        .metadata()
+        .map_err(|err| format!("{}: {err}", at.display()))?
+        .len();
+    let from = size.saturating_sub(MOST_LEDGER);
+    file.seek(SeekFrom::Start(from))
+        .map_err(|err| format!("{}: {err}", at.display()))?;
+    let mut raw = Vec::new();
+    file.take(MOST_LEDGER)
+        .read_to_end(&mut raw)
+        .map_err(|err| format!("{}: {err}", at.display()))?;
+    let text = String::from_utf8_lossy(&raw).into_owned();
+    // Cut into a line: what is left of it is not a run.
+    let text = match (from > 0, text.find('\n')) {
+        (true, Some(end)) => text[end + 1..].to_owned(),
+        _ => text,
+    };
     let mut runs: Vec<Value> = Vec::new();
-    for line in read.lines() {
+    for line in text.lines() {
         let Ok(one) = serde_json::from_str::<Value>(line) else {
             continue;
         };
         runs.retain(|had| !(had["item"] == one["item"] && had["run"] == one["run"]));
         runs.push(one);
     }
-    runs
+    Ok(runs)
+}
+
+/// [`read_ledger`] for what is only shown: unreadable reads as none.
+pub fn ledger(home: &Path) -> Vec<Value> {
+    read_ledger(home).unwrap_or_default()
 }
 
 /// The calendar month of a run's stamp, `YYYYMM`.

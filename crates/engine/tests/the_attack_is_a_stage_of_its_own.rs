@@ -804,3 +804,76 @@ fn a_run_past_the_months_budget_is_refused_before_it_starts() {
     );
     assert!(!home.join("card_1").exists(), "no run was made");
 }
+
+/// The month's budget is a guard that never fails open: a ledger it cannot
+/// read refuses the run, and a turn that never answered counts its cap.
+#[cfg(unix)]
+#[test]
+fn the_months_budget_never_counts_what_it_cannot_read_as_nothing() {
+    use std::time::{Duration, SystemTime};
+    let dir = tempfile::tempdir().expect("dir");
+    let root = dir.path().canonicalize().expect("root");
+    let home = root.join("home");
+    std::fs::create_dir_all(&home).expect("home");
+    let redact = |text: &str| text.to_owned();
+    let files = vec![SENSITIVE.to_owned()];
+    let runs = devflow_engine::runs::Runs {
+        dialect: &Dialect::DEVFLOW,
+        home: home.clone(),
+        checkout: root.clone(),
+    };
+    let unreachable =
+        |_: config::Agent| -> Result<String, String> { Err("not installed".to_owned()) };
+    let attack = |config: &Config| {
+        attack::attacked(&attack::Given {
+            root: &root,
+            runs: &runs,
+            config,
+            card: devflow_engine::evidence::Card {
+                id: "card_1",
+                title: "Sessions",
+                body: "",
+            },
+            git: devflow_engine::review::Git {
+                base: "b4se",
+                head: "he4d",
+                files: &files,
+                diff: DIFF,
+            },
+            brief: None,
+            evidence: None,
+            review: None,
+            env: &[],
+            at: SystemTime::UNIX_EPOCH + Duration::from_secs(1_792_000_000),
+            budget: Duration::from_secs(60),
+            reach: &unreachable,
+            redact: &redact,
+            personas: devflow_engine::review::Personas::default(),
+            retro: false,
+            scratch: None,
+        })
+    };
+    let capped = parsed("version: 1\nstages:\n  attack:\n    run: sensitive\n    budget: { run_usd: 3, month_usd: 40 }\n");
+    let failed = attack(&capped).expect("a run with no answer");
+    assert_eq!(
+        failed.report["attackers"][0]["cost_usd"], 3.0,
+        "its cap stands for it"
+    );
+    assert_eq!(failed.report["attackers"][0]["cost_estimated"], true);
+    let spent = devflow_engine::attack_metrics::ledger(&home);
+    assert_eq!(
+        devflow_engine::attack_metrics::spent_in(
+            &spent,
+            devflow_engine::attack_metrics::month_of(&failed.stamp)
+        ),
+        3.0
+    );
+
+    let outside = root.join("elsewhere.jsonl");
+    std::fs::write(&outside, "").expect("outside");
+    std::fs::remove_file(home.join(devflow_engine::attack_metrics::LEDGER)).expect("moved");
+    std::os::unix::fs::symlink(&outside, home.join(devflow_engine::attack_metrics::LEDGER))
+        .expect("link");
+    let refused = attack(&capped).expect_err("unreadable");
+    assert!(refused.contains("cannot be read"), "{refused}");
+}

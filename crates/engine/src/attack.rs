@@ -669,8 +669,18 @@ fn turn(
 pub fn attacked(given: &Given) -> Result<Done, String> {
     let dialect: &Dialect = given.personas.dialect;
     let budget = given.config.stages.attack.budget;
+    // A month's budget is never checked against a ledger it cannot read.
+    let runs_so_far = match crate::attack_metrics::read_ledger(&given.runs.home) {
+        Ok(runs) => runs,
+        Err(why) if budget.month_cents.is_some() => {
+            return Err(format!(
+                "the attack's ledger cannot be read ({why}), so the month's budget cannot be checked: fix or remove that file, or take stages.attack.budget.month_usd out"
+            ))
+        }
+        Err(_) => Vec::new(),
+    };
     let spent = crate::attack_metrics::spent_in(
-        &crate::attack_metrics::ledger(&given.runs.home),
+        &runs_so_far,
         crate::attack_metrics::month_of(&crate::runs::stamp(given.at)),
     );
     // Before anything is spent: a month past its budget runs nothing.
@@ -752,7 +762,15 @@ pub fn attacked(given: &Given) -> Result<Done, String> {
                 }
             }
         }
-        Err(why) => ran["reason"] = json!(why),
+        Err(why) => {
+            ran["reason"] = json!(why);
+            // What a turn that never answered spent is not known: its cap,
+            // when it has one, stands for it, said as an estimate.
+            if let Some(cents) = budget.run_cents {
+                ran["cost_usd"] = json!(Budget::usd(cents));
+                ran["cost_estimated"] = json!(true);
+            }
+        }
     }
     proven(given, &stamp, &mut hypotheses);
     kept_apart(&path, &mut hypotheses)?;
