@@ -220,6 +220,12 @@ fn the_attack_keeps_each_hypothesis_and_its_exploits_out_of_the_checkout() {
     assert_eq!(report["hypotheses"][0]["from"], "r0");
     assert_eq!(report["verdict"], "approve");
     assert_eq!(report["attackers"][0]["cost_usd"], 0.42);
+    assert_eq!(
+        report["metrics"]["cost_usd"], 0.42,
+        "the report keeps its numbers"
+    );
+    assert_eq!(report["metrics"]["refuted"], 1);
+    assert_eq!(report["budget"]["run_capped_by"], "time", "its cap is said");
     let saved = report["hypotheses"][0]["exploit"]["saved"]
         .as_str()
         .expect("saved");

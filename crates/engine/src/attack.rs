@@ -495,6 +495,7 @@ pub fn settled(report: &mut Value, block_on: &[Severity]) {
     report["counts"] = counts(report);
     report["exploits"] = json!(exploits(report));
     report["verdict"] = json!(verdict(report, block_on, retro));
+    report["metrics"] = crate::attack_metrics::of_report(report);
 }
 
 /// The session's runs of the attack's exploits, each kept on its

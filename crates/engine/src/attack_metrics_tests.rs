@@ -80,3 +80,34 @@ fn enough_runs_suggest_a_run_mode() {
         .contains("consider per-item"));
     assert!(suggestion(12, 3, 0, AttackRun::Sensitive).is_none());
 }
+
+#[test]
+fn a_ledger_past_its_ceiling_still_counts_its_newest_runs() {
+    let dir = tempfile::tempdir().expect("dir");
+    let filler = format!("{}\n", "x".repeat(1023));
+    let old: String = filler.repeat((MOST_LEDGER / 1024 + 64) as usize);
+    std::fs::write(dir.path().join(LEDGER), old).expect("big");
+    record(dir.path(), "card_1", "20261119T100000Z", &report(9.0, &[])).expect("newest");
+    assert_eq!(
+        spent_in(&ledger(dir.path()), "202611"),
+        9.0,
+        "the month is still counted"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn the_ledger_is_never_reached_through_a_link_out_of_its_home() {
+    let dir = tempfile::tempdir().expect("dir");
+    let home = dir.path().join("home");
+    std::fs::create_dir_all(&home).expect("home");
+    let outside = dir.path().join("outside.jsonl");
+    std::fs::write(&outside, "").expect("outside");
+    std::os::unix::fs::symlink(&outside, home.join(LEDGER)).expect("link");
+    assert!(record(&home, "card_1", "20261119T100000Z", &report(1.0, &[])).is_err());
+    assert_eq!(
+        std::fs::read_to_string(&outside).expect("outside"),
+        "",
+        "nothing written out"
+    );
+}

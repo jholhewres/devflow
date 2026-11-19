@@ -4,8 +4,8 @@
 //! missed and the run mode they suggest. The month's budget is read from the
 //! same ledger, so a run past it is refused before it starts.
 
-use std::io::Write;
-use std::path::Path;
+use std::io::{Read, Seek, SeekFrom, Write};
+use std::path::{Path, PathBuf};
 
 use serde_json::{json, Value};
 
@@ -60,7 +60,7 @@ pub fn of_report(report: &Value) -> Value {
 /// (once the session ran its exploits) stands for it.
 pub fn record(home: &Path, item: &str, run: &str, report: &Value) -> Result<(), String> {
     std::fs::create_dir_all(home).map_err(|err| format!("{}: {err}", home.display()))?;
-    let at = home.join(LEDGER);
+    let at = at_home(home).ok_or_else(|| format!("{LEDGER} leads out of {}", home.display()))?;
     let line = json!({
         "item": item, "run": run, "run_on": report["run_on"], "metrics": of_report(report),
     });
@@ -72,16 +72,29 @@ pub fn record(home: &Path, item: &str, run: &str, report: &Value) -> Result<(), 
     writeln!(file, "{line}").map_err(|err| format!("{}: {err}", at.display()))
 }
 
-/// The ledger's runs, the last line of each.
+/// The ledger's place in the runs' home, never through a link out of it.
+fn at_home(home: &Path) -> Option<PathBuf> {
+    crate::fsguard::resolve_new(home, LEDGER).ok()
+}
+
+/// The ledger's runs, the last line of each. Past its ceiling the newest
+/// part is read: what a month spent is never left uncounted for its size.
 pub fn ledger(home: &Path) -> Vec<Value> {
-    let read = std::fs::File::open(home.join(LEDGER))
-        .ok()
-        .and_then(|file| {
-            crate::fsguard::read_within(file, MOST_LEDGER)
-                .ok()
-                .flatten()
+    let read = at_home(home)
+        .and_then(|at| std::fs::File::open(at).ok())
+        .map(|mut file| {
+            let size = file.metadata().map_or(0, |meta| meta.len());
+            let from = size.saturating_sub(MOST_LEDGER);
+            let _ = file.seek(SeekFrom::Start(from));
+            let mut raw = Vec::new();
+            let _ = file.take(MOST_LEDGER).read_to_end(&mut raw);
+            let text = String::from_utf8_lossy(&raw).into_owned();
+            // Cut into a line: what is left of it is not a run.
+            match (from > 0, text.find('\n')) {
+                (true, Some(end)) => text[end + 1..].to_owned(),
+                _ => text,
+            }
         })
-        .map(|raw| String::from_utf8_lossy(&raw).into_owned())
         .unwrap_or_default();
     let mut runs: Vec<Value> = Vec::new();
     for line in read.lines() {
