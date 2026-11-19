@@ -1266,8 +1266,8 @@ fn held_to_retro(answer: Value, retro: bool) -> Result<Value, String> {
     }
 }
 
-fn criteria_of(body: &str) -> Vec<String> {
-    crate::criteria::criteria(body)
+fn criteria_of(body: &str, config: &Config) -> Vec<String> {
+    crate::criteria::criteria_in(body, &config.criteria.headings)
         .into_iter()
         .map(|one| one.text)
         .collect()
@@ -1285,7 +1285,7 @@ fn reviewed_anew(given: &Given) -> Result<(String, PathBuf, Record), String> {
         ));
     }
     let path = given.runs.fresh(given.card.id, given.at)?;
-    let criteria = criteria_of(given.card.body);
+    let criteria = criteria_of(given.card.body, given.config);
     let touched = given.previous.map(|_| findings::touched(git.diff));
     let blocked: Vec<Value> = given.previous.map_or_else(Vec::new, |previous| {
         findings::rechecked(
@@ -1652,7 +1652,7 @@ fn judged_by_jev(
     consolidated: &mut Consolidated,
 ) -> Result<Vec<Vec<usize>>, String> {
     let rubric = jev::rubric_for(given.config, "review").unwrap_or_else(|| jev::FINDING.into());
-    let criteria = criteria_of(given.card.body);
+    let criteria = criteria_of(given.card.body, given.config);
     let mut saids: Vec<Option<Said>> = Vec::with_capacity(all.len());
     for at in 0..all.len() {
         if at >= jev::MOST_FINDINGS {

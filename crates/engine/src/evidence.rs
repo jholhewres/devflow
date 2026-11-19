@@ -706,11 +706,15 @@ pub fn gathered(given: &Given) -> Result<Evidence, String> {
         .filter_map(|ran| ran.reported.as_ref())
         .flat_map(|read| read.cases.iter().cloned())
         .collect();
-    let on_card: Vec<String> = crate::criteria::criteria(card.body)
+    let headings = &config.criteria.headings;
+    let on_card: Vec<String> = crate::criteria::criteria_in(card.body, headings)
         .into_iter()
         .map(|one| plain(&one.text))
         .collect();
-    let criteria_unread = on_card.is_empty().then(|| most_unread(card.body)).flatten();
+    let criteria_unread = on_card
+        .is_empty()
+        .then(|| most_unread(card.body, headings))
+        .flatten();
     let criteria: Vec<Seen> = asked
         .criteria
         .iter()
@@ -783,8 +787,8 @@ pub fn gathered(given: &Given) -> Result<Evidence, String> {
 
 /// The heading holding the most checkboxes that are not criteria, the first
 /// of those that hold as many.
-fn most_unread(body: &str) -> Option<crate::criteria::Unread> {
-    crate::criteria::unread(body)
+fn most_unread(body: &str, headings: &[String]) -> Option<crate::criteria::Unread> {
+    crate::criteria::unread_in(body, headings)
         .into_iter()
         .rev()
         .max_by_key(|group| group.count)
@@ -798,14 +802,22 @@ pub fn unread_said(said: &Dialect, unread: &crate::criteria::Unread) -> String {
     } else {
         format!("under `## {}`", unread.heading)
     };
+    let missing = match &unread.empty {
+        Some(empty) => format!("the {item}'s `## {empty}` holds no checkbox"),
+        None => format!("the {item} has no `## {heading}`"),
+    };
     format!(
-        "the {item} has no `## {heading}`; {} checkboxes {under} were not read as criteria",
+        "{missing}; {} checkboxes {under} were not read as criteria",
         unread.count
     )
 }
 
 fn unread_json(unread: &crate::criteria::Unread) -> Value {
-    json!({ "heading": unread.heading, "count": unread.count })
+    let mut said = json!({ "heading": unread.heading, "count": unread.count });
+    if let Some(empty) = &unread.empty {
+        said["empty"] = json!(empty);
+    }
+    said
 }
 
 /// The newest run of the card, when it was green at `tree`, passed every

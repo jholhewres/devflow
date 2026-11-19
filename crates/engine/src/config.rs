@@ -173,6 +173,9 @@ pub struct Config {
     /// The project's own running instances an attack may reach.
     #[serde(skip_serializing_if = "Security::is_empty")]
     pub security: Security,
+    /// The headings, besides `## Acceptance criteria`, criteria are read under.
+    #[serde(skip_serializing_if = "Criteria::is_empty")]
+    pub criteria: Criteria,
     /// Fields a later layer may not change, by dotted path.
     #[serde(skip)]
     pub locked: Vec<String>,
@@ -479,6 +482,19 @@ impl Security {
     }
 }
 
+/// `criteria`: the headings a project writes its criteria under, read
+/// besides `## Acceptance criteria`, which devflow itself writes.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct Criteria {
+    pub headings: Vec<String>,
+}
+
+impl Criteria {
+    pub fn is_empty(&self) -> bool {
+        self.headings.is_empty()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Decisions {
     #[serde(rename = "use")]
@@ -546,6 +562,7 @@ impl Default for Config {
             },
             models: None,
             security: Security::default(),
+            criteria: Criteria::default(),
         }
     }
 }
@@ -1051,6 +1068,10 @@ fn read(dialect: &crate::Dialect, root: &Node, from_file: bool) -> Result<Config
         Some((node, path)) => security(node, &path)?,
         None => Security::default(),
     };
+    let criteria = match fields.get("criteria") {
+        Some((node, path)) => criteria_said(node, &path)?,
+        None => Criteria::default(),
+    };
     fields.done()?;
     Ok(Config {
         version,
@@ -1062,8 +1083,37 @@ fn read(dialect: &crate::Dialect, root: &Node, from_file: bool) -> Result<Config
         decisions,
         models,
         security,
+        criteria,
         locked,
     })
+}
+
+/// `criteria.headings`: at most [`crate::criteria::MOST_HEADINGS`], each a
+/// heading's words without its `#`.
+fn criteria_said(node: &Node, path: &str) -> Result<Criteria, Invalid> {
+    use crate::criteria::{LONGEST_HEADING, MOST_HEADINGS};
+    let mut fields = Fields::of(node, path)?;
+    let mut headings: Vec<String> = Vec::new();
+    if let Some((node, path)) = fields.get("headings") {
+        let listed = items(node, &path)?;
+        if listed.len() > MOST_HEADINGS {
+            let most = format!("at most {MOST_HEADINGS} headings");
+            return Err(Invalid::at(node.line(), &path, &most));
+        }
+        for (index, item) in listed.iter().enumerate() {
+            let at = format!("{path}.{index}");
+            let heading = text(item, &at, LONGEST_HEADING)?;
+            if heading.starts_with('#') {
+                let why = "expected the heading's words, without its #";
+                return Err(Invalid::at(item.line(), &at, why));
+            }
+            if !headings.contains(&heading) {
+                headings.push(heading);
+            }
+        }
+    }
+    fields.done()?;
+    Ok(Criteria { headings })
 }
 
 /// `security.targets`: each a target [`crate::security::target`] reads, at

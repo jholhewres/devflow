@@ -784,3 +784,58 @@ fn checkboxes_under_another_heading_are_named_and_counted_not_read() {
         .get("criteria_unread")
         .is_none());
 }
+
+fn rename_mapped() -> Asked {
+    asked(&json!({
+        "card": "card_1",
+        "criteria": [{ "criterion": "rename changes the title", "tests": ["cli.rename changes the title"] }],
+    }))
+    .expect("asked")
+}
+
+#[test]
+fn checkboxes_under_a_heading_the_project_names_count_in_the_evidence() {
+    let root = tempfile::tempdir().expect("root");
+    let mut config = config(vec![check("unit", PASSING)]);
+    config.criteria.headings = vec!["Critérios de aceite".to_owned()];
+    let body = "## Critérios de aceite\n- [ ] rename changes the title\n";
+    let evidence = run_with(root.path(), &config, &rename_mapped(), "Rename", 0, body);
+    assert!(evidence.criteria[0].on_card, "{evidence:?}");
+    assert!(evidence.criteria[0].green());
+    assert!(evidence.not_mapped.is_empty(), "{evidence:?}");
+    assert_eq!(evidence.criteria_unread, None);
+}
+
+#[test]
+fn without_criteria_headings_a_card_reads_as_in_0_5_2() {
+    let root = tempfile::tempdir().expect("root");
+    let config = config(vec![check("unit", PASSING)]);
+    let body = "## Critérios de aceite\n- [ ] rename changes the title\n";
+    let evidence = run_with(root.path(), &config, &rename_mapped(), "Rename", 0, body);
+    assert!(!evidence.criteria[0].on_card);
+    let unread = evidence.criteria_unread.as_ref().expect("unread");
+    assert_eq!(
+        unread_said(evidence.dialect, unread),
+        "the item has no `## Acceptance criteria`; 1 checkboxes under `## Critérios de aceite` were not read as criteria"
+    );
+}
+
+#[test]
+fn an_empty_acceptance_criteria_heading_is_not_called_missing() {
+    let root = tempfile::tempdir().expect("root");
+    let config = config(vec![check("unit", PASSING)]);
+    let body = "## Acceptance criteria\n\n## Verify\n- [ ] the page loads\n";
+    let evidence = run_of_body(root.path(), &config, body);
+    let line = "the item's `## Acceptance criteria` holds no checkbox; 1 checkboxes under `## Verify` were not read as criteria";
+    assert!(comment(&evidence, &[]).contains(line), "{evidence:?}");
+    let kept: Value = serde_json::from_str(
+        &std::fs::read_to_string(root.path().join(&evidence.folder).join("evidence.json"))
+            .expect("evidence.json"),
+    )
+    .expect("json");
+    assert_eq!(kept["criteria_unread"]["empty"], "Acceptance criteria");
+}
+
+fn run_of_body(root: &Path, config: &Config, body: &str) -> Evidence {
+    run_with(root, config, &nothing_asked(), "Rename", 0, body)
+}

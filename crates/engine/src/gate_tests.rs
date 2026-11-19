@@ -575,3 +575,31 @@ fn a_card_with_its_checkboxes_under_another_heading_does_not_pass() {
     // With its criteria read, the same run's unread is not the gate's concern.
     assert!(look(&config, Some(&green_run()), None).missing.is_empty());
 }
+
+#[test]
+fn an_empty_criteria_heading_asks_for_the_checkboxes_under_it_not_a_rename() {
+    let config = config_with(false);
+    let mut run = green_run();
+    run["criteria"] = json!([]);
+    run["criteria_unread"] =
+        json!({ "heading": "Verify", "count": 1, "empty": "Acceptance criteria" });
+    let found = checked(&Looked {
+        dialect: &crate::Dialect::DEVFLOW,
+        config: &config,
+        card: "card_1",
+        criteria: &[],
+        run: Some(Run {
+            name: RUN,
+            evidence: &run,
+        }),
+        review: None,
+        changed: None,
+        stages: &[],
+        unreviewed: None,
+        no_code: false,
+    });
+    assert_eq!(
+        found.missing,
+        ["the item's `## Acceptance criteria` holds no checkbox; 1 checkboxes under `## Verify` were not read as criteria: put them under `## Acceptance criteria` and run `evidence` again"]
+    );
+}

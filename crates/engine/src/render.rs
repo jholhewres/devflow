@@ -34,6 +34,17 @@ pub fn render_in(dialect: &Dialect, config: &Config) -> String {
         stages_v2(dialect, &mut out, config);
     }
     review(dialect, &mut out, config);
+    if !config.criteria.is_empty() {
+        let _ = writeln!(
+            out,
+            "\n# Headings, besides `## Acceptance criteria`, whose checkboxes are a\n\
+             # {}'s criteria.\ncriteria:\n  headings:",
+            dialect.work_item
+        );
+        for heading in &config.criteria.headings {
+            let _ = writeln!(out, "    - {}", scalar(heading));
+        }
+    }
     if !config.security.is_empty() {
         out.push_str(
             "\n# The project's own running instances an attack may send requests to:\n\

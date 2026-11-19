@@ -66,6 +66,11 @@ and may call it done only when `gate` passes.
 | `devflow update` · `version --json` | install the latest release now · this version and the host protocols |
 | `devflow host` | one call from a host app (devpit) over stdio JSON-RPC |
 
+A work item's acceptance criteria are the checkboxes under
+`## Acceptance criteria`. A project that writes them under a heading of its
+own names it, and both are read, in the evidence and at the gate:
+`devflow config set criteria.headings '["Done when"]'`.
+
 The OpenRouter key is read from `OPENROUTER_API_KEY` or kept in
 `~/.config/devflow/credentials` (mode 0600): never in the repository, never
 printed. A project on devpit's Devflow works unchanged: its

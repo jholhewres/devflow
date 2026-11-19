@@ -373,12 +373,16 @@ fn unread(said: &Dialect, run: &Run, missing: &mut Vec<String>) {
     let unread = crate::criteria::Unread {
         heading: word(seen, "heading").to_owned(),
         count: usize::try_from(count).unwrap_or(usize::MAX),
+        empty: seen["empty"].as_str().map(str::to_owned),
     };
-    let heading = crate::criteria::HEADING;
-    let fix = if unread.heading.is_empty() {
-        format!("put them under `## {heading}`")
-    } else {
-        format!("rename `## {}` to `## {heading}`", unread.heading)
+    let fix = match (&unread.empty, unread.heading.is_empty()) {
+        (Some(empty), _) => format!("put them under `## {empty}`"),
+        (None, true) => format!("put them under `## {}`", crate::criteria::HEADING),
+        (None, false) => format!(
+            "rename `## {}` to `## {}`",
+            unread.heading,
+            crate::criteria::HEADING
+        ),
     };
     missing.push(format!(
         "{}: {fix} and run {} again",

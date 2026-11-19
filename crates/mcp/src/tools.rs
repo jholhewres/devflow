@@ -209,7 +209,7 @@ pub static TOOLS: [Tool; 19] = [
         input: || json!({ "type": "object", "properties": {
             "item": item_field(),
             "title": { "type": "string" },
-            "body": { "type": "string", "description": "Markdown; acceptance criteria are checkboxes under ## Acceptance criteria." },
+            "body": { "type": "string", "description": "Markdown; acceptance criteria are checkboxes under ## Acceptance criteria, or under a heading devflow.yaml's criteria.headings names." },
             "kind": { "type": "string", "enum": ["item", "epic"] },
             "parent": { "type": "string", "description": "The epic it belongs to." },
             "depends_on": { "type": "array", "items": { "type": "string" }, "description": "The items it waits on." }

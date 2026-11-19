@@ -1,5 +1,6 @@
 //! A card's acceptance criteria: the checkboxes of a `## Acceptance criteria`
-//! list in its body.
+//! list in its body, or under a heading the project names in devflow.yaml's
+//! `criteria.headings`.
 //!
 //! In the body rather than in a table, so the card reads the same wherever
 //! its text goes — the board, an agent's `item`, a paste — and a tick
@@ -7,6 +8,10 @@
 
 /// The heading the criteria live under.
 pub const HEADING: &str = "Acceptance criteria";
+/// The most headings devflow.yaml's `criteria.headings` names.
+pub const MOST_HEADINGS: usize = 10;
+/// The longest of them, in characters.
+pub const LONGEST_HEADING: usize = 80;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Criterion {
@@ -16,7 +21,12 @@ pub struct Criterion {
 
 /// The criteria a body holds, in order.
 pub fn criteria(body: &str) -> Vec<Criterion> {
-    boxes(body)
+    criteria_in(body, &[])
+}
+
+/// [`criteria`], also read under each of `headings`, in any case.
+pub fn criteria_in(body: &str, headings: &[String]) -> Vec<Criterion> {
+    boxes(body, headings)
         .into_iter()
         .map(|found| found.criterion)
         .collect()
@@ -25,7 +35,7 @@ pub fn criteria(body: &str) -> Vec<Criterion> {
 /// The body with its `at`-th criterion ticked, or unticked; `None` when it
 /// has no such criterion.
 pub fn ticked(body: &str, at: usize, done: bool) -> Option<String> {
-    let found = boxes(body).into_iter().nth(at)?;
+    let found = boxes(body, &[]).into_iter().nth(at)?;
     let mut lines: Vec<String> = body.split('\n').map(str::to_owned).collect();
     let line = lines.get_mut(found.line)?;
     line.replace_range(found.mark..found.mark + 1, if done { "x" } else { " " });
@@ -40,38 +50,59 @@ struct Found {
     criterion: Criterion,
 }
 
-/// Checkboxes outside every `## Acceptance criteria` section, by the
-/// nearest heading above them (empty when none is): none of them is read as
-/// a criterion.
+/// Checkboxes outside every criteria section, by the nearest heading above
+/// them (empty when none is): none of them is read as a criterion.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Unread {
     pub heading: String,
     pub count: usize,
+    /// A criteria heading the body has with no checkbox under it: there,
+    /// only empty, so it is not called missing.
+    pub empty: Option<String>,
 }
 
 /// The checkboxes a body holds that are not criteria, a group per heading
 /// they sit under, in the order the headings come.
 pub fn unread(body: &str) -> Vec<Unread> {
+    unread_in(body, &[])
+}
+
+/// [`unread`], with `headings` read as criteria too.
+pub fn unread_in(body: &str, headings: &[String]) -> Vec<Unread> {
+    let scan = scanned(body, headings);
+    let read = scan.found.iter().any(|(_, read)| read.is_some());
+    let empty = scan.heading.filter(|_| !read);
     let mut groups: Vec<Unread> = Vec::new();
-    for (heading, _) in scanned(body).into_iter().filter(|(_, read)| read.is_none()) {
+    for (heading, _) in scan.found.into_iter().filter(|(_, read)| read.is_none()) {
         match groups.iter_mut().find(|group| group.heading == heading) {
             Some(group) => group.count += 1,
-            None => groups.push(Unread { heading, count: 1 }),
+            None => groups.push(Unread {
+                heading,
+                count: 1,
+                empty: empty.clone(),
+            }),
         }
     }
     groups
 }
 
-fn boxes(body: &str) -> Vec<Found> {
-    scanned(body)
+fn boxes(body: &str, headings: &[String]) -> Vec<Found> {
+    scanned(body, headings)
+        .found
         .into_iter()
         .filter_map(|(_, read)| read)
         .collect()
 }
 
 /// Every checkbox outside code, with the nearest heading above it, and as a
-/// criterion when it is under the heading.
-fn scanned(body: &str) -> Vec<(String, Option<Found>)> {
+/// criterion when it is under a criteria heading; and the first such heading.
+struct Scan {
+    found: Vec<(String, Option<Found>)>,
+    heading: Option<String>,
+}
+
+fn scanned(body: &str, headings: &[String]) -> Scan {
+    let mut first: Option<String> = None;
     let mut under: Option<usize> = None;
     let mut nearest = String::new();
     let mut fenced = false;
@@ -91,8 +122,11 @@ fn scanned(body: &str) -> Vec<(String, Option<Found>)> {
             under = match under {
                 // A subheading stays inside the list's section.
                 Some(at) if level > at => Some(at),
-                _ => is_heading(title).then_some(level),
+                _ => is_heading(title, headings).then_some(level),
             };
+            if under == Some(level) && first.is_none() {
+                first = Some(bare(title).to_owned());
+            }
             continue;
         }
         if let Some((mark, criterion)) = checkbox(text) {
@@ -104,14 +138,22 @@ fn scanned(body: &str) -> Vec<(String, Option<Found>)> {
             found.push((nearest.clone(), read));
         }
     }
-    found
+    Scan {
+        found,
+        heading: first,
+    }
 }
 
-fn is_heading(title: &str) -> bool {
-    title
-        .trim_end_matches(':')
-        .trim()
-        .eq_ignore_ascii_case(HEADING)
+fn is_heading(title: &str, headings: &[String]) -> bool {
+    let title = bare(title);
+    title.eq_ignore_ascii_case(HEADING)
+        || headings
+            .iter()
+            .any(|one| bare(one).to_lowercase() == title.to_lowercase())
+}
+
+fn bare(title: &str) -> &str {
+    title.trim_end_matches(':').trim()
 }
 
 fn heading(line: &str) -> Option<(usize, &str)> {

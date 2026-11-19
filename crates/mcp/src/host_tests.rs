@@ -183,6 +183,31 @@ fn only_the_persons_click_switches_devflow_on() {
 }
 
 #[test]
+fn the_criteria_headings_round_trip_through_config_write_and_read() {
+    let dir = project(Some(FILE));
+    let mut session = started(dir.path(), false);
+    let headings = json!(["Critérios de aceite"]);
+    let said = &ask(
+        &mut session,
+        dir.path(),
+        "config/write",
+        json!({ "changes": [{ "path": "criteria.headings", "value": headings }] }),
+    )["result"];
+    assert_eq!(said["changed"], true, "{said}");
+    assert_eq!(said["after"]["criteria"]["headings"], headings);
+    assert!(
+        on_file(dir.path()).starts_with(FILE),
+        "{}",
+        on_file(dir.path())
+    );
+    assert!(on_file(dir.path()).contains("criteria:\n  headings:\n"));
+    let read = &ask(&mut session, dir.path(), "config/read", json!({}))["result"];
+    assert_eq!(read["config"]["criteria"]["headings"], headings, "{read}");
+    let unread: Vec<&Value> = read["unread"].as_array().unwrap().iter().collect();
+    assert!(unread.iter().all(|one| one["field"] == "ours"), "{read}");
+}
+
+#[test]
 fn what_an_attack_may_reach_is_never_written_by_a_host() {
     let dir = project(Some(FILE));
     let mut session = started(dir.path(), false);

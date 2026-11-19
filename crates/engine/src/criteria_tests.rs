@@ -90,11 +90,13 @@ fn the_checkboxes_outside_the_section_are_unread_by_the_heading_above_them() {
         [
             Unread {
                 heading: String::new(),
-                count: 1
+                count: 1,
+                empty: None,
             },
             Unread {
                 heading: "Verify".to_owned(),
-                count: 1
+                count: 1,
+                empty: None,
             },
         ]
     );
@@ -104,7 +106,56 @@ fn the_checkboxes_outside_the_section_are_unread_by_the_heading_above_them() {
         unread(localized),
         [Unread {
             heading: "Critérios de aceite".to_owned(),
-            count: 2
+            count: 2,
+            empty: None,
         }]
     );
+}
+
+fn named() -> Vec<String> {
+    vec!["Critérios de aceite".to_owned()]
+}
+
+#[test]
+fn checkboxes_under_a_heading_the_project_names_are_criteria_too() {
+    let body = "## CRITÉRIOS DE ACEITE:\n- [ ] one\n## Acceptance criteria\n- [x] two\n## Verify\n- [ ] three\n";
+    let read: Vec<String> = criteria_in(body, &named())
+        .into_iter()
+        .map(|one| one.text)
+        .collect();
+    assert_eq!(read, ["one", "two"]);
+    assert_eq!(
+        unread_in(body, &named()),
+        [Unread {
+            heading: "Verify".to_owned(),
+            count: 1,
+            empty: None,
+        }]
+    );
+    // Without the list, only `## Acceptance criteria` is read.
+    assert_eq!(said(body), [("two".to_owned(), true)]);
+    assert_eq!(unread(body).len(), 2);
+}
+
+#[test]
+fn an_empty_criteria_heading_is_named_as_empty_not_missing() {
+    let body = "## Acceptance criteria\n\n## Verify\n- [ ] the page loads\n";
+    assert_eq!(
+        unread(body),
+        [Unread {
+            heading: "Verify".to_owned(),
+            count: 1,
+            empty: Some("Acceptance criteria".to_owned()),
+        }]
+    );
+    let listed = "## Critérios de aceite\n## Verify\n- [ ] x\n";
+    assert_eq!(
+        unread_in(listed, &named())[0].empty.as_deref(),
+        Some("Critérios de aceite")
+    );
+    assert_eq!(
+        unread("```\n## Acceptance criteria\n```\n- [ ] x\n")[0].empty,
+        None
+    );
+    assert_eq!(unread("## Verify\n- [ ] x\n")[0].empty, None);
 }

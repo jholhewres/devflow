@@ -267,6 +267,36 @@ fn the_attack_and_its_targets_are_set_as_any_field_and_read_back() {
 }
 
 #[test]
+fn criteria_headings_are_set_as_any_field_and_read_back() {
+    let state = valid("version: 2\nenabled: true\n");
+    let named = set(
+        &state,
+        "criteria.headings",
+        &serde_json::json!(["Critérios de aceite"]),
+    )
+    .expect("headings");
+    assert!(
+        named
+            .yaml
+            .ends_with("criteria:\n  headings:\n    - \"Critérios de aceite\"\n"),
+        "{}",
+        named.yaml
+    );
+    assert_eq!(
+        crate::config::parse(&named.yaml).expect("again").to_json()["criteria"]["headings"],
+        serde_json::json!(["Critérios de aceite"])
+    );
+    assert!(crate::config::unread(&named.yaml).is_empty());
+    let wrong = set(
+        &state,
+        "criteria.headings",
+        &serde_json::json!(["## Critérios"]),
+    )
+    .expect_err("a heading's #");
+    assert_eq!(wrong.field, "criteria.headings.0", "{wrong}");
+}
+
+#[test]
 fn a_model_is_set_by_stage_and_by_reviewer_and_a_wrong_one_is_refused() {
     let state = valid(
         "version: 2\nstages:\n  - uses: builtin/plan\n  - uses: builtin/execution\nreview:\n  reviewers:\n    - { agent: claude, persona: devflow-security }\n    - { agent: codex, persona: devflow-spec }\n",

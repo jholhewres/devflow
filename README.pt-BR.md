@@ -67,6 +67,11 @@ de revisão (`review`) e só pode dar como pronto quando o `gate` passa.
 | `devflow update` · `version --json` | instala a release mais recente agora · esta versão e os protocolos de host |
 | `devflow host` | uma chamada de um app host (devpit) via JSON-RPC no stdio |
 
+Os critérios de aceite de um work item são os checkboxes sob
+`## Acceptance criteria`. Um projeto que os escreve sob um título próprio o
+nomeia, e os dois são lidos, na evidência e no gate:
+`devflow config set criteria.headings '["Critérios de aceite"]'`.
+
 A chave do OpenRouter vem de `OPENROUTER_API_KEY` ou fica em
 `~/.config/devflow/credentials` (modo 0600): nunca no repositório, nunca
 impressa. Um projeto no Devflow do devpit funciona sem mudança: o

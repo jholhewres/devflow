@@ -380,6 +380,46 @@ fn security_targets_are_read_written_back_and_held_to_what_a_target_is() {
 }
 
 #[test]
+fn criteria_headings_are_read_written_back_and_held_to_a_ceiling() {
+    let text = "version: 2\ncriteria:\n  headings:\n    - Critérios de aceite\n    - \"Pronto quando:\"\n    - Critérios de aceite\n";
+    let read = parse(text).expect("headings");
+    assert_eq!(
+        read.to_json()["criteria"]["headings"],
+        serde_json::json!(["Critérios de aceite", "Pronto quando:"])
+    );
+    assert!(crate::config::unread(text).is_empty());
+    assert_eq!(parse(&crate::render::render(&read)).expect("again"), read);
+
+    let hashed = refused("version: 2\ncriteria:\n  headings:\n    - '## Critérios'\n");
+    assert_eq!(
+        (hashed.line, hashed.field.as_str()),
+        (Some(4), "criteria.headings.0")
+    );
+    let most = crate::criteria::MOST_HEADINGS;
+    let many: Vec<String> = (0..=most).map(|at| format!("h{at}")).collect();
+    let many = refused(&format!(
+        "version: 2\ncriteria:\n  headings: [{}]\n",
+        many.join(", ")
+    ));
+    assert!(many.message.contains(&format!("at most {most}")), "{many}");
+    let long = "x".repeat(crate::criteria::LONGEST_HEADING + 1);
+    refused(&format!("version: 2\ncriteria:\n  headings: [{long}]\n"));
+    assert_eq!(
+        crate::config::unread("version: 2\ncriteria:\n  heading: [x]\n")[0].field,
+        "criteria.heading"
+    );
+}
+
+#[test]
+fn a_file_without_criteria_headings_reads_and_writes_as_before() {
+    let read = parse("version: 2\n").expect("bare");
+    assert!(read.to_json().get("criteria").is_none());
+    assert!(!crate::render::render(&read).contains("criteria:"));
+    let empty = parse("version: 2\ncriteria:\n  headings: []\n").expect("empty");
+    assert_eq!(empty, read);
+}
+
+#[test]
 fn a_model_is_an_exact_tier_or_a_well_formed_id() {
     for good in [
         "small",
