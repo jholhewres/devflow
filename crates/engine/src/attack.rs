@@ -181,8 +181,13 @@ pub fn read_answer(said: &str) -> Result<Value, String> {
     for (at, one) in list.iter().take(MOST_HYPOTHESES).enumerate() {
         let mut one = hypothesis(one, at)?;
         // Each its own folder of exploits: an id said twice is numbered anew.
-        if kept.iter().any(|had| had["id"] == one["id"]) {
-            one["id"] = json!(format!("h{}", at + 1));
+        let mut again = 1;
+        while kept.iter().any(|had| had["id"] == one["id"]) {
+            one["id"] = json!(match again {
+                1 => format!("h{}", at + 1),
+                _ => format!("h{}-{again}", at + 1),
+            });
+            again += 1;
         }
         kept.push(one);
     }
@@ -300,10 +305,6 @@ fn proven(given: &Given, stamp: &str, hypotheses: &mut [Value]) {
     let Some(scratch) = given.scratch else {
         return left(hypotheses, "no folder for a throwaway worktree");
     };
-    let tree = match sandbox::tree_at(given.root, given.git.head, &scratch.join(stamp)) {
-        Ok(tree) => tree,
-        Err(why) => return left(hypotheses, &why),
-    };
     let limits = sandbox::Limits {
         time: EXPLOIT_TIME,
         ..sandbox::Limits::default()
@@ -311,6 +312,7 @@ fn proven(given: &Given, stamp: &str, hypotheses: &mut [Value]) {
     let head: String = given.git.head.chars().take(12).collect();
     for at in tried {
         let one = &mut hypotheses[at];
+        let id = plain_id(one["id"].as_str().unwrap_or("h"));
         let exploit_at = one["exploit"]["path"]
             .as_str()
             .unwrap_or_default()
@@ -323,27 +325,34 @@ fn proven(given: &Given, stamp: &str, hypotheses: &mut [Value]) {
             .as_str()
             .unwrap_or_default()
             .to_owned();
-        let placed = match sandbox::place(&tree.at, &exploit_at, &code) {
-            Ok(placed) => placed,
-            Err(why) => {
-                one["ran"] = json!({ "result": "not_run", "reason": why });
-                continue;
-            }
-        };
-        let ran = sandbox::run(&found, &tree.at, command, (&exploit_at, &test), limits);
-        let _ = std::fs::remove_file(placed);
+        // A worktree of its own, dropped whole: nothing one exploit leaves
+        // reaches the next, and nothing in it is removed file by file.
+        let tree =
+            match sandbox::tree_at(given.root, given.git.head, &scratch.join(stamp).join(&id)) {
+                Ok(tree) => tree,
+                Err(why) => {
+                    one["ran"] = json!({ "result": "not_run", "reason": why });
+                    continue;
+                }
+            };
+        if let Err(why) = sandbox::place(&tree.at, &exploit_at, &code) {
+            one["ran"] = json!({ "result": "not_run", "reason": why });
+            continue;
+        }
+        let ran = sandbox::run(&found, &tree, command, (&exploit_at, &test), limits);
+        drop(tree);
         let said: Vec<char> = ran.tail.chars().collect();
         let tail: String = said[said.len().saturating_sub(MOST_TAIL)..]
             .iter()
             .collect();
         let (status, result, why) = match &ran.outcome {
-            Outcome::Red if ran.tail.contains(&test) => {
+            Outcome::Red if reached(&ran.tail, &test) => {
                 ("confirmed", "confirmed", "red, naming its test".to_owned())
             }
             Outcome::Red => (
                 "tried",
                 "not_run",
-                "it failed without naming its test: it did not reach its assertion".to_owned(),
+                "it failed before its assertion: the output names no failing test of it, or a harness error".to_owned(),
             ),
             Outcome::Green => (
                 "refuted",
@@ -365,6 +374,28 @@ fn proven(given: &Given, stamp: &str, hypotheses: &mut [Value]) {
             });
         }
     }
+}
+
+/// What a harness says when a test never ran to its assertion: a file that
+/// does not load, a module or package not found, a compile error.
+const NOT_REACHED: [&str; 9] = [
+    "SyntaxError",
+    "Cannot find module",
+    "ModuleNotFoundError",
+    "ImportError",
+    "error[E",
+    "cannot find package",
+    "command not found",
+    "No tests found",
+    "no tests to run",
+];
+
+/// Whether a red run reached its test: the output names it, and no harness
+/// error says the file never ran.
+pub fn reached(tail: &str, test: &str) -> bool {
+    !test.trim().is_empty()
+        && tail.contains(test)
+        && !NOT_REACHED.iter().any(|said| tail.contains(said))
 }
 
 /// The exploit tests the attack confirmed, each wanted green from then on,

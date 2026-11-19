@@ -336,21 +336,20 @@ fn held(path: &str, upper: &Value, merged: &Value) -> Result<(), String> {
     }
 }
 
-/// An attack as a layer says it, a word or a map, as its run and model:
-/// `sensitive` and none when not said.
-fn attack_said(said: Option<&Value>) -> (String, Option<String>) {
+/// An attack as a layer says it, a word, a map or a list's item, as its
+/// run and the fields beside it: `sensitive` and nothing else when not said.
+fn attack_said(said: Option<&Value>) -> Vec<Option<String>> {
     let word = |value: &Value| value.as_str().map(str::to_owned);
-    match said {
-        Some(Value::String(run)) => (run.clone(), None),
-        Some(fields @ Value::Object(_)) => (
-            fields
-                .get("run")
-                .and_then(word)
-                .unwrap_or_else(|| "sensitive".to_owned()),
-            fields.get("model").and_then(word),
-        ),
-        _ => ("sensitive".to_owned(), None),
-    }
+    let field = |key: &str| said.and_then(|said| said.get(key)).and_then(word);
+    let off = said.and_then(|said| said.get("enabled")) == Some(&Value::Bool(false));
+    let run = match said {
+        Some(Value::String(run)) => Some(run.clone()),
+        _ if off => Some("off".to_owned()),
+        _ => field("run"),
+    };
+    let mut said: Vec<Option<String>> = vec![run.or_else(|| Some("sensitive".to_owned()))];
+    said.extend(["model", "test", "sandbox", "image"].map(field));
+    said
 }
 
 fn locked_in(layer: &Value) -> Vec<String> {
@@ -414,6 +413,8 @@ pub fn layered_in(
             let attack = path == "stages.attack" || path.starts_with("stages.attack.");
             let locked = match pick(layer, "stages.attack") {
                 Some(Picked::One(locked)) => attack_said(Some(locked)),
+                // A list's item, named by its stage.
+                Some(Picked::Items(items)) if items.len() == 1 => attack_said(Some(items[0])),
                 _ => attack_said(layer.pointer("/review/attack")),
             };
             let renamed = project

@@ -378,4 +378,18 @@ fn the_older_name_cannot_change_a_locked_attack() {
         layered(&root, said, &home).is_ok(),
         "the locked value said again"
     );
+    write(
+        &home.personal,
+        LAYER_FILE,
+        "version: 2\nstages:\n  - uses: builtin/attack\n    run: per-item\n    test: npx jest\nlocked: [stages.attack]\n",
+    );
+    let same = "version: 2\nreview:\n  attack: { run: per-item, test: npx jest }\n";
+    if let Err(why) = layered(&root, same, &home) {
+        panic!("a list's item read as it says: {why}");
+    }
+    let other = "version: 2\nreview:\n  attack: { run: per-item, test: make test }\n";
+    assert!(
+        layered(&root, other, &home).is_err(),
+        "its test is locked too"
+    );
 }

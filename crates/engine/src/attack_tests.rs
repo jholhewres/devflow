@@ -48,6 +48,33 @@ fn two_hypotheses_never_share_a_folder_of_exploits() {
         read["hypotheses"][1]["id"], "h2",
         "said twice, numbered anew"
     );
+    let taken = json!({ "hypotheses": [
+        { "id": "h2", "title": "a", "severity": "low", "status": "refuted", "reason": "r" },
+        { "id": "h2", "title": "b", "severity": "low", "status": "refuted", "reason": "r" },
+    ] });
+    let read = read_answer(&taken.to_string()).expect("read");
+    assert_eq!(
+        read["hypotheses"][1]["id"], "h2-2",
+        "never the same id again"
+    );
+}
+
+#[test]
+fn a_red_run_confirms_only_when_it_reached_its_test() {
+    let test = "a forged cookie is refused";
+    assert!(reached(
+        "FAIL tests/a.test.ts\n  x a forged cookie is refused",
+        test
+    ));
+    assert!(!reached("all good", test));
+    assert!(!reached(
+        "SyntaxError: Unexpected token in a forged cookie is refused",
+        test
+    ));
+    assert!(!reached(
+        "Cannot find module './session' from a forged cookie is refused",
+        test
+    ));
 }
 
 #[test]

@@ -32,7 +32,14 @@ fn ending_a_run_ends_its_whole_group_and_only_it() {
     end_it_all(&mut run);
     let _ = run.wait();
     std::thread::sleep(Duration::from_millis(100));
-    assert!(signal_group(group, 0).is_err(), "the group is gone");
+    // Signal 0 to the group itself: ESRCH once no member is left.
+    // SAFETY: a check, no signal is sent; the group is one we made.
+    let left = unsafe { libc::kill(-group, 0) };
+    assert_eq!(left, -1, "every member of the group is gone");
+    assert_eq!(
+        std::io::Error::last_os_error().raw_os_error(),
+        Some(libc::ESRCH)
+    );
     assert!(
         neighbour.try_wait().expect("looked").is_none(),
         "a neighbour lives on"

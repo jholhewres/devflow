@@ -125,8 +125,13 @@ With the attack stage, set `stages.attack.test` to the command that runs one
 exploit test (it gets the test's path as `$DEVFLOW_EXPLOIT`), and devflow runs
 each exploit itself in a throwaway worktree of HEAD: in bwrap with a network
 namespace of its own, or in docker with no network and the image
-`stages.attack.image` names. The checkout is read-only there, only the
-throwaway copy is written, and time, CPU and memory are capped. Where neither
+`stages.attack.image` names, as your own user. Each exploit gets a worktree
+of its own, dropped whole after it ran. The checkout is out of reach there,
+only the throwaway copy is written, and time, CPU and memory are capped:
+docker caps the container's memory, CPUs and process count; bwrap hides
+`/run` and your home folder (showing back only the project's dependency
+folders and the toolchains on your `PATH`, read-only), and its CPU and
+memory caps hold per process, with no cap on how many it starts. Where neither
 sandbox works (bwrap needs unprivileged user namespaces; docker needs the
 image), or the command is not set, the exploit stays `tried` with the reason,
 and the session runs it.

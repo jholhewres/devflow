@@ -169,43 +169,96 @@ pub fn dependencies(checkout: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
+/// What a run sees of this machine besides its worktree: the dependency
+/// folders linked into it, read-only; and under bwrap the home folder that
+/// is hidden, with the toolchains under it shown again read-only.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Seen {
+    pub deps: Vec<PathBuf>,
+    pub home: Option<PathBuf>,
+    pub tools: Vec<PathBuf>,
+}
+
+/// The toolchains the test command reaches through `path` that live under
+/// `home`, each shown read-only: a `PATH` folder, or its parent when that
+/// holds the toolchain's `lib` (a node install); for `~/.cargo/bin`, the
+/// registry and `~/.rustup` too, never `~/.cargo`'s credentials.
+pub fn tools(home: &Path, path: &OsStr) -> Vec<PathBuf> {
+    let mut tools: Vec<PathBuf> = Vec::new();
+    let mut add = |at: PathBuf| {
+        if at.is_dir() && at != home && !tools.contains(&at) {
+            tools.push(at);
+        }
+    };
+    for entry in std::env::split_paths(path).filter(|entry| entry.starts_with(home)) {
+        let parent = entry.parent().map(Path::to_path_buf);
+        match parent {
+            Some(parent) if parent == home.join(".cargo") => {
+                add(entry.clone());
+                add(parent.join("registry"));
+                add(home.join(".rustup"));
+            }
+            Some(parent) if parent != home.join(".local") && parent.join("lib").is_dir() => {
+                add(parent)
+            }
+            _ => add(entry),
+        }
+    }
+    tools
+}
+
 /// The program and arguments that run `command` in `tree` inside the
-/// sandbox, `deps` mounted read-only where they are.
+/// sandbox, with what it may see.
 pub fn argv(
     sandbox: &Sandbox,
     tree: &Path,
-    deps: &[PathBuf],
+    seen: &Seen,
     command: &str,
     limits: Limits,
     name: &str,
 ) -> Vec<String> {
     let tree = tree.display().to_string();
+    let shown = |at: &PathBuf| at.display().to_string();
     match sandbox.kind {
         Kind::Bwrap => {
-            let mut argv = vec![
-                sandbox.program.display().to_string(),
-                "--die-with-parent".into(),
-                "--new-session".into(),
-                "--unshare-net".into(),
-                "--unshare-pid".into(),
-                "--unshare-ipc".into(),
-                "--unshare-uts".into(),
-                "--ro-bind".into(),
-                "/".into(),
-                "/".into(),
-                "--dev".into(),
-                "/dev".into(),
-                "--proc".into(),
-                "/proc".into(),
-                "--tmpfs".into(),
-                "/tmp".into(),
+            let mut argv: Vec<String> = [
+                sandbox.program.display().to_string().as_str(),
+                "--die-with-parent",
+                "--new-session",
+                "--unshare-net",
+                "--unshare-pid",
+                "--unshare-ipc",
+                "--unshare-uts",
+                "--ro-bind",
+                "/",
+                "/",
+                "--dev",
+                "/dev",
+                "--proc",
+                "/proc",
+                "--tmpfs",
+                "/tmp",
+                // The host's sockets and the person's files stay out of reach.
+                "--tmpfs",
+                "/run",
+            ]
+            .iter()
+            .map(|one| (*one).to_owned())
+            .collect();
+            if let Some(home) = &seen.home {
+                argv.extend(["--tmpfs".into(), shown(home)]);
+            }
+            for at in seen.deps.iter().chain(&seen.tools) {
+                argv.extend(["--ro-bind".into(), shown(at), shown(at)]);
+            }
+            argv.extend([
                 "--bind".into(),
                 tree.clone(),
                 tree.clone(),
                 "--chdir".into(),
                 tree,
                 "--".into(),
-            ];
+            ]);
             if let Some(prlimit) = &sandbox.prlimit {
                 argv.extend([
                     prlimit.display().to_string(),
@@ -218,13 +271,17 @@ pub fn argv(
             argv
         }
         Kind::Docker => {
-            let mut argv = vec![
+            // SAFETY: plain syscalls.
+            let (uid, gid) = unsafe { (libc::getuid(), libc::getgid()) };
+            let mut argv: Vec<String> = vec![
                 sandbox.program.display().to_string(),
                 "run".into(),
                 "--rm".into(),
                 "--init".into(),
                 "--name".into(),
                 name.to_owned(),
+                "--user".into(),
+                format!("{uid}:{gid}"),
                 "--network".into(),
                 "none".into(),
                 "--read-only".into(),
@@ -243,14 +300,15 @@ pub fn argv(
                 "-v".into(),
                 format!("{tree}:{tree}"),
             ];
-            for dep in deps {
-                let dep = dep.display().to_string();
-                argv.extend(["-v".into(), format!("{dep}:{dep}:ro")]);
+            for dep in &seen.deps {
+                argv.extend(["-v".into(), format!("{}:{}:ro", shown(dep), shown(dep))]);
             }
-            for name in [EXPLOIT, EXPLOIT_TEST, "HOME"] {
+            for name in [EXPLOIT, EXPLOIT_TEST] {
                 argv.extend(["-e".into(), name.to_owned()]);
             }
             argv.extend([
+                "-e".into(),
+                "HOME=/tmp".into(),
                 "-w".into(),
                 tree,
                 sandbox.image.clone().unwrap_or_default(),
@@ -263,10 +321,12 @@ pub fn argv(
     }
 }
 
-/// A throwaway worktree of a commit, removed when dropped.
+/// A throwaway worktree of a commit, removed when dropped, and the
+/// checkout's dependency folders linked into it.
 pub struct Tree {
     pub root: PathBuf,
     pub at: PathBuf,
+    pub deps: Vec<PathBuf>,
 }
 
 impl Drop for Tree {
@@ -276,15 +336,18 @@ impl Drop for Tree {
 }
 
 /// A worktree of `commit` at `at`, with the checkout's dependency folders
-/// linked in, removed when the returned [`Tree`] is dropped.
+/// linked in, removed when the returned [`Tree`] is dropped. Only the
+/// links made here are the run's dependencies: one the commit itself holds
+/// is never mounted.
 pub fn tree_at(checkout: &Path, commit: &str, at: &Path) -> Result<Tree, String> {
     if let Some(parent) = at.parent() {
         std::fs::create_dir_all(parent).map_err(|err| format!("{}: {err}", parent.display()))?;
     }
     crate::git::add_detached(checkout, at, commit).map_err(|err| err.to_string())?;
-    let tree = Tree {
+    let mut tree = Tree {
         root: checkout.to_path_buf(),
         at: at.to_path_buf(),
+        deps: Vec::new(),
     };
     for dep in dependencies(checkout) {
         let Some(name) = dep.file_name() else {
@@ -295,13 +358,14 @@ pub fn tree_at(checkout: &Path, commit: &str, at: &Path) -> Result<Tree, String>
             #[cfg(unix)]
             std::os::unix::fs::symlink(&dep, &link)
                 .map_err(|err| format!("{}: {err}", link.display()))?;
+            tree.deps.push(dep);
         }
     }
     Ok(tree)
 }
 
-/// Writes an exploit at `relative` inside `tree`, refusing a place a link
-/// takes out of it.
+/// Writes an exploit at `relative` inside `tree` as a new file, refusing a
+/// place a link takes out of it.
 pub fn place(tree: &Path, relative: &str, code: &str) -> Result<PathBuf, String> {
     let relative = crate::attack::exploit_path(relative)?;
     let out = || format!("`{relative}` leads out of the worktree");
@@ -335,24 +399,45 @@ pub fn place(tree: &Path, relative: &str, code: &str) -> Result<PathBuf, String>
     Ok(at)
 }
 
+/// The docker client's own settings, kept for it alone: only the `-e`
+/// list reaches the container.
+const DOCKER_CLIENT: [&str; 5] = [
+    "DOCKER_HOST",
+    "DOCKER_CONFIG",
+    "DOCKER_CONTEXT",
+    "DOCKER_CERT_PATH",
+    "DOCKER_TLS_VERIFY",
+];
+
+fn drained(from: impl Read + Send + 'static) -> std::thread::JoinHandle<Vec<u8>> {
+    std::thread::spawn(move || {
+        let mut said = Vec::new();
+        let _ = from.take(1 << 22).read_to_end(&mut said);
+        said
+    })
+}
+
 /// Runs `command` in `tree` inside `sandbox`: the exploit's path and name
 /// reach it only through [`EXPLOIT`] and [`EXPLOIT_TEST`].
 pub fn run(
     sandbox: &Sandbox,
-    tree: &Path,
+    tree: &Tree,
     command: &str,
     exploit: (&str, &str),
     limits: Limits,
 ) -> Ran {
     let began = Instant::now();
-    let deps = dependencies(tree)
-        .into_iter()
-        .chain(
-            DEPENDENCIES
-                .iter()
-                .filter_map(|name| std::fs::read_link(tree.join(name)).ok()),
-        )
-        .collect::<Vec<_>>();
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    let seen = Seen {
+        deps: tree.deps.clone(),
+        tools: home
+            .as_deref()
+            .map_or_else(Vec::new, |home| tools(home, &path)),
+        home: home
+            .clone()
+            .filter(|home| home.is_absolute() && home != Path::new("/")),
+    };
     let name = format!(
         "devflow-exploit-{}-{}",
         std::process::id(),
@@ -360,9 +445,8 @@ pub fn run(
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |since| since.as_nanos())
     );
-    let mut argv = argv(sandbox, tree, &deps, command, limits, &name);
+    let mut argv = argv(sandbox, &tree.at, &seen, command, limits, &name);
     // Below the person's own work on this machine.
-    let path = std::env::var_os("PATH").unwrap_or_default();
     if let Some(nice) = crate::env::found_on(&path, OsStr::new("nice")) {
         let mut niced = vec![nice.display().to_string(), "-n".into(), "10".into()];
         niced.append(&mut argv);
@@ -375,8 +459,22 @@ pub fn run(
             child.env(name, value);
         }
     }
+    match sandbox.kind {
+        Kind::Docker => {
+            for name in DOCKER_CLIENT {
+                if let Some(value) = std::env::var_os(name) {
+                    child.env(name, value);
+                }
+            }
+            if let Some(home) = &home {
+                child.env("HOME", home);
+            }
+        }
+        Kind::Bwrap => {
+            child.env("HOME", "/tmp");
+        }
+    }
     child
-        .env("HOME", "/tmp")
         .env(EXPLOIT, exploit.0)
         .env(EXPLOIT_TEST, exploit.1)
         .stdin(Stdio::null())
@@ -395,20 +493,9 @@ pub fn run(
         Ok(child) => child,
         Err(err) => return failed(format!("{}: {err}", argv[0])),
     };
-    let output = child
-        .stdout
-        .take()
-        .zip(child.stderr.take())
-        .map(|(out, err)| {
-            std::thread::spawn(move || {
-                let mut said = Vec::new();
-                let _ = out.take(1 << 22).read_to_end(&mut said);
-                let mut more = Vec::new();
-                let _ = err.take(1 << 22).read_to_end(&mut more);
-                said.extend(more);
-                said
-            })
-        });
+    // Both read at once: a test that fills one pipe never waits on the other.
+    let out = child.stdout.take().map(drained);
+    let err = child.stderr.take().map(drained);
     let deadline = began + limits.time;
     let status = loop {
         match child.try_wait() {
@@ -431,10 +518,11 @@ pub fn run(
             Err(err) => return failed(err.to_string()),
         }
     };
-    let said = output
-        .and_then(|reading| reading.join().ok())
-        .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
-        .unwrap_or_default();
+    let mut said = Vec::new();
+    for reading in [out, err].into_iter().flatten() {
+        said.extend(reading.join().unwrap_or_default());
+    }
+    let said = String::from_utf8_lossy(&said);
     let tail: String = {
         let chars: Vec<char> = said.chars().collect();
         chars[chars.len().saturating_sub(TAIL)..].iter().collect()
