@@ -88,10 +88,33 @@ pub fn end_it_all(child: &mut Child) {
 /// through [`in_a_session_of_its_own`], which `setsid` made the leader.
 #[cfg(unix)]
 fn signal(group: i32, signal: i32) {
-    // SAFETY: a signal to a pid this process owns; the worst answer is ESRCH,
-    // which is the group already being gone.
-    unsafe {
-        libc::kill(-group, signal);
+    let _ = signal_group(group, signal);
+}
+
+/// Signals the process group `group` leads, and nothing else: refused for
+/// a pid of 1 or less (`kill(-1)` is every process the user owns, `kill(0)`
+/// this process's own group), for this process's own group, and for a pid
+/// that does not lead a group of its own. Never through the `kill` program,
+/// whose parsing of `-<group>` differs between versions: one read
+/// `kill -KILL -1507` as `kill(-1)`.
+#[cfg(unix)]
+pub fn signal_group(group: i32, signal: i32) -> Result<(), String> {
+    if group <= 1 {
+        return Err(format!("{group} is no process group of its own"));
+    }
+    // SAFETY: plain syscalls on ids; no memory is shared.
+    let (own, led) = unsafe { (libc::getpgrp(), libc::getpgid(group)) };
+    if group == own {
+        return Err("that is this process's own group".to_owned());
+    }
+    if led != group {
+        return Err(format!("{group} leads no process group"));
+    }
+    // SAFETY: a signal to a group checked above to be one a spawn of this
+    // process leads; the worst answer is ESRCH, the group already gone.
+    match unsafe { libc::kill(-group, signal) } {
+        0 => Ok(()),
+        _ => Err(std::io::Error::last_os_error().to_string()),
     }
 }
 
@@ -109,3 +132,7 @@ fn gone(child: &mut Child, patience: Duration) -> bool {
     }
     false
 }
+
+#[cfg(all(test, unix))]
+#[path = "descendants_tests.rs"]
+mod tests;
