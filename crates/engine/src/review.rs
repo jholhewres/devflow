@@ -1214,8 +1214,13 @@ fn reviewed_anew(given: &Given) -> Result<(String, PathBuf, Record), String> {
     // can be read again as it was.
     let mut read: Vec<String> = Vec::new();
     let mut overlaid = false;
-    for reader in &readers {
-        let persona = &reader.reviewer.persona;
+    // The headless readers', and the axes' the session may review itself.
+    let named: Vec<String> = readers
+        .iter()
+        .map(|reader| reader.reviewer.persona.clone())
+        .chain(axis_personas().into_iter().map(str::to_owned))
+        .collect();
+    for persona in &named {
         if let Ok(effective) = effective_persona(given.root, given.personas, persona) {
             overlaid |= effective.overlay.is_some();
             let line = persona_line(persona, &effective);
@@ -1642,7 +1647,7 @@ pub fn reviewed(given: &Given) -> Result<Done, String> {
     // The session's subagents read each persona as this project resolves it,
     // beside the packet: the project keeps no copy of devpit's.
     for persona in &pending {
-        let text = persona_text(given.root, given.personas, persona)?;
+        let text = effective_persona(given.root, given.personas, persona)?.text;
         write(&path, &persona_file(persona), &text)?;
     }
     let mut all: Vec<Value> = record

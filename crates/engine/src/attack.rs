@@ -169,35 +169,64 @@ pub fn threat_model_path(root: &Path) -> String {
 /// The most of a threat model read.
 const MOST_THREAT_MODEL: u64 = 64 * 1024;
 
-/// The hypotheses an earlier attack refuted whose control `files` leaves
-/// alone: they are not tried again. One with no control named is tried.
+/// A control's file as the diff names it: no `./`, no `:line`.
+fn control_file(said: &str) -> String {
+    let said = said.trim().trim_start_matches("./");
+    match said.rsplit_once(':') {
+        Some((file, line)) if !line.is_empty() && line.chars().all(|ch| ch.is_ascii_digit()) => {
+            file.to_owned()
+        }
+        _ => said.to_owned(),
+    }
+}
+
+/// The hypotheses earlier attacks refuted whose control `files` leaves
+/// alone: they are not tried again. An earlier report's own hypotheses and
+/// what it carried from before it both count, so a refutation is kept from
+/// run to run; one with no control named is tried.
 pub fn still_refuted(earlier: Option<&Value>, files: &[String]) -> Vec<Value> {
-    earlier
-        .and_then(|report| report["hypotheses"].as_array())
+    let Some(earlier) = earlier else {
+        return Vec::new();
+    };
+    let refuted = earlier["hypotheses"]
+        .as_array()
         .into_iter()
         .flatten()
         .filter(|one| one["status"] == "refuted")
-        .filter_map(|one| {
-            let control = one["control"]
-                .as_str()
-                .filter(|control| !control.is_empty())?;
-            (!files.iter().any(|file| file == control)).then(|| {
-                json!({ "title": one["title"], "class": one["class"], "file": one["file"],
-                        "control": control, "reason": one["reason"] })
-            })
-        })
-        .collect()
+        .chain(earlier["refuted_before"].as_array().into_iter().flatten());
+    let mut kept: Vec<Value> = Vec::new();
+    for one in refuted {
+        let Some(control) = one["control"]
+            .as_str()
+            .map(control_file)
+            .filter(|control| !control.is_empty())
+        else {
+            continue;
+        };
+        let touched = files.iter().any(|file| control_file(file) == control);
+        let title = text(one, "title");
+        if !touched
+            && !kept
+                .iter()
+                .any(|had| text(had, "title").eq_ignore_ascii_case(&title))
+        {
+            kept.push(
+                json!({ "title": title, "class": one["class"], "file": one["file"],
+                "control": control, "reason": one["reason"] }),
+            );
+        }
+    }
+    kept
 }
 
-/// Whether an answered hypothesis is one refuted before: the same class at
-/// the same file, or the same title.
+/// Whether an answered hypothesis is one refuted before: the same title,
+/// said again. A different hypothesis at the same place is never taken for
+/// it.
 fn refuted_again<'a>(one: &Value, refuted: &'a [Value]) -> Option<&'a Value> {
-    refuted.iter().find(|before| {
-        (before["class"] == one["class"]
-            && before["file"] == one["file"]
-            && !text(one, "class").is_empty())
-            || text(before, "title").eq_ignore_ascii_case(&text(one, "title"))
-    })
+    let said = text(one, "title");
+    refuted
+        .iter()
+        .find(|before| !said.is_empty() && text(before, "title").eq_ignore_ascii_case(&said))
 }
 
 /// Lines a person reads as a change: `-` taken out, `+` put in, the rest
@@ -826,12 +855,22 @@ pub fn attacked(given: &Given) -> Result<Done, String> {
             Budget::usd(month)
         ));
     }
-    // What an earlier attack of the item refuted, before this run is made.
-    let earlier = given
-        .runs
-        .newest_with(given.card.id, REPORT)
-        .and_then(|(_, at)| std::fs::read_to_string(at).ok())
-        .and_then(|said| serde_json::from_str::<Value>(&said).ok());
+    // What an earlier attack of the item refuted, before this run is made:
+    // read only from the runs' home, never from a folder the repository
+    // carries, where a planted report could keep a hole from being tried.
+    let earlier = crate::fsguard::resolve(&given.runs.home, given.card.id)
+        .ok()
+        .and_then(|folder| {
+            let name = crate::runs::newest_with(&folder, REPORT)?;
+            crate::fsguard::resolve(&folder, &format!("{name}/{REPORT}")).ok()
+        })
+        .and_then(|at| std::fs::File::open(at).ok())
+        .and_then(|file| {
+            crate::fsguard::read_within(file, 4 * 1024 * 1024)
+                .ok()
+                .flatten()
+        })
+        .and_then(|raw| serde_json::from_slice::<Value>(&raw).ok());
     let refuted = still_refuted(earlier.as_ref(), given.git.files);
     let threat_path = threat_model_path(given.root);
     let threat_model =
@@ -967,6 +1006,7 @@ pub fn attacked(given: &Given) -> Result<Done, String> {
         "attackers": [ran],
         "started_from": started.len(),
         "not_tried_again": refuted.len(),
+        "refuted_before": refuted,
         "threat_model": threat,
         "hypotheses": hypotheses,
         "budget": {
@@ -1177,6 +1217,10 @@ pub fn summary(done: &Done) -> Value {
         "counts": report["counts"],
         "attackers": report["attackers"],
     });
+    if !report["threat_model"].is_null() {
+        answer["threat_model_proposed"] =
+            json!(format!("{}/threat-model.proposed.md", done.folder));
+    }
     if !tried.is_empty() {
         answer["next"] = json!(format!(
             "Run each tried exploit: copy it from the run's {EXPLOITS}/ to its path, run it, and record what it showed with the attack tool's `run` \"{}\" and `verified`: one {{ hypothesis, result, evidence, test }} each. Red is confirmed; a confirmed exploit stays a regression test that must be green once fixed.",

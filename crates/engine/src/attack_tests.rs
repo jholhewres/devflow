@@ -190,6 +190,23 @@ fn a_refuted_hypothesis_is_not_tried_again_while_its_control_is_unchanged() {
     );
     let again = json!({ "title": "Redirect to an internal host", "class": "other" });
     assert!(refuted_again(&again, &untouched).is_some());
+    let other =
+        json!({ "title": "DNS rebinding past the guard", "class": "ssrf", "file": "src/fetch.rs" });
+    assert!(
+        refuted_again(&other, &untouched).is_none(),
+        "another hypothesis at the same place is tried"
+    );
+    let named = json!({ "hypotheses": [{ "title": "t", "status": "refuted", "control": "./src/url_guard.rs:12" }] });
+    assert!(
+        still_refuted(Some(&named), &["src/url_guard.rs".to_owned()]).is_empty(),
+        "its control as the diff names it"
+    );
+    let carried = json!({ "hypotheses": [], "refuted_before": untouched });
+    assert_eq!(
+        still_refuted(Some(&carried), &[]).len(),
+        1,
+        "kept from run to run"
+    );
 }
 
 #[test]

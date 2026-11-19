@@ -139,9 +139,29 @@ fn an_item_goes_from_brief_to_done_on_its_evidence() {
         .refused("finish", json!({ "item": item }))
         .contains("stays"));
 
-    // No reviewer CLI is set up: the session reviews each persona itself.
+    // No reviewer CLI is set up: the session reviews each persona itself,
+    // with the project's overlay on it.
+    std::fs::create_dir_all(root.join(".devflow/reviewers")).unwrap();
+    std::fs::write(
+        root.join(".devflow/reviewers/devflow-spec.overlay.md"),
+        "Titles are shown to customers.",
+    )
+    .unwrap();
     let review = mcp.call("review", json!({ "item": item }));
     let run = review["run"].as_str().unwrap().to_owned();
+    let folder = root.join(format!(".devflow/runs/{item}/{run}"));
+    let persona = std::fs::read_to_string(folder.join("persona-devflow-spec.md")).unwrap();
+    assert!(
+        persona
+            .trim_end()
+            .ends_with("Titles are shown to customers."),
+        "{persona}"
+    );
+    let context = std::fs::read_to_string(folder.join("review-context.md")).unwrap();
+    assert!(
+        context.contains("devflow-spec.overlay.md (sha256:"),
+        "{context}"
+    );
     let pending: Vec<String> = review["pending"]
         .as_array()
         .unwrap()
