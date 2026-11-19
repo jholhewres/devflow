@@ -117,6 +117,12 @@ fn an_item_on_a_sensitive_path_is_held_until_its_attack_ran_and_its_hole_is_shut
             .contains("the exploit test `forged-cookie`"),
         "{held}"
     );
+    let status = mcp.call("status", json!({}));
+    assert_eq!(status["attack"]["runs"], 1, "{status}");
+    assert_eq!(
+        status["attack"]["confirmed"], 1,
+        "the session's run counted: {status}"
+    );
     assert!(mcp
         .refused("attack", json!({ "item": item, "prove": true }))
         .contains("`run`"));
@@ -147,4 +153,14 @@ fn an_item_on_a_sensitive_path_is_held_until_its_attack_ran_and_its_hole_is_shut
     );
     let answer: serde_json::Value = serde_json::from_slice(&said.stdout).unwrap();
     assert_eq!(answer["counts"]["tried"], 1, "{answer}");
+    let numbers = Command::new(env!("CARGO_BIN_EXE_devflow"))
+        .args(["--root", &root.display().to_string(), "status", "--attack"])
+        .env("HOME", home.path())
+        .env("XDG_CONFIG_HOME", home.path().join("config"))
+        .env("XDG_CACHE_HOME", home.path().join("cache"))
+        .env("DEVFLOW_NO_UPDATE", "1")
+        .output()
+        .unwrap();
+    let numbers: serde_json::Value = serde_json::from_slice(&numbers.stdout).unwrap();
+    assert_eq!(numbers["runs"], 2, "{numbers}");
 }

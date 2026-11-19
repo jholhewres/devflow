@@ -117,7 +117,9 @@ real runs, one attack reading of a medium-sized diff took about 5 to 10
 minutes and US$ 2 to 5, about one and a half times the security reviewer on
 the same diff. `per-item` pays that on every re-review, so `sensitive` or
 `release` is the usual choice. `devflow status` says what the newest review
-spent by stage and model.
+spent by stage and model. With the attack stage, `stages.attack.budget`
+(`run_usd`, `month_usd`) caps it, and `devflow status --attack` adds up what
+its runs cost and confirmed.
 
 ## Where exploits run
 

@@ -129,3 +129,30 @@ fn only_its_proof_changes_what_the_sandbox_confirmed() {
     assert!(refused.contains("prove"), "{refused}");
     assert_eq!(report["hypotheses"][0]["status"], "confirmed");
 }
+
+#[test]
+fn a_run_budget_caps_claude_code_by_its_own_flag_and_the_others_by_time() {
+    let capped = Capped {
+        cli: Cli::Claude,
+        usd: Some("3.00".to_owned()),
+    };
+    let argv = capped.argv(Some("opus"), "prompt");
+    let at = argv
+        .iter()
+        .position(|one| one == "--max-budget-usd")
+        .expect("capped");
+    assert_eq!(argv[at + 1], "3.00");
+    let budget = crate::config::Budget {
+        run_cents: Some(300),
+        month_cents: None,
+    };
+    assert_eq!(capped_by(Agent::Claude, budget), "max-budget-usd");
+    assert_eq!(capped_by(Agent::Codex, budget), "time");
+    let codex = Capped {
+        cli: Cli::Codex,
+        usd: Some("3.00".to_owned()),
+    };
+    assert!(!codex
+        .argv(None, "p")
+        .contains(&"--max-budget-usd".to_owned()));
+}

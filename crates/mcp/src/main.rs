@@ -63,7 +63,13 @@ enum Command {
     /// project's devflow.yaml and the flow's tools. A host runs this.
     Host,
     /// Say which configuration applies to the project, if any.
-    Status,
+    Status {
+        /// The attack's numbers for the project: its runs, what they
+        /// confirmed and cost, what the review missed, and the run mode
+        /// they suggest.
+        #[arg(long)]
+        attack: bool,
+    },
     /// Set devflow up: register it with the agent CLIs found here, write the
     /// project's devflow.yaml and switch it on, and offer Decisions. Asks
     /// before each step.
@@ -205,7 +211,8 @@ fn main() -> ExitCode {
         Command::Version { json } => version(json),
         Command::Update { check, json } => update::command(check, json),
         Command::Host => host::run(&root),
-        Command::Status => status(&root),
+        Command::Status { attack: false } => status(&root),
+        Command::Status { attack: true } => attack_status(&root),
         Command::Attack { item, base, prove } => {
             attacking(&root, &item, base.as_deref(), prove.as_deref())
         }
@@ -289,6 +296,26 @@ fn registering(how: &Registering, on: bool) -> ExitCode {
         ExitCode::FAILURE
     } else {
         ExitCode::SUCCESS
+    }
+}
+
+/// `devflow status --attack`: the project's attack numbers, as JSON.
+fn attack_status(root: &std::path::Path) -> ExitCode {
+    let project = project::Project::at(root);
+    let server = server::Server::new(root);
+    let said = flow::setup::status_of(&project, &server);
+    match said.get("attack") {
+        Some(attack) => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(attack).unwrap_or_default()
+            );
+            ExitCode::SUCCESS
+        }
+        None => {
+            println!("No attack has run in this project yet.");
+            ExitCode::SUCCESS
+        }
     }
 }
 

@@ -10,7 +10,8 @@ use std::time::{Duration, SystemTime};
 
 use serde_json::{json, Value};
 
-use crate::config::{Config, Severity};
+use crate::agents::{Cli, ReviewAgent};
+use crate::config::{Agent, Budget, Config, Severity};
 use crate::dialect::Dialect;
 use crate::evidence::Card;
 use crate::findings;
@@ -581,9 +582,106 @@ fn kept_apart(folder: &Path, hypotheses: &mut [Value]) -> Result<(), String> {
     Ok(())
 }
 
+/// How one run is held to its budget: the CLI's own spending cap where it
+/// has one (Claude Code's `--max-budget-usd`), else the turn's time.
+fn capped_by(agent: Agent, budget: Budget) -> &'static str {
+    match (agent, budget.run_cents) {
+        (Agent::Claude, Some(_)) => "max-budget-usd",
+        _ => "time",
+    }
+}
+
+/// A CLI held to a run's dollars, where it can be.
+struct Capped {
+    cli: Cli,
+    usd: Option<String>,
+}
+
+impl ReviewAgent for Capped {
+    fn id(&self) -> &'static str {
+        self.cli.id()
+    }
+
+    fn program(&self) -> &'static str {
+        self.cli.program()
+    }
+
+    fn argv(&self, model: Option<&str>, prompt: &str) -> Vec<String> {
+        let mut argv = crate::agents::argv(self.cli, model, prompt);
+        if let (Cli::Claude, Some(usd)) = (self.cli, &self.usd) {
+            argv.splice(1..1, ["--max-budget-usd".to_owned(), usd.clone()]);
+        }
+        argv
+    }
+
+    fn on_stdin(&self) -> bool {
+        crate::agents::on_stdin(self.cli)
+    }
+
+    fn answer_of(&self, stdout: &str) -> Result<(String, Option<f64>), String> {
+        self.cli.answer_of(stdout)
+    }
+
+    fn signed_out(&self, said: &str) -> bool {
+        self.cli.signed_out(said)
+    }
+
+    fn tokens_of(&self, stdout: &str) -> Option<crate::agents::Tokens> {
+        self.cli.tokens_of(stdout)
+    }
+}
+
+/// The attacker's one headless turn, held to the run's budget.
+fn turn(
+    given: &Given,
+    agent: Agent,
+    model: Option<&str>,
+    prompt: &str,
+    env: &[(String, String)],
+) -> Result<crate::agents::Reviewed, String> {
+    let program = (given.reach)(agent)?;
+    let cli = Cli::of(agent.word()).ok_or("this CLI does not run headless")?;
+    let model = review::model_for(agent, model);
+    let capped = Capped {
+        cli,
+        usd: given
+            .config
+            .stages
+            .attack
+            .budget
+            .run_cents
+            .map(|cents| format!("{:.2}", Budget::usd(cents))),
+    };
+    crate::agents::review(&crate::agents::Review {
+        agent: &capped,
+        program: &program,
+        prompt,
+        cwd: given.root,
+        model: model.as_deref(),
+        env,
+        deadline: given.budget,
+    })
+    .map_err(|unreviewed| unreviewed.reason())
+}
+
 /// Runs the attacker on the item's change and keeps its report in a new run.
 pub fn attacked(given: &Given) -> Result<Done, String> {
     let dialect: &Dialect = given.personas.dialect;
+    let budget = given.config.stages.attack.budget;
+    let spent = crate::attack_metrics::spent_in(
+        &crate::attack_metrics::ledger(&given.runs.home),
+        crate::attack_metrics::month_of(&crate::runs::stamp(given.at)),
+    );
+    // Before anything is spent: a month past its budget runs nothing.
+    if let Some(month) = budget
+        .month_cents
+        .filter(|month| spent * 100.0 >= *month as f64)
+    {
+        return Err(format!(
+            "the attack's month budget is spent: US$ {spent:.2} of US$ {:.2} (stages.attack.budget.month_usd); raise it, or wait for next month",
+            Budget::usd(month)
+        ));
+    }
     let path = given.runs.fresh(given.card.id, given.at)?;
     let stamp = path
         .file_name()
@@ -627,15 +725,12 @@ pub fn attacked(given: &Given) -> Result<Done, String> {
     );
     let answered = review::persona_text(given.root, given.personas, models::ATTACK_PERSONA)
         .and_then(|persona| {
-            review::turn_in(
-                dialect,
+            turn(
+                given,
                 agent,
                 model.as_deref(),
-                given.reach,
                 &prompt(&persona, &packet, agent.word(), &started),
-                given.root,
                 &env,
-                given.budget,
             )
         });
     let mut hypotheses = Vec::new();
@@ -672,9 +767,16 @@ pub fn attacked(given: &Given) -> Result<Done, String> {
         "attackers": [ran],
         "started_from": started.len(),
         "hypotheses": hypotheses,
+        "budget": {
+            "run_usd": budget.run_cents.map(Budget::usd),
+            "month_usd": budget.month_cents.map(Budget::usd),
+            "month_spent_before": spent,
+            "run_capped_by": capped_by(agent, budget),
+        },
     });
     settled(&mut report, &given.config.review.block_on);
     write(&path, REPORT, &pretty(&report))?;
+    crate::attack_metrics::record(&given.runs.home, given.card.id, &stamp, &report)?;
     Ok(Done {
         folder: path.display().to_string(),
         stamp,
@@ -693,6 +795,7 @@ pub fn verified(folder: &Path, config: &Config, verified: &[Value]) -> Result<Va
     verified_on(&mut report, verified)?;
     settled(&mut report, &config.review.block_on);
     write(folder, REPORT, &pretty(&report))?;
+    recorded_again(folder, &report);
     Ok(report)
 }
 
@@ -833,7 +936,26 @@ pub fn prove(given: &Proving) -> Result<Value, String> {
     }
     settled(&mut report, &given.config.review.block_on);
     write(given.folder, REPORT, &pretty(&report))?;
+    recorded_again(given.folder, &report);
     Ok(report)
+}
+
+/// A run's numbers recorded again once its hypotheses changed: its folder
+/// is `<home>/<item>/<run>`.
+fn recorded_again(folder: &Path, report: &Value) {
+    let named = |at: &Path| {
+        at.file_name()
+            .and_then(|name| name.to_str())
+            .map(str::to_owned)
+    };
+    let item = folder.parent();
+    if let (Some(run), Some(item), Some(home)) = (
+        named(folder),
+        item.and_then(named),
+        item.and_then(Path::parent),
+    ) {
+        let _ = crate::attack_metrics::record(home, &item, &run, report);
+    }
 }
 
 /// What the attack's answer says in short.

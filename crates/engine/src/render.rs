@@ -4,7 +4,7 @@
 
 use std::fmt::Write;
 
-use crate::config::{Approved, Attack, Check, Config, Stage, StageGate, Step, V1};
+use crate::config::{Approved, Attack, Budget, Check, Config, Stage, StageGate, Step, V1};
 use crate::dialect::Dialect;
 
 /// The text of `config`, commented.
@@ -368,6 +368,16 @@ fn attack_fields(out: &mut String, attack: &Attack) {
     }
     if let Some(image) = &attack.image {
         let _ = writeln!(out, "    image: {}", scalar(image));
+    }
+    let budget = &attack.budget;
+    if !budget.is_empty() {
+        out.push_str("    budget:\n");
+        if let Some(cents) = budget.run_cents {
+            let _ = writeln!(out, "      run_usd: {}", Budget::usd(cents));
+        }
+        if let Some(cents) = budget.month_cents {
+            let _ = writeln!(out, "      month_usd: {}", Budget::usd(cents));
+        }
     }
 }
 

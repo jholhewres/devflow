@@ -366,6 +366,75 @@ pub struct Attack {
     /// The docker image a docker sandbox runs the test in.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub image: Option<String>,
+    /// What one run and the month's runs may spend.
+    #[serde(skip_serializing_if = "Budget::is_empty")]
+    pub budget: Budget,
+}
+
+/// `stages.attack.budget`: US$ per run and per calendar month, kept in
+/// cents so a configuration compares exactly.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Budget {
+    pub run_cents: Option<u64>,
+    pub month_cents: Option<u64>,
+}
+
+impl Budget {
+    pub fn is_empty(&self) -> bool {
+        self.run_cents.is_none() && self.month_cents.is_none()
+    }
+
+    /// Cents as the dollars a person writes.
+    pub fn usd(cents: u64) -> f64 {
+        cents as f64 / 100.0
+    }
+}
+
+impl Serialize for Budget {
+    fn serialize<S: serde::Serializer>(&self, to: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap;
+        let mut map = to.serialize_map(None)?;
+        if let Some(cents) = self.run_cents {
+            map.serialize_entry("run_usd", &Budget::usd(cents))?;
+        }
+        if let Some(cents) = self.month_cents {
+            map.serialize_entry("month_usd", &Budget::usd(cents))?;
+        }
+        map.end()
+    }
+}
+
+/// The most a budget says, in dollars: a typo of zeros is refused.
+const MOST_USD: f64 = 100_000.0;
+
+/// A number of dollars, in cents.
+fn dollars(field: Option<(&Node, String)>) -> Result<Option<u64>, Invalid> {
+    let Some((node, path)) = field else {
+        return Ok(None);
+    };
+    let (said, _) = scalar(node, &path, "a number of dollars")?;
+    match said.parse::<f64>() {
+        Ok(usd) if usd.is_finite() && usd > 0.0 && usd <= MOST_USD => {
+            Ok(Some((usd * 100.0).round() as u64))
+        }
+        _ => Err(Invalid::at(
+            node.line(),
+            &path,
+            &format!("a number of dollars above 0 and at most {MOST_USD}"),
+        )),
+    }
+}
+
+/// `budget: { run_usd, month_usd }`, dollars as numbers.
+fn budget(node: &Node, path: &str) -> Result<Budget, Invalid> {
+    let mut fields = Fields::of(node, path)?;
+    let run_cents = dollars(fields.get("run_usd"))?;
+    let month_cents = dollars(fields.get("month_usd"))?;
+    fields.done()?;
+    Ok(Budget {
+        run_cents,
+        month_cents,
+    })
 }
 
 impl Default for Attack {
@@ -378,6 +447,7 @@ impl Default for Attack {
             test: None,
             sandbox: None,
             image: None,
+            budget: Budget::default(),
         }
     }
 }
@@ -1426,12 +1496,17 @@ pub(crate) fn attack_in(fields: &mut Fields) -> Result<Attack, Invalid> {
         Some((node, path)) => Some(text(node, &path, 200)?),
         None => None,
     };
+    let budget = match fields.get("budget") {
+        Some((node, path)) => budget(node, &path)?,
+        None => Budget::default(),
+    };
     Ok(Attack {
         run: if enabled { run } else { AttackRun::Off },
         model,
         test,
         sandbox,
         image,
+        budget,
     })
 }
 

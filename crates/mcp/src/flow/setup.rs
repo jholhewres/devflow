@@ -102,6 +102,13 @@ pub fn status_of(project: &Project, server: &Server) -> Value {
             if let Some(spent) = devflow_engine::review::spent_newest(&project.runs()) {
                 said["spent"] = spent;
             }
+            let ledger = devflow_engine::attack_metrics::ledger(&project.runs().home);
+            if !ledger.is_empty() {
+                said["attack"] = devflow_engine::attack_metrics::project(
+                    &ledger,
+                    devflow_engine::models::attack_run(config),
+                );
+            }
             let waiting = (!switched_on).then(|| {
                 format!(
                     "devflow is set up here but not switched on: the person runs `{ENABLE}` in a \

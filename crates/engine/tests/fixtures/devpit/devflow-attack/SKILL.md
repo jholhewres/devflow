@@ -113,3 +113,9 @@ name):
 
 With `sensitive`, one attack per card is enough: a fix is proven by its
 exploit test turning green, not by attacking again.
+
+`stages.attack.budget` (`run_usd`, `month_usd`) holds the cost: a run past the
+month's budget is refused before it starts, and one run is capped by the CLI's
+own spending limit where it has one (Claude Code's), else by its time. Each
+report keeps its numbers; `devflow status --attack` adds them up for the
+project, with what the review missed and the run mode they suggest.

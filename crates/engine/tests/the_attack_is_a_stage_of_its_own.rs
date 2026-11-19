@@ -709,3 +709,92 @@ fn a_proof_waits_for_the_fix_to_be_committed() {
     .expect_err("dirty");
     assert!(refused.contains("commit the fix first"), "{refused}");
 }
+
+#[test]
+fn a_budget_reads_in_dollars_and_refuses_what_is_no_amount() {
+    let said = parsed("version: 1\nstages:\n  attack:\n    run: sensitive\n    budget: { run_usd: 3, month_usd: 40.5 }\n");
+    assert_eq!(said.stages.attack.budget.run_cents, Some(300));
+    assert_eq!(said.stages.attack.budget.month_cents, Some(4050));
+    let written = devflow_engine::render::render(&said);
+    assert_eq!(
+        parsed(&written).stages.attack,
+        said.stages.attack,
+        "{written}"
+    );
+    for wrong in ["0", "-5", "lots", "1e9"] {
+        let refused = config::parse(&format!(
+            "version: 1\nstages:\n  attack:\n    run: sensitive\n    budget: {{ run_usd: {wrong} }}\n"
+        ))
+        .expect_err(wrong);
+        assert!(refused.field.ends_with("run_usd"), "{wrong}: {refused}");
+    }
+}
+
+/// The month's runs spent what it may: the next one is refused before the
+/// attacker is asked anything.
+#[cfg(unix)]
+#[test]
+fn a_run_past_the_months_budget_is_refused_before_it_starts() {
+    use std::time::{Duration, SystemTime};
+    let dir = tempfile::tempdir().expect("dir");
+    let root = dir.path().canonicalize().expect("root");
+    let home = root.join("home");
+    let at = SystemTime::UNIX_EPOCH + Duration::from_secs(1_792_000_000);
+    let stamp = devflow_engine::runs::stamp(at);
+    devflow_engine::attack_metrics::record(
+        &home,
+        "card_0",
+        &stamp,
+        &json!({ "attackers": [{ "cost_usd": 40.0 }], "hypotheses": [] }),
+    )
+    .expect("spent");
+    let asked = std::sync::atomic::AtomicBool::new(false);
+    let reach = |_: config::Agent| -> Result<String, String> {
+        asked.store(true, std::sync::atomic::Ordering::SeqCst);
+        Err("never asked".to_owned())
+    };
+    let redact = |text: &str| text.to_owned();
+    let runs = devflow_engine::runs::Runs {
+        dialect: &Dialect::DEVFLOW,
+        home: home.clone(),
+        checkout: root.clone(),
+    };
+    let config = parsed(
+        "version: 1\nstages:\n  attack:\n    run: sensitive\n    budget: { month_usd: 40 }\n",
+    );
+    let files = vec![SENSITIVE.to_owned()];
+    let refused = attack::attacked(&attack::Given {
+        root: &root,
+        runs: &runs,
+        config: &config,
+        card: devflow_engine::evidence::Card {
+            id: "card_1",
+            title: "Sessions",
+            body: "",
+        },
+        git: devflow_engine::review::Git {
+            base: "b4se",
+            head: "he4d",
+            files: &files,
+            diff: DIFF,
+        },
+        brief: None,
+        evidence: None,
+        review: None,
+        env: &[],
+        at,
+        budget: Duration::from_secs(60),
+        reach: &reach,
+        redact: &redact,
+        personas: devflow_engine::review::Personas::default(),
+        retro: false,
+        scratch: None,
+    })
+    .expect_err("past the month's budget");
+    assert!(refused.contains("month budget"), "{refused}");
+    assert!(
+        !asked.load(std::sync::atomic::Ordering::SeqCst),
+        "the attacker was never asked"
+    );
+    assert!(!home.join("card_1").exists(), "no run was made");
+}
