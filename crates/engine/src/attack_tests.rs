@@ -188,8 +188,13 @@ fn a_refuted_hypothesis_is_not_tried_again_while_its_control_is_unchanged() {
         still_refuted(Some(&earlier), &["src/url_guard.rs".to_owned()]).is_empty(),
         "its control changed"
     );
-    let again = json!({ "title": "Redirect to an internal host", "class": "other" });
+    let again = json!({ "title": "Redirect to an internal host", "class": "other", "file": "./src/fetch.rs" });
     assert!(refuted_again(&again, &untouched).is_some());
+    let elsewhere = json!({ "title": "Redirect to an internal host", "file": "src/upload.rs" });
+    assert!(
+        refuted_again(&elsewhere, &untouched).is_none(),
+        "the same title in another file is tried"
+    );
     let other =
         json!({ "title": "DNS rebinding past the guard", "class": "ssrf", "file": "src/fetch.rs" });
     assert!(
@@ -217,4 +222,31 @@ fn a_threat_model_change_reads_as_a_diff() {
     );
     assert_eq!(said, " assets:\n - uploads\n+- secrets in SSM\n");
     assert_eq!(line_diff("", "a\n"), "+a\n");
+}
+
+#[test]
+fn a_report_inside_the_checkout_never_decides_what_is_refuted() {
+    let dir = tempfile::tempdir().expect("dir");
+    let checkout = dir.path().join("checkout");
+    std::fs::create_dir_all(&checkout).expect("checkout");
+    let report = json!({ "hypotheses": [{ "title": "t", "file": "a.rs", "status": "refuted", "control": "b.rs" }] });
+    let at = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_791_000_000);
+    for (home, read) in [
+        (dir.path().join("home"), true),
+        (checkout.join(".devflow/runs"), false),
+    ] {
+        let runs = crate::runs::Runs {
+            dialect: &crate::Dialect::DEVFLOW,
+            home,
+            checkout: checkout.clone(),
+        };
+        let run = runs.fresh("card_1", at).expect("run");
+        std::fs::write(run.join(REPORT), report.to_string()).expect("report");
+        assert_eq!(
+            earlier_report(&runs, "card_1").is_some(),
+            read,
+            "{}",
+            runs.home.display()
+        );
+    }
 }

@@ -205,11 +205,7 @@ pub fn still_refuted(earlier: Option<&Value>, files: &[String]) -> Vec<Value> {
         };
         let touched = files.iter().any(|file| control_file(file) == control);
         let title = text(one, "title");
-        if !touched
-            && !kept
-                .iter()
-                .any(|had| text(had, "title").eq_ignore_ascii_case(&title))
-        {
+        if !touched && !kept.iter().any(|had| same_hypothesis(had, one)) {
             kept.push(
                 json!({ "title": title, "class": one["class"], "file": one["file"],
                 "control": control, "reason": one["reason"] }),
@@ -219,14 +215,47 @@ pub fn still_refuted(earlier: Option<&Value>, files: &[String]) -> Vec<Value> {
     kept
 }
 
-/// Whether an answered hypothesis is one refuted before: the same title,
-/// said again. A different hypothesis at the same place is never taken for
-/// it.
+/// A hypothesis's file as it is compared: no `./`.
+fn hypothesis_file(one: &Value) -> String {
+    text(one, "file").trim().trim_start_matches("./").to_owned()
+}
+
+/// Two hypotheses are the same one when they say the same title of the
+/// same file. Ids are numbered anew each run, so they never match.
+fn same_hypothesis(one: &Value, other: &Value) -> bool {
+    let title = text(one, "title");
+    !title.is_empty()
+        && text(other, "title").eq_ignore_ascii_case(&title)
+        && hypothesis_file(one) == hypothesis_file(other)
+}
+
+/// Whether an answered hypothesis is one refuted before: the same title of
+/// the same file. The same title elsewhere, or another at the same place, is
+/// tried.
 fn refuted_again<'a>(one: &Value, refuted: &'a [Value]) -> Option<&'a Value> {
-    let said = text(one, "title");
-    refuted
-        .iter()
-        .find(|before| !said.is_empty() && text(before, "title").eq_ignore_ascii_case(&said))
+    refuted.iter().find(|before| same_hypothesis(before, one))
+}
+
+/// The newest earlier attack report of `card`, from the runs' home only.
+/// A home inside the checkout (devflow as its own host) counts for nothing:
+/// a report the repository carries never decides what is refuted.
+pub fn earlier_report(runs: &crate::runs::Runs, card: &str) -> Option<Value> {
+    let home = runs.home.canonicalize().ok()?;
+    let checkout = runs
+        .checkout
+        .canonicalize()
+        .unwrap_or_else(|_| runs.checkout.clone());
+    if home.starts_with(&checkout) {
+        return None;
+    }
+    let folder = crate::fsguard::resolve(&home, card).ok()?;
+    let name = crate::runs::newest_with(&folder, REPORT)?;
+    let at = crate::fsguard::resolve(&folder, &format!("{name}/{REPORT}")).ok()?;
+    let file = std::fs::File::open(at).ok()?;
+    let raw = crate::fsguard::read_within(file, 4 * 1024 * 1024)
+        .ok()
+        .flatten()?;
+    serde_json::from_slice(&raw).ok()
 }
 
 /// Lines a person reads as a change: `-` taken out, `+` put in, the rest
@@ -855,22 +884,8 @@ pub fn attacked(given: &Given) -> Result<Done, String> {
             Budget::usd(month)
         ));
     }
-    // What an earlier attack of the item refuted, before this run is made:
-    // read only from the runs' home, never from a folder the repository
-    // carries, where a planted report could keep a hole from being tried.
-    let earlier = crate::fsguard::resolve(&given.runs.home, given.card.id)
-        .ok()
-        .and_then(|folder| {
-            let name = crate::runs::newest_with(&folder, REPORT)?;
-            crate::fsguard::resolve(&folder, &format!("{name}/{REPORT}")).ok()
-        })
-        .and_then(|at| std::fs::File::open(at).ok())
-        .and_then(|file| {
-            crate::fsguard::read_within(file, 4 * 1024 * 1024)
-                .ok()
-                .flatten()
-        })
-        .and_then(|raw| serde_json::from_slice::<Value>(&raw).ok());
+    // What an earlier attack of the item refuted, before this run is made.
+    let earlier = earlier_report(given.runs, given.card.id);
     let refuted = still_refuted(earlier.as_ref(), given.git.files);
     let threat_path = threat_model_path(given.root);
     let threat_model =
