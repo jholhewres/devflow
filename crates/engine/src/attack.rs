@@ -17,6 +17,7 @@ use crate::findings;
 use crate::models;
 use crate::review::{self, Git, Packet, Personas, Reach};
 use crate::runs::Runs;
+use crate::sandbox::{self, Outcome};
 
 /// The stage's report in its run.
 pub const REPORT: &str = "attack.json";
@@ -70,7 +71,15 @@ pub struct Given<'a> {
     pub personas: Personas<'a>,
     /// A range already in production: followed up, never held.
     pub retro: bool,
+    /// Where throwaway worktrees for the exploits go, out of the checkout;
+    /// without one the session runs them.
+    pub scratch: Option<&'a Path>,
 }
+
+/// How long one exploit test may run in the sandbox.
+pub const EXPLOIT_TIME: Duration = Duration::from_secs(5 * 60);
+/// The most of a run's output kept on its hypothesis.
+const MOST_TAIL: usize = 800;
 
 /// What came of an attack: the run it is kept in and its report.
 #[derive(Debug, Clone, PartialEq)]
@@ -131,21 +140,30 @@ fn text(value: &Value, key: &str) -> String {
 }
 
 /// A repository path an exploit belongs at: relative, inside the root as
-/// written, with no `..`.
+/// written, with no `..` and nothing under `.git`, where a file a session
+/// copies in would run as a hook.
 pub fn exploit_path(path: &str) -> Result<String, String> {
     let path = path.trim();
     let well = !path.is_empty()
         && path.len() <= 300
         && Path::new(path)
             .components()
-            .all(|part| matches!(part, Component::Normal(_)));
+            .all(|part| matches!(part, Component::Normal(name) if name != ".git"));
     if well {
         Ok(path.to_owned())
     } else {
         Err(format!(
-            "`{path}` is not a path in the repository: relative, with no `..`"
+            "`{path}` is not a path in the repository for an exploit: relative, with no `..` and nothing under .git"
         ))
     }
+}
+
+/// A hypothesis id kept as a folder name: letters, digits, `-` and `_`.
+fn plain_id(id: &str) -> String {
+    id.chars()
+        .filter(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_'))
+        .take(40)
+        .collect()
 }
 
 /// The attacker's answer, held to its shape: each hypothesis named, placed
@@ -159,9 +177,14 @@ pub fn read_answer(said: &str) -> Result<Value, String> {
     let list = answer["hypotheses"]
         .as_array()
         .ok_or("its answer has no `hypotheses` list")?;
-    let mut kept = Vec::new();
+    let mut kept: Vec<Value> = Vec::new();
     for (at, one) in list.iter().take(MOST_HYPOTHESES).enumerate() {
-        kept.push(hypothesis(one, at)?);
+        let mut one = hypothesis(one, at)?;
+        // Each its own folder of exploits: an id said twice is numbered anew.
+        if kept.iter().any(|had| had["id"] == one["id"]) {
+            one["id"] = json!(format!("h{}", at + 1));
+        }
+        kept.push(one);
     }
     Ok(json!({ "hypotheses": kept }))
 }
@@ -189,8 +212,8 @@ fn hypothesis(one: &Value, at: usize) -> Result<Value, String> {
     if reason.is_empty() {
         return wrong("says why in `reason`");
     }
-    let id = match text(one, "id") {
-        id if !id.is_empty() && id.len() <= 40 => id,
+    let id = match plain_id(&text(one, "id")) {
+        id if !id.is_empty() => id,
         _ => format!("h{}", at + 1),
     };
     let mut kept = json!({
@@ -224,6 +247,124 @@ fn hypothesis(one: &Value, at: usize) -> Result<Value, String> {
         _ => {}
     }
     Ok(kept)
+}
+
+/// Why the attack did not run, when no attacker answered: the reasons each
+/// gave, and no hypotheses. Such a report is no attack.
+pub fn failed(report: &Value) -> Option<String> {
+    let none = report["hypotheses"].as_array().is_none_or(Vec::is_empty);
+    let attackers = report["attackers"].as_array()?;
+    let reasons: Vec<&str> = attackers
+        .iter()
+        .filter_map(|one| one["reason"].as_str())
+        .filter(|why| !why.trim().is_empty())
+        .collect();
+    (none && !attackers.is_empty() && reasons.len() == attackers.len()).then(|| reasons.join("; "))
+}
+
+/// Each tried exploit run in the engine's sandbox at HEAD, in a throwaway
+/// worktree: red that names its test confirms it, green refutes it. One it
+/// could not run keeps `tried`, with why under `ran`, for the session.
+fn proven(given: &Given, stamp: &str, hypotheses: &mut [Value]) {
+    let tried: Vec<usize> = (0..hypotheses.len())
+        .filter(|at| {
+            hypotheses[*at]["status"] == "tried" && hypotheses[*at]["exploit"]["code"].is_string()
+        })
+        .collect();
+    if tried.is_empty() {
+        return;
+    }
+    let left = |hypotheses: &mut [Value], why: &str| {
+        for at in &tried {
+            hypotheses[*at]["ran"] =
+                json!({ "result": "not_run", "reason": format!("{why}: the session runs it") });
+        }
+    };
+    let attack = &given.config.stages.attack;
+    let Some(command) = attack
+        .test
+        .as_deref()
+        .filter(|test| !test.trim().is_empty())
+    else {
+        return left(
+            hypotheses,
+            "stages.attack.test is not set, the command that runs one exploit",
+        );
+    };
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    let choice = attack.sandbox.unwrap_or(crate::config::SandboxChoice::Auto);
+    let found = match sandbox::found(choice, attack.image.as_deref(), &path) {
+        Ok(found) => found,
+        Err(why) => return left(hypotheses, &why),
+    };
+    let Some(scratch) = given.scratch else {
+        return left(hypotheses, "no folder for a throwaway worktree");
+    };
+    let tree = match sandbox::tree_at(given.root, given.git.head, &scratch.join(stamp)) {
+        Ok(tree) => tree,
+        Err(why) => return left(hypotheses, &why),
+    };
+    let limits = sandbox::Limits {
+        time: EXPLOIT_TIME,
+        ..sandbox::Limits::default()
+    };
+    let head: String = given.git.head.chars().take(12).collect();
+    for at in tried {
+        let one = &mut hypotheses[at];
+        let exploit_at = one["exploit"]["path"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned();
+        let test = one["exploit"]["test"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned();
+        let code = one["exploit"]["code"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned();
+        let placed = match sandbox::place(&tree.at, &exploit_at, &code) {
+            Ok(placed) => placed,
+            Err(why) => {
+                one["ran"] = json!({ "result": "not_run", "reason": why });
+                continue;
+            }
+        };
+        let ran = sandbox::run(&found, &tree.at, command, (&exploit_at, &test), limits);
+        let _ = std::fs::remove_file(placed);
+        let said: Vec<char> = ran.tail.chars().collect();
+        let tail: String = said[said.len().saturating_sub(MOST_TAIL)..]
+            .iter()
+            .collect();
+        let (status, result, why) = match &ran.outcome {
+            Outcome::Red if ran.tail.contains(&test) => {
+                ("confirmed", "confirmed", "red, naming its test".to_owned())
+            }
+            Outcome::Red => (
+                "tried",
+                "not_run",
+                "it failed without naming its test: it did not reach its assertion".to_owned(),
+            ),
+            Outcome::Green => (
+                "refuted",
+                "refuted",
+                "green: the hole is not there".to_owned(),
+            ),
+            Outcome::TimedOut => ("tried", "not_run", "it ran past its time".to_owned()),
+            Outcome::Failed(why) => ("tried", "not_run", why.clone()),
+        };
+        one["status"] = json!(status);
+        one["ran"] = json!({
+            "by": found.kind.word(), "at": head, "result": result, "reason": why,
+            "exit": ran.exit, "duration_ms": ran.duration_ms, "tail": (given.redact)(&tail),
+        });
+        if result != "not_run" {
+            one["verified"] = json!({
+                "result": result, "by": "sandbox",
+                "evidence": format!("{} at {head}: {why}", found.kind.word()),
+            });
+        }
+    }
 }
 
 /// The exploit tests the attack confirmed, each wanted green from then on,
@@ -351,12 +492,7 @@ fn kept_apart(folder: &Path, hypotheses: &mut [Value]) -> Result<(), String> {
             .and_then(|name| name.to_str())
             .unwrap_or("exploit")
             .to_owned();
-        let id: String = one["id"]
-            .as_str()
-            .unwrap_or("h")
-            .chars()
-            .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '-' })
-            .collect();
+        let id = plain_id(one["id"].as_str().unwrap_or("h"));
         let saved = format!("{EXPLOITS}/{id}/{name}");
         write(folder, &saved, &code)?;
         if let Some(exploit) = one["exploit"].as_object_mut() {
@@ -444,6 +580,7 @@ pub fn attacked(given: &Given) -> Result<Done, String> {
         }
         Err(why) => ran["reason"] = json!(why),
     }
+    proven(given, &stamp, &mut hypotheses);
     kept_apart(&path, &mut hypotheses)?;
     let mut report = json!({
         "version": 1,

@@ -46,7 +46,15 @@ Done when the answer names the run and its counts.
 
 ### 2. Run each tried exploit
 
-For each hypothesis the answer lists under `tried`:
+With `stages.attack.test` set (the command that runs one exploit test, given
+its path as `$DEVFLOW_EXPLOIT` and its name as `$DEVFLOW_EXPLOIT_TEST`) and a
+sandbox here, devflow already ran each exploit at HEAD in a throwaway worktree:
+bwrap with a network namespace of its own, or docker with no network
+(`stages.attack.image`), the checkout read-only. Red that names its test is
+`confirmed`, green is `refuted`, and each says so under `ran`. An exploit it
+could not run stays `tried`, with why under `ran`, and is yours.
+
+For each hypothesis the answer still lists under `tried`:
 
 1. Copy its exploit from the run's `exploits/<id>/` to its `path` in the
    checkout, and run it with the project's test command, that file alone.

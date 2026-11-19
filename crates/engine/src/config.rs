@@ -140,6 +140,12 @@ impl Verify {
 }
 
 words!(
+    /// Where the attack's exploits run: the first sandbox found here, bwrap
+    /// (its own network namespace), docker (no network, the image
+    /// `stages.attack.image` names), or none: the session runs them.
+    SandboxChoice { Auto = "auto", Bwrap = "bwrap", Docker = "docker", Off = "off" }
+);
+words!(
     /// When the attack's reading runs: never, on a diff `review.scale` does
     /// not call small (past its lines, or a sensitive path), on every
     /// review, or only for a release, asked by name.
@@ -349,6 +355,17 @@ pub struct Attack {
     /// A tier (`small`, `default`, `large`) or an id; `large` when not said.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// The command that runs one exploit test, which it gets as
+    /// `$DEVFLOW_EXPLOIT` (its path) and `$DEVFLOW_EXPLOIT_TEST` (its name):
+    /// `npx jest "$DEVFLOW_EXPLOIT"`. Without it the session runs them.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub test: Option<String>,
+    /// Where it runs: `auto` when not said.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sandbox: Option<SandboxChoice>,
+    /// The docker image a docker sandbox runs the test in.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub image: Option<String>,
 }
 
 impl Default for Attack {
@@ -358,6 +375,9 @@ impl Default for Attack {
         Attack {
             run: AttackRun::Sensitive,
             model: None,
+            test: None,
+            sandbox: None,
+            image: None,
         }
     }
 }
@@ -910,12 +930,17 @@ fn read(dialect: &crate::Dialect, root: &Node, from_file: bool) -> Result<Config
         }
         None => Vec::new(),
     };
+    let mut attack_said = false;
     let (stages, flow) = match fields.get("stages") {
         Some((node, path)) if matches!(node.value, Value::Seq(_)) => {
             needs_two(node, &path, "a list of stages")?;
+            attack_said = names_attack(node);
             crate::flow::read(node, &path)?
         }
-        Some((node, path)) => (stages(node, &path)?, defaults.flow),
+        Some((node, path)) => {
+            attack_said = names_attack(node);
+            (stages(node, &path)?, defaults.flow)
+        }
         None => (defaults.stages, defaults.flow),
     };
     let locked = match fields.get("locked") {
@@ -931,7 +956,7 @@ fn read(dialect: &crate::Dialect, root: &Node, from_file: bool) -> Result<Config
     };
     let mut stages = stages;
     if let Some(said) = &review.attack {
-        if stages.attack != Attack::default() && stages.attack != *said {
+        if attack_said && stages.attack != *said {
             return Err(Invalid::at(
                 None,
                 "review.attack",
@@ -1336,7 +1361,7 @@ fn attack(node: &Node, path: &str) -> Result<Attack, Invalid> {
     if matches!(node.value, Value::Scalar(..)) {
         return Ok(Attack {
             run: run(node, path)?,
-            model: None,
+            ..Attack::default()
         });
     }
     let mut fields = Fields::of(node, path)?;
@@ -1351,9 +1376,27 @@ fn attack(node: &Node, path: &str) -> Result<Attack, Invalid> {
             ))
         }
     };
-    let model = model(fields.get("model"))?;
+    let mut attack = attack_in(&mut fields)?;
+    attack.run = said;
     fields.done()?;
-    Ok(Attack { run: said, model })
+    Ok(attack)
+}
+
+/// Whether `stages` names the attack: a map's `attack`, or a list's
+/// `uses: builtin/attack`.
+fn names_attack(stages: &Node) -> bool {
+    let builtin = format!("{BUILTIN}/{ATTACK}");
+    match &stages.value {
+        Value::Map(fields) => fields.iter().any(|(key, _)| key.name == ATTACK),
+        Value::Seq(items) => items.iter().any(|item| match &item.value {
+            Value::Map(fields) => fields.iter().any(|(key, uses)| {
+                key.name == "uses"
+                    && matches!(&uses.value, Value::Scalar(said, _) if *said == builtin)
+            }),
+            _ => false,
+        }),
+        _ => false,
+    }
 }
 
 /// The attack stage's own fields: `enabled` (`false` is `run: off`), `run`
@@ -1365,9 +1408,30 @@ pub(crate) fn attack_in(fields: &mut Fields) -> Result<Attack, Invalid> {
         None => Attack::default().run,
     };
     let model = model(fields.get("model"))?;
+    let test = match fields.get("test") {
+        Some((node, path)) => Some(text(node, &path, 500)?),
+        None => None,
+    };
+    let sandbox = match fields.get("sandbox") {
+        Some((node, path)) => Some(word(
+            node,
+            &path,
+            SandboxChoice::of,
+            SandboxChoice::ALL,
+            SandboxChoice::word,
+        )?),
+        None => None,
+    };
+    let image = match fields.get("image") {
+        Some((node, path)) => Some(text(node, &path, 200)?),
+        None => None,
+    };
     Ok(Attack {
         run: if enabled { run } else { AttackRun::Off },
         model,
+        test,
+        sandbox,
+        image,
     })
 }
 

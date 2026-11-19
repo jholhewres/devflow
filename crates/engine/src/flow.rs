@@ -265,6 +265,15 @@ pub(crate) fn step_json(config: &Config, step: &Step) -> Json {
                 fields.remove("enabled");
             }
             item["run"] = json!(stages.attack.run);
+            if let Some(test) = &stages.attack.test {
+                item["test"] = json!(test);
+            }
+            if let Some(sandbox) = stages.attack.sandbox {
+                item["sandbox"] = json!(sandbox);
+            }
+            if let Some(image) = &stages.attack.image {
+                item["image"] = json!(image);
+            }
         }
         (None, Some(own)) => {
             if let Some(approve) = own.approve {

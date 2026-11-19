@@ -52,6 +52,25 @@ fn the_attack_stage_reads_in_either_version_with_review_attack_as_its_older_name
     let twice = config::parse("version: 1\nstages:\n  attack: per-item\nreview:\n  attack: off\n")
         .expect_err("said twice, apart");
     assert_eq!(twice.field, "review.attack");
+    let explicit =
+        config::parse("version: 1\nstages:\n  attack: sensitive\nreview:\n  attack: off\n")
+            .expect_err("said twice, apart, even at the default");
+    assert_eq!(explicit.field, "review.attack");
+
+    let sandboxed = parsed(
+        "version: 2\nstages:\n  - uses: builtin/attack\n    run: per-item\n    test: npx jest \"$DEVFLOW_EXPLOIT\"\n    sandbox: docker\n    image: node:22\n",
+    );
+    assert_eq!(
+        sandboxed.stages.attack.sandbox,
+        Some(config::SandboxChoice::Docker)
+    );
+    assert_eq!(sandboxed.stages.attack.image.as_deref(), Some("node:22"));
+    let written = devflow_engine::render::render(&sandboxed);
+    assert_eq!(
+        parsed(&written).stages.attack,
+        sandboxed.stages.attack,
+        "{written}"
+    );
 
     let set = devflow_engine::preset::with_set(&older, "review.attack", &json!("off"))
         .expect("the older name is set where it is in force");
@@ -179,6 +198,7 @@ fn the_attack_keeps_each_hypothesis_and_its_exploits_out_of_the_checkout() {
         redact: &redact,
         personas: devflow_engine::review::Personas::default(),
         retro: false,
+        scratch: None,
     })
     .expect("attacked");
     let report = &done.report;
@@ -326,6 +346,19 @@ fn the_gate_holds_an_item_the_attack_is_due_on_until_it_ran_and_its_holes_are_sh
         "{green:?}"
     );
 
+    let gave_nothing = vec![(
+        config::ATTACK.to_owned(),
+        Some((
+            "20261119T110000Z".to_owned(),
+            json!({ "attackers": [{ "agent": "claude", "reason": "not installed" }], "hypotheses": [] }),
+        )),
+    )];
+    let failed = missing(&gave_nothing, true, None);
+    assert!(
+        failed.iter().any(|said| said.contains("did not run")),
+        "{failed:?}"
+    );
+
     let per_item = parsed("version: 1\nstages:\n  attack: per-item\n");
     let evidence = evidence(true);
     let older = checked(&looked_with(
@@ -341,4 +374,142 @@ fn the_gate_holds_an_item_the_attack_is_due_on_until_it_ran_and_its_holes_are_sh
             .any(|said| said.contains("older than the last change")),
         "{older:?}"
     );
+}
+
+fn git(repo: &std::path::Path, args: &[&str]) {
+    let ok = std::process::Command::new("git")
+        .args(args)
+        .current_dir(repo)
+        .status()
+        .is_ok_and(|status| status.success());
+    assert!(ok, "git {args:?}");
+}
+
+/// The attack in a repository, its answer `hypotheses`, its config `yaml`.
+#[cfg(unix)]
+fn attacked_with(hypotheses: Value, yaml: &str) -> Value {
+    use std::time::{Duration, SystemTime};
+    let dir = tempfile::tempdir().expect("dir");
+    let root = dir.path().canonicalize().expect("root");
+    let checkout = root.join("checkout");
+    std::fs::create_dir_all(checkout.join("src/auth")).expect("checkout");
+    git(&checkout, &["init", "-q"]);
+    git(&checkout, &["config", "user.email", "test@example.invalid"]);
+    git(&checkout, &["config", "user.name", "Test"]);
+    git(&checkout, &["config", "commit.gpgsign", "false"]);
+    std::fs::write(checkout.join("src/auth/session.rs"), "fn a() {}\n").expect("code");
+    git(&checkout, &["add", "-A"]);
+    git(&checkout, &["commit", "-q", "-m", "first"]);
+    let head = devflow_engine::git::head_of(&checkout).expect("head");
+    let bin = root.join("bin");
+    std::fs::create_dir_all(&bin).expect("bin");
+    let claude = fake_claude(&bin, &json!({ "version": 1, "hypotheses": hypotheses }));
+    let reach =
+        move |_: config::Agent| -> Result<String, String> { Ok(claude.display().to_string()) };
+    let redact = |text: &str| text.to_owned();
+    let runs = devflow_engine::runs::Runs {
+        dialect: &Dialect::DEVFLOW,
+        home: root.join("home"),
+        checkout: checkout.clone(),
+    };
+    let config = parsed(yaml);
+    let files = vec![SENSITIVE.to_owned()];
+    let scratch = root.join("trees");
+    let done = attack::attacked(&attack::Given {
+        root: &checkout,
+        runs: &runs,
+        config: &config,
+        card: devflow_engine::evidence::Card {
+            id: "card_1",
+            title: "Sessions",
+            body: "",
+        },
+        git: devflow_engine::review::Git {
+            base: &head,
+            head: &head,
+            files: &files,
+            diff: DIFF,
+        },
+        brief: None,
+        evidence: None,
+        review: None,
+        env: &[],
+        at: SystemTime::UNIX_EPOCH + Duration::from_secs(1_792_000_000),
+        budget: Duration::from_secs(60),
+        reach: &reach,
+        redact: &redact,
+        personas: devflow_engine::review::Personas::default(),
+        retro: false,
+        scratch: Some(&scratch),
+    })
+    .expect("attacked");
+    assert_eq!(
+        std::fs::read_to_string(checkout.join("src/auth/session.rs")).expect("code"),
+        "fn a() {}\n",
+        "the checkout is never written"
+    );
+    done.report
+}
+
+#[cfg(unix)]
+fn two_exploits() -> Value {
+    json!([
+        { "id": "h1", "title": "a forged cookie is accepted", "file": SENSITIVE, "line": 1, "severity": "high",
+          "status": "tried", "reason": "never checked",
+          "exploit": { "path": "tests/forged.sh", "test": "forged-cookie", "code": "echo 'FAIL forged-cookie'; exit 1" } },
+        { "id": "h2", "title": "a replayed cookie is accepted", "file": SENSITIVE, "line": 1, "severity": "high",
+          "status": "tried", "reason": "maybe",
+          "exploit": { "path": "tests/replayed.sh", "test": "replayed-cookie", "code": "exit 0" } },
+    ])
+}
+
+/// Without a sandbox the engine runs nothing: each exploit stays tried for
+/// the session, saying why under `ran`.
+#[cfg(unix)]
+#[test]
+fn without_a_sandbox_each_exploit_waits_for_the_session_saying_why() {
+    let report = attacked_with(
+        two_exploits(),
+        "version: 1\nstages:\n  attack: { run: sensitive, test: 'sh \"$DEVFLOW_EXPLOIT\"', sandbox: off }\n",
+    );
+    for one in report["hypotheses"].as_array().expect("hypotheses") {
+        assert_eq!(one["status"], "tried", "{one}");
+        assert_eq!(one["ran"]["result"], "not_run");
+        assert!(one["ran"]["reason"]
+            .as_str()
+            .expect("why")
+            .contains("the session runs it"));
+    }
+    let untold = attacked_with(two_exploits(), "version: 1\n");
+    assert!(untold["hypotheses"][0]["ran"]["reason"]
+        .as_str()
+        .expect("why")
+        .contains("stages.attack.test"));
+}
+
+/// Where a sandbox is, the engine runs each exploit and the report says
+/// confirmed or refuted with no step of the session. Run where the machine
+/// has one: bwrap with a network namespace, or docker with the image
+/// `DEVFLOW_SANDBOX_IMAGE` names.
+#[cfg(unix)]
+#[test]
+fn in_the_sandbox_each_exploit_comes_back_confirmed_or_refuted() {
+    let image = std::env::var("DEVFLOW_SANDBOX_IMAGE").unwrap_or_default();
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    if let Err(why) =
+        devflow_engine::sandbox::found(config::SandboxChoice::Auto, Some(&image), &path)
+    {
+        eprintln!("not run here: {why}");
+        return;
+    }
+    let yaml = format!(
+        "version: 1\nstages:\n  attack: {{ run: sensitive, test: 'sh \"$DEVFLOW_EXPLOIT\"', image: '{image}' }}\n"
+    );
+    let report = attacked_with(two_exploits(), &yaml);
+    let hypotheses = report["hypotheses"].as_array().expect("hypotheses");
+    assert_eq!(hypotheses[0]["status"], "confirmed", "{:#}", hypotheses[0]);
+    assert_eq!(hypotheses[0]["verified"]["by"], "sandbox");
+    assert_eq!(hypotheses[1]["status"], "refuted", "{:#}", hypotheses[1]);
+    assert_eq!(report["verdict"], "request_changes");
+    assert_eq!(attack::exploits(&report)[0]["test"], "forged-cookie");
 }

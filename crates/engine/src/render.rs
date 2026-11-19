@@ -126,7 +126,8 @@ fn stages_v1(dialect: &Dialect, out: &mut String, config: &Config) {
     plain(out, "review", &stages.review);
     if stages.attack != Attack::default() {
         out.push_str(ATTACK_SAID);
-        let _ = writeln!(out, "  attack:\n    run: {}", stages.attack.run.word());
+        out.push_str("  attack:\n");
+        attack_fields(out, &stages.attack);
         model(out, stages.attack.model.as_deref());
     }
     let _ = writeln!(
@@ -222,7 +223,7 @@ fn stage_fields(dialect: &Dialect, out: &mut String, config: &Config, step: &Ste
         }
         (Some(crate::config::ATTACK), _) => {
             out.push_str(&ATTACK_SAID.replace("  #", "    #"));
-            let _ = writeln!(out, "    run: {}", stages.attack.run.word());
+            attack_fields(out, &stages.attack);
         }
         (None, Some(own)) => {
             if let Some(approve) = own.approve {
@@ -351,6 +352,24 @@ const ATTACK_SAID: &str =
      # finding an exploit test confirmed holds the item. off, sensitive (a\n  \
      # diff past small or on a sensitive path), per-item, or release (asked\n  \
      # by name).\n";
+
+/// The attack stage's own fields but its model, four spaces in.
+fn attack_fields(out: &mut String, attack: &Attack) {
+    let _ = writeln!(out, "    run: {}", attack.run.word());
+    if let Some(test) = &attack.test {
+        let _ = writeln!(out, "    test: {}", scalar(test));
+    }
+    if let Some(sandbox) = attack.sandbox {
+        let _ = writeln!(
+            out,
+            "    sandbox: {}   # auto | bwrap | docker | off",
+            sandbox.word()
+        );
+    }
+    if let Some(image) = &attack.image {
+        let _ = writeln!(out, "    image: {}", scalar(image));
+    }
+}
 
 fn plain(out: &mut String, name: &str, stage: &Stage) {
     let _ = writeln!(out, "  {name}:\n    enabled: {}", stage.enabled);

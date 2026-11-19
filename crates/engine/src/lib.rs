@@ -47,6 +47,7 @@ pub mod render;
 pub mod review;
 pub mod runner;
 pub mod runs;
+pub mod sandbox;
 pub mod scale;
 pub mod security;
 pub mod setup;

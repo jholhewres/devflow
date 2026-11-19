@@ -119,6 +119,18 @@ the same diff. `per-item` pays that on every re-review, so `sensitive` or
 `release` is the usual choice. `devflow status` says what the newest review
 spent by stage and model.
 
+## Where exploits run
+
+With the attack stage, set `stages.attack.test` to the command that runs one
+exploit test (it gets the test's path as `$DEVFLOW_EXPLOIT`), and devflow runs
+each exploit itself in a throwaway worktree of HEAD: in bwrap with a network
+namespace of its own, or in docker with no network and the image
+`stages.attack.image` names. The checkout is read-only there, only the
+throwaway copy is written, and time, CPU and memory are capped. Where neither
+sandbox works (bwrap needs unprivileged user namespaces; docker needs the
+image), or the command is not set, the exploit stays `tried` with the reason,
+and the session runs it.
+
 ## Limits today
 
 - **A headless reader cannot run its own PoCs.** Reviewers, the attack's

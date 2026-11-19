@@ -336,6 +336,23 @@ fn held(path: &str, upper: &Value, merged: &Value) -> Result<(), String> {
     }
 }
 
+/// An attack as a layer says it, a word or a map, as its run and model:
+/// `sensitive` and none when not said.
+fn attack_said(said: Option<&Value>) -> (String, Option<String>) {
+    let word = |value: &Value| value.as_str().map(str::to_owned);
+    match said {
+        Some(Value::String(run)) => (run.clone(), None),
+        Some(fields @ Value::Object(_)) => (
+            fields
+                .get("run")
+                .and_then(word)
+                .unwrap_or_else(|| "sensitive".to_owned()),
+            fields.get("model").and_then(word),
+        ),
+        _ => ("sensitive".to_owned(), None),
+    }
+}
+
 fn locked_in(layer: &Value) -> Vec<String> {
     layer
         .get("locked")
@@ -393,6 +410,22 @@ pub fn layered_in(
         for path in locked_in(layer) {
             held(&path, layer, &merged)
                 .map_err(|why| Invalid::at(None, &path, &format!("locked by {name}: {why}")))?;
+            // The older name would change the attack a layer locked.
+            let attack = path == "stages.attack" || path.starts_with("stages.attack.");
+            let locked = match pick(layer, "stages.attack") {
+                Some(Picked::One(locked)) => attack_said(Some(locked)),
+                _ => attack_said(layer.pointer("/review/attack")),
+            };
+            let renamed = project
+                .pointer("/review/attack")
+                .is_some_and(|said| attack_said(Some(said)) != locked);
+            if attack && renamed {
+                return Err(Invalid::at(
+                    None,
+                    "review.attack",
+                    &format!("locked by {name}: review.attack is the older name of {path}, which the project cannot change"),
+                ));
+            }
         }
     }
     let mut locks: Vec<String> = uppers

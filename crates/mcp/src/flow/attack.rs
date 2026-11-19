@@ -125,6 +125,7 @@ pub fn on_item(
             teams: &teams,
         },
         retro: false,
+        scratch: Some(&project.cache().join("trees")),
     })?;
     signed(project, &item.id, &attack::comment(&done));
     Ok(attack::summary(&done))

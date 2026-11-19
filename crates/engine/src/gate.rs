@@ -597,7 +597,13 @@ fn attacked(looked: &Looked, missing: &mut Vec<String>) {
         None => missing.push(format!(
             "the attack stage has not run on this {item}: run it (devflow-attack), which keeps attack.json"
         )),
-        Some((run, _)) => {
+        Some((run, report)) => {
+            if let Some(why) = crate::attack::failed(report) {
+                missing.push(format!(
+                    "the attack did not run in {run} ({why}): run the attack stage again (devflow-attack), or set stages.attack.run off"
+                ));
+                return;
+            }
             let per_item = looked.config.stages.attack.run == crate::config::AttackRun::PerItem;
             if let Some(changed) = looked.changed.filter(|changed| per_item && after(changed, run)) {
                 missing.push(format!(

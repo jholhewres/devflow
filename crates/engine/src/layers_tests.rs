@@ -355,3 +355,27 @@ fn a_field_this_build_does_not_read_is_left_out_of_the_layers_not_refused() {
     assert!(layered.config.enabled);
     assert_eq!(crate::config::unread(text).len(), 2);
 }
+
+/// `review.attack` is the older name of `stages.attack`: a project cannot
+/// switch off through it the attack its person's or team's layer locked.
+#[test]
+fn the_older_name_cannot_change_a_locked_attack() {
+    let base = tempfile::tempdir().expect("tempdir");
+    let root = base.path().join("project");
+    std::fs::create_dir_all(&root).expect("project");
+    let home = Home::under(&base.path().join("devpit-home"));
+    write(
+        &home.personal,
+        LAYER_FILE,
+        "version: 2\nstages:\n  - uses: builtin/review\n  - uses: builtin/attack\n    run: sensitive\nlocked: [stages.attack]\n",
+    );
+    let off = "version: 2\nreview:\n  attack: off\n";
+    let refused = layered(&root, off, &home).expect_err("the lock holds");
+    assert_eq!(refused.field, "review.attack");
+    assert!(refused.message.contains("older name"), "{refused}");
+    let said = "version: 2\nreview:\n  attack: sensitive\n";
+    assert!(
+        layered(&root, said, &home).is_ok(),
+        "the locked value said again"
+    );
+}
