@@ -1872,3 +1872,15 @@ fn the_newest_review_says_what_it_spent_and_a_link_out_is_not_followed() {
     assert_eq!(said["run"], json!(done.stamp));
     assert_eq!(said["spent"][0]["tokens"]["input"], 100);
 }
+
+/// The persona and the attack's ask said opposite things of an unproven
+/// finding: one rule now, said in both.
+#[test]
+fn the_persona_and_the_attacks_ask_say_one_rule_for_an_unproven_finding() {
+    let persona = crate::Dialect::DEVFLOW
+        .persona("devflow-security")
+        .expect("built in");
+    let said = persona.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(said.contains(UNPROVEN), "the persona says otherwise");
+    assert!(ATTACK_ASK.contains(UNPROVEN), "the ask says otherwise");
+}

@@ -597,6 +597,10 @@ pub fn prompt(persona_text: &str, packet: &str, agent: &str, persona: &str) -> S
     )
 }
 
+/// What both the persona and the attack's ask say of a hypothesis the
+/// attack could not reproduce.
+pub const UNPROVEN: &str = "A hypothesis you could not reproduce stays a finding at its severity, its description starting `unconfirmed:`. It is followed up and holds nothing: only an exploit test the session ran confirms a finding, and only a confirmed one holds the item.";
+
 /// What the attack's reading is asked beyond its persona: to prove, not
 /// to list. Said after the packet, so every reader's prompt still opens the
 /// same way.
@@ -1397,7 +1401,7 @@ fn judged_by_jev(
         if acts(one) && acts(other) {
             duplicate(one) || duplicate(other)
         } else {
-            findings::alike(&all[one], &all[other])
+            findings::same_problem(&all[one], &all[other])
         }
     };
     Ok(findings::grouped(all, &same))
@@ -1452,7 +1456,7 @@ fn without_jev(
     mut consolidated: Consolidated,
 ) -> (Vec<Vec<usize>>, Consolidated) {
     let used = consolidated.used;
-    let alike = |one: usize, other: usize| findings::alike(&all[one], &all[other]);
+    let alike = |one: usize, other: usize| findings::same_problem(&all[one], &all[other]);
     if used != Consolidate::Agent || !findings::any_candidates(all) {
         if used == Consolidate::Agent {
             consolidated.used = Consolidate::Nothing;
@@ -1515,6 +1519,20 @@ fn without_jev(
             (findings::grouped(all, &alike), consolidated)
         }
     }
+}
+
+/// A review's verdict: a retro range is followed up while a persona is
+/// still pending, its verdict not closed on what is not read yet.
+fn verdict_of(
+    list: &[Value],
+    review: &crate::config::Review,
+    retro: bool,
+    pending: &[String],
+) -> &'static str {
+    if retro {
+        return findings::retro_verdict(list, &review.block_on, pending);
+    }
+    findings::verdict_of(list, &review.block_on, review.verify, false)
 }
 
 /// Reviews the card, or adds the session's answers to its review, and
@@ -1623,7 +1641,7 @@ pub fn reviewed(given: &Given) -> Result<Done, String> {
                 "base": record.base,
                 "head": record.head,
                 "reviewers": record.ran.iter().filter(|ran| ran.file.is_some()).map(Ran::to_json).collect::<Vec<_>>(),
-                "verdict": findings::verdict_of(&merged, &given.config.review.block_on, given.config.review.verify, record.retro),
+                "verdict": verdict_of(&merged, &given.config.review, record.retro, &pending),
                 "findings": merged,
                 "done_well": done_well,
                 "verification": verification,
@@ -1710,12 +1728,17 @@ fn verified(given: &Given, stamp: String, path: &Path, record: Record) -> Result
     if !exploits.is_empty() {
         kept["exploits"] = json!(exploits);
     }
-    let review = &given.config.review;
-    kept["verdict"] = json!(findings::verdict_of(
+    let pending: Vec<String> = kept["pending"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|one| one.as_str().map(str::to_owned))
+        .collect();
+    kept["verdict"] = json!(verdict_of(
         &list,
-        &review.block_on,
-        review.verify,
-        record.retro
+        &given.config.review,
+        record.retro,
+        &pending
     ));
     kept["findings"] = json!(list);
     let wrong = findings::problems(&kept);
@@ -1769,7 +1792,7 @@ fn verified(given: &Given, stamp: String, path: &Path, record: Record) -> Result
         diffed: record.diffed,
         touched: record.touched,
         scale: record.scale,
-        verify: review.verify,
+        verify: given.config.review.verify,
         retro: record.retro,
     })
 }

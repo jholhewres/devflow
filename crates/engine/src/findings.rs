@@ -34,7 +34,7 @@ pub const REQUIRED: [&str; 9] = [
 ];
 
 /// Everything a finding may carry: the schema allows nothing else.
-pub const FIELDS: [&str; 23] = [
+pub const FIELDS: [&str; 24] = [
     "file",
     "line",
     "end_line",
@@ -58,10 +58,11 @@ pub const FIELDS: [&str; 23] = [
     "verified",
     "impact",
     "origin",
+    "reviewed",
 ];
 
 /// What devpit sets on a finding, never a reviewer.
-const DEVPITS: [&str; 9] = [
+const DEVPITS: [&str; 10] = [
     "found_by",
     "agreement",
     "false_positive",
@@ -71,6 +72,7 @@ const DEVPITS: [&str; 9] = [
     "anchor",
     "verified",
     "origin",
+    "reviewed",
 ];
 
 /// Where a finding came from when not a reviewer's opinion: the attack's
@@ -98,7 +100,7 @@ pub const ANCHORS: [&str; 5] = [
 /// cannot outgrow without a PoC showing a defect.
 pub const KINDS: [&str; 4] = ["defect", "missing_test", "rule", "style"];
 
-/// What running a critical or high's PoC showed: `not_run` where there was
+/// What running a finding's PoC showed: `not_run` where there was
 /// no environment to run it in.
 pub const RESULTS: [&str; 3] = ["confirmed", "refuted", "not_run"];
 
@@ -482,6 +484,20 @@ fn alike_moved(one: &Value, other: &Value) -> bool {
         && titled_alike(one, other)
 }
 
+/// One problem on its face, with no model asked: [`alike`], or the attack's
+/// reading and a reviewer on the same file, axis and first line, however
+/// each titled it.
+pub fn same_problem(one: &Value, other: &Value) -> bool {
+    alike(one, other)
+        || (candidates(one, other)
+            && attacked(one) != attacked(other)
+            && lines(one).0 == lines(other).0)
+}
+
+fn attacked(finding: &Value) -> bool {
+    text(finding, "origin") == ATTACK
+}
+
 /// The findings as groups of one problem each: a finding joins the first
 /// group whose first finding is a candidate and `same` says is the same.
 pub fn grouped(findings: &[Value], same: &dyn Fn(usize, usize) -> bool) -> Vec<Vec<usize>> {
@@ -575,38 +591,49 @@ pub fn merged(findings: &[Value], groups: &[Vec<usize>], answered: &[Source]) ->
     let mut merged: Vec<Value> = groups
         .iter()
         .filter_map(|group| {
+            // On a tie the reviewer's word is kept: it holds without proof.
             let worst = group
                 .iter()
                 .copied()
-                .min_by_key(|at| rank(&findings[*at]))?;
+                .min_by_key(|at| (rank(&findings[*at]), attacked(&findings[*at])))?;
             let mut kept = findings[worst].clone();
-            // A reviewer's word on the same problem holds without proof.
-            if group
-                .iter()
-                .any(|at| text(&findings[*at], "origin") != ATTACK)
-            {
-                if let Some(fields) = kept.as_object_mut() {
-                    fields.remove("origin");
+            // The attack's severity holds only with proof; a reviewer's word on
+            // the same problem holds at its own.
+            if attacked(&kept) {
+                let word = group
+                    .iter()
+                    .copied()
+                    .filter(|at| !attacked(&findings[*at]))
+                    .min_by_key(|at| rank(&findings[*at]));
+                if let Some(word) = word {
+                    kept["reviewed"] = texts_of(&findings[word], &["severity", "agent", "persona"]);
                 }
             }
-            let mut found_by: Vec<Source> = Vec::new();
+            let mut found_by: Vec<(Source, bool)> = Vec::new();
             for at in group {
                 let source = Source {
                     agent: text(&findings[*at], "agent").to_owned(),
                     persona: text(&findings[*at], "persona").to_owned(),
                 };
-                if !found_by.contains(&source) {
-                    found_by.push(source);
+                let by = (source, attacked(&findings[*at]));
+                if !found_by.contains(&by) {
+                    found_by.push(by);
                 }
             }
             let looked = answered
                 .iter()
-                .filter(|source| found_by.iter().any(|by| by.persona == source.persona))
+                .filter(|source| found_by.iter().any(|(by, _)| by.persona == source.persona))
                 .count()
                 .max(found_by.len());
             kept["found_by"] = json!(found_by
                 .iter()
-                .map(|by| json!({ "agent": by.agent, "persona": by.persona }))
+                .map(|(by, attack)| {
+                    let mut one = json!({ "agent": by.agent, "persona": by.persona });
+                    if *attack {
+                        one["origin"] = json!(ATTACK);
+                    }
+                    one
+                })
                 .collect::<Vec<_>>());
             kept["agreement"] = json!(format!("{} of {looked}", found_by.len()));
             Some(kept)
@@ -646,12 +673,30 @@ pub fn carried(merged: &mut [Value], earlier: &[Value]) {
         }
         if let Some(verified) = before.iter().find_map(|one| one.get("verified")) {
             finding["verified"] = verified.clone();
+            uncapped(finding);
+        }
+    }
+}
+
+/// A confirmed finding back at the severity its reviewer said: a PoC run
+/// showed the defect a ceiling held it short of.
+fn uncapped(finding: &mut Value) {
+    if text(&finding["verified"], "result") != "confirmed" {
+        return;
+    }
+    let Some(from) = finding["capped"]["from"].as_str().map(str::to_owned) else {
+        return;
+    };
+    if severity_of(&from).is_some() {
+        finding["severity"] = json!(from);
+        if let Some(fields) = finding.as_object_mut() {
+            fields.remove("capped");
         }
     }
 }
 
 /// The PoCs the session ran, each kept on the finding at its place in
-/// findings.json's `findings`. Only a critical or high has a PoC to run.
+/// findings.json's `findings`, whatever its severity.
 pub fn verified_on(list: &mut [Value], verified: &[Value]) -> Result<(), String> {
     for (at, one) in verified.iter().enumerate() {
         let place = one["finding"]
@@ -665,14 +710,6 @@ pub fn verified_on(list: &mut [Value], verified: &[Value]) -> Result<(), String>
                 )
             })?;
         let finding = &mut list[place];
-        if text(finding, "origin") != ATTACK
-            && !matches!(text(finding, "severity"), "critical" | "high")
-        {
-            return Err(format!(
-                "finding {place} is {}: only a critical or high has a PoC to verify",
-                text(finding, "severity")
-            ));
-        }
         let mut verified = json!({ "result": one["result"], "evidence": one["evidence"] });
         for key in ["test", "target"] {
             match one.get(key) {
@@ -694,6 +731,7 @@ pub fn verified_on(list: &mut [Value], verified: &[Value]) -> Result<(), String>
             }
         }
         finding["verified"] = verified;
+        uncapped(finding);
     }
     Ok(())
 }
@@ -720,12 +758,13 @@ pub fn exploit_test(finding: &Value) -> Option<&str> {
         .filter(|test| !test.trim().is_empty())
 }
 
-/// The exploits a review confirmed, each as findings.json keeps it after
-/// the finding is fixed: its test, which must stay green.
+/// The exploits a review confirmed, whatever the severity, each as
+/// findings.json keeps it after the finding is fixed: its test, which must
+/// stay green.
 pub fn exploits(findings: &[Value]) -> Vec<Value> {
     findings
         .iter()
-        .filter(|finding| text(finding, "origin") == ATTACK && standing(finding))
+        .filter(|finding| standing(finding))
         .filter_map(|finding| {
             Some(json!({
                 "test": exploit_test(finding)?,
@@ -838,13 +877,27 @@ pub fn blocks(finding: &Value, block_on: &[Severity], verify: Verify) -> bool {
     }
     match text(finding, "origin") {
         ATTACK => {
-            exploit_test(finding).is_some()
-                && severity_of(text(finding, "severity")).is_some_and(|one| block_on.contains(&one))
+            (exploit_test(finding).is_some()
+                && severity_of(text(finding, "severity"))
+                    .is_some_and(|one| block_on.contains(&one)))
+                || reviewers_word(finding).is_some_and(|word| blocks(&word, block_on, verify))
         }
         _ => weighed(finding, verify)
             .0
             .is_some_and(|one| block_on.contains(&one)),
     }
+}
+
+/// The reviewer's word on an attack finding, as a finding of its own.
+fn reviewers_word(finding: &Value) -> Option<Value> {
+    let said = text(&finding["reviewed"], "severity");
+    severity_of(said)?;
+    let mut word = finding.clone();
+    let fields = word.as_object_mut()?;
+    fields.remove("origin");
+    fields.remove("reviewed");
+    fields.insert("severity".into(), json!(said));
+    Some(word)
 }
 
 /// The findings that hold the card.
@@ -998,9 +1051,29 @@ pub fn verdict_of(
     verify: Verify,
     retro: bool,
 ) -> &'static str {
-    match verdict(findings, block_on, verify) {
-        "request_changes" if retro => "follow_up",
-        said => said,
+    if retro {
+        return retro_verdict(findings, block_on, &[]);
+    }
+    verdict(findings, block_on, verify)
+}
+
+/// A retro range's verdict: followed up while anything at `block_on` still
+/// stands as its reviewer said it, proven or not, since no PoC run is owed
+/// on code already deployed; or while a persona is still `pending`.
+pub fn retro_verdict(
+    findings: &[Value],
+    block_on: &[Severity],
+    pending: &[String],
+) -> &'static str {
+    let stands = findings.iter().any(|finding| {
+        standing(finding)
+            && text(&finding["verified"], "result") != "refuted"
+            && severity_of(text(finding, "severity")).is_some_and(|one| block_on.contains(&one))
+    });
+    if stands || !pending.is_empty() {
+        "follow_up"
+    } else {
+        "approve"
     }
 }
 

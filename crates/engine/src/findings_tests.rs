@@ -727,7 +727,7 @@ fn with_verify_off_or_advise_the_verdict_is_todays() {
 }
 
 #[test]
-fn a_poc_run_is_kept_only_on_a_critical_or_high_and_carried_with_it() {
+fn a_poc_run_is_kept_at_any_severity_and_carried_with_it() {
     let mut list = vec![
         finding("a.rs", 1, "high", "x"),
         finding("a.rs", 9, "low", "y"),
@@ -735,9 +735,8 @@ fn a_poc_run_is_kept_only_on_a_critical_or_high_and_carried_with_it() {
     let run = |finding: u64, result: &str| json!({ "finding": finding, "result": result, "evidence": "local" });
     verified_on(&mut list, &[run(0, "confirmed")]).expect("a high");
     assert_eq!(list[0]["verified"]["result"], "confirmed");
-    assert!(verified_on(&mut list, &[run(1, "confirmed")])
-        .expect_err("a low")
-        .contains("only a critical or high"));
+    verified_on(&mut list, &[run(1, "confirmed")]).expect("a low has a PoC too");
+    assert_eq!(list[1]["verified"]["result"], "confirmed");
     assert!(verified_on(&mut list, &[run(2, "confirmed")])
         .expect_err("past the end")
         .contains("from 0 to 1"));
@@ -752,6 +751,153 @@ fn a_poc_run_is_kept_only_on_a_critical_or_high_and_carried_with_it() {
     let mut again = vec![finding("a.rs", 1, "high", "x")];
     carried(&mut again, &list);
     assert_eq!(again[0]["verified"], list[0]["verified"]);
+}
+
+/// A confirmed finding is what a PoC showed: never held to a ceiling, never
+/// counted lower, its exploit kept whatever its severity, and still only
+/// `block_on` decides what holds.
+#[test]
+fn a_confirmed_finding_is_never_lowered_and_only_block_on_holds() {
+    let block_on = [Severity::Critical, Severity::High];
+    let mut searched = finding("a.rs", 4, "high", "SSRF to any stored URL");
+    searched["poc"] = json!("git grep -n fetch src/");
+    let mut list = vec![
+        signed_one(searched),
+        finding("a.rs", 9, "medium", "Body drained past the limit"),
+    ];
+    assert_eq!(list[0]["severity"], "medium", "a search is not a PoC");
+    let run = |finding: u64| json!({ "finding": finding, "result": "confirmed", "evidence": "red in run 2", "test": format!("exploit {finding}") });
+    verified_on(&mut list, &[run(0), run(1)]).expect("confirmed");
+    assert_eq!(
+        list[0]["severity"], "high",
+        "the PoC showed it: {}",
+        list[0]
+    );
+    assert!(list[0].get("capped").is_none());
+    assert_eq!(weighed(&list[0], Verify::Required).0, Some(Severity::High));
+    assert!(blocks(&list[0], &block_on, Verify::Required));
+    assert!(
+        !blocks(&list[1], &block_on, Verify::Required),
+        "a confirmed medium holds nothing"
+    );
+    let kept: Vec<Value> = exploits(&list)
+        .iter()
+        .map(|one| one["test"].clone())
+        .collect();
+    assert_eq!(
+        kept,
+        [json!("exploit 0"), json!("exploit 1")],
+        "every confirmed exploit stays a regression test"
+    );
+}
+
+/// The attack's reading and a reviewer on the same problem stay one
+/// finding that still says the attack found it: the attack's severity holds
+/// only with proof, the reviewer's own word holds at its own severity.
+#[test]
+fn an_attack_finding_merged_with_a_reviewers_keeps_its_origin() {
+    let block_on = [Severity::Critical, Severity::High];
+    let mut attacked = answer(
+        "claude",
+        "devflow-security",
+        vec![finding(
+            "src/fetch.rs",
+            45,
+            "high",
+            "Calendar tool posts to any stored URL",
+        )],
+    );
+    from_attack(&mut attacked);
+    let reviewed = |severity: &str| {
+        answer(
+            "claude",
+            "devflow-security",
+            vec![finding(
+                "src/fetch.rs",
+                45,
+                severity,
+                "Integration posts to any stored URL from inside",
+            )],
+        )
+    };
+    let merge = |reviewer: Value| {
+        let answers = [attacked.clone(), reviewer];
+        let (all, sources) = all_of(&answers);
+        let groups = grouped(&all, &|one, other| same_problem(&all[one], &all[other]));
+        merged(&all, &groups, &sources)
+    };
+    let merged = merge(reviewed("medium"));
+    assert_eq!(merged.len(), 1, "{merged:#?}");
+    let one = &merged[0];
+    assert_eq!(one["origin"], "attack", "{one}");
+    assert_eq!(one["severity"], "high");
+    assert_eq!(one["reviewed"]["severity"], "medium");
+    assert_eq!(one["found_by"][0]["origin"], "attack");
+    assert_eq!(one["agreement"], "2 of 2");
+    assert!(
+        !blocks(one, &block_on, Verify::Off),
+        "an unproven high is not laundered"
+    );
+    assert_eq!(left(&merged).len(), 1, "it is followed up");
+    let mut wrapped = answer("x", "devflow-security", Vec::new());
+    wrapped["findings"] = json!([one]);
+    assert!(problems(&wrapped).is_empty(), "{:?}", problems(&wrapped));
+    let merged = merge(reviewed("high"));
+    assert!(
+        blocks(&merged[0], &block_on, Verify::Off),
+        "the reviewer's high holds without proof"
+    );
+    assert!(left(&merged).is_empty());
+}
+
+/// Two readings of the same line on the same axis, one the attack's, are
+/// one problem however each titled it; two reviewers' are not.
+#[test]
+fn an_attack_and_a_reviewer_on_the_same_line_are_one_problem() {
+    let mut attacked = finding("a.rs", 103, "medium", "Redirect bodies keep downloading");
+    attacked["end_line"] = json!(116);
+    attacked["origin"] = json!("attack");
+    let reviewer = finding("a.rs", 103, "low", "Responses are drained after return");
+    assert!(!alike(&attacked, &reviewer), "the titles share too little");
+    assert!(same_problem(&attacked, &reviewer));
+    assert!(same_problem(&reviewer, &attacked));
+    let other_reviewer = finding("a.rs", 103, "low", "Unbounded timer");
+    assert!(
+        !same_problem(&reviewer, &other_reviewer),
+        "two reviewers need alike titles"
+    );
+    let mut elsewhere = reviewer.clone();
+    elsewhere["line"] = json!(110);
+    assert!(
+        !same_problem(&attacked, &elsewhere),
+        "another line, another title"
+    );
+}
+
+/// A range already in production is followed up while anything at
+/// `block_on` stands, proven or not, or while an axis is still unread.
+#[test]
+fn a_retro_with_an_unverified_high_or_a_pending_persona_is_followed_up() {
+    let block_on = [Severity::Critical, Severity::High];
+    let high = [finding("a.rs", 1, "high", "SSRF")];
+    assert_eq!(
+        verdict_of(&high, &block_on, Verify::Required, true),
+        "follow_up"
+    );
+    let mut attacked = high.clone();
+    attacked[0]["origin"] = json!("attack");
+    assert_eq!(
+        verdict_of(&attacked, &block_on, Verify::Off, true),
+        "follow_up"
+    );
+    let refuted = [ran(high[0].clone(), "refuted")];
+    assert_eq!(
+        verdict_of(&refuted, &block_on, Verify::Required, true),
+        "approve"
+    );
+    let pending = ["devflow-spec".to_owned()];
+    assert_eq!(retro_verdict(&[], &block_on, &pending), "follow_up");
+    assert_eq!(retro_verdict(&[], &block_on, &[]), "approve");
 }
 
 #[test]

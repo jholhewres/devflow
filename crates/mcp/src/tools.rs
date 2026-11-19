@@ -138,7 +138,7 @@ pub static TOOLS: [Tool; 18] = [
                 "evidence": { "type": "string", "description": "Where the PoC ran and what it showed, or why it was not run." },
                 "test": { "type": "string", "description": "The exploit test that shows it, as the runner names it. An attack finding holds the item only once a confirmed run names one, and the test must then stay green." },
                 "target": { "type": "string", "description": "The URL the PoC ran against, when it reached a running instance: one of the targets in force (devflow.yaml's security.targets that the person confirmed), or the call is refused." }
-            }, "required": ["finding", "result", "evidence"] }, "description": "With `run` and without `reports`: the PoC you ran for each critical and high, as review.verify asks, and the exploit test of each attack finding." },
+            }, "required": ["finding", "result", "evidence"] }, "description": "With `run` and without `reports`: each PoC you ran, at any severity: each critical and high as review.verify asks, and the exploit test of each attack finding. Only review.block_on decides what holds." },
             "attack": { "type": "boolean", "description": "With `item`: run the attack's reading on this review as well, by name: how review.attack: release runs, once for a release. Refused while review.attack is off." }
         } }),
         call: review::review,

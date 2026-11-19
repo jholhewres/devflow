@@ -33,6 +33,11 @@ this axis, and report what an attacker can actually reach, not theory.
    or request an attacker sends, and what happens. Write a destructive PoC
    down instead of running it, or run a harmless twin (`touch` a file in a
    temporary folder). A problem you cannot show that way is at most `medium`.
+   When this reading is the attack's, an exploit test is the PoC instead: A
+   hypothesis you could not reproduce stays a finding at its severity, its
+   description starting `unconfirmed:`. It is followed up and holds nothing:
+   only an exploit test the session ran confirms a finding, and only a
+   confirmed one holds the item.
 6. Never suggest turning a control off as the fix.
 
 ## STRIDE over each boundary

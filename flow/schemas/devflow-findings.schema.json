@@ -70,7 +70,8 @@
       "required": ["agent", "persona"],
       "properties": {
         "agent": { "type": "string", "minLength": 1, "description": "The agent CLI that ran the review: claude, codex, cursor, gemini." },
-        "persona": { "type": "string", "minLength": 1, "description": "The reviewer persona: devflow-spec, devflow-standards, devflow-security, devflow-all (every axis in one reading), or a project's own." }
+        "persona": { "type": "string", "minLength": 1, "description": "The reviewer persona: devflow-spec, devflow-standards, devflow-security, devflow-all (every axis in one reading), or a project's own." },
+        "origin": { "enum": ["attack"], "description": "Set by devflow in found_by when this reader was the attack's." }
       }
     },
     "finding": {
@@ -140,6 +141,16 @@
         "origin": {
           "enum": ["attack"],
           "description": "Set by devflow when the attack's reading found it: it holds the item only once an exploit test confirmed it. A static analyser's results are not findings here: they stay in the evidence."
+        },
+        "reviewed": {
+          "type": "object",
+          "required": ["severity"],
+          "properties": {
+            "severity": { "enum": ["critical", "high", "medium", "low", "info"] },
+            "agent": { "type": "string", "minLength": 1 },
+            "persona": { "type": "string", "minLength": 1 }
+          },
+          "description": "Set by devflow on an attack finding a reviewer also reported: the reviewer's own severity, which holds without proof, while the attack's holds only once an exploit test confirmed it."
         },
         "impact": {
           "type": "string",
