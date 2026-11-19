@@ -876,4 +876,7 @@ fn the_months_budget_never_counts_what_it_cannot_read_as_nothing() {
         .expect("link");
     let refused = attack(&capped).expect_err("unreadable");
     assert!(refused.contains("cannot be read"), "{refused}");
+    // A project whose runs' home is not there yet has spent nothing.
+    let fresh = devflow_engine::attack_metrics::read_ledger(&root.join("never"));
+    assert_eq!(fresh.expect("nothing yet").len(), 0);
 }

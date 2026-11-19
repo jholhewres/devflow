@@ -131,3 +131,52 @@ fn the_report_is_written_as_md_json_sarif_and_its_drafts() {
         assert!(!said.contains("fetch('"), "the exploit's code in {file}");
     }
 }
+
+#[test]
+fn tokens_in_urls_headers_and_cookies_are_taken_out_too() {
+    let said = scrub(
+        "GET /api?access_token=abc123xyz&page=2 with X-API-Key: k-123456 and pwd=hunter22, \
+         Cookie: sid=s3cr3tvalue; theme=dark\nnext line stays",
+        &[],
+    );
+    for gone in [
+        "abc123xyz",
+        "k-123456",
+        "hunter22",
+        "s3cr3tvalue",
+        "theme=dark",
+    ] {
+        assert!(!said.contains(gone), "{gone} in: {said}");
+    }
+    for kept in ["page=2", "next line stays", "access_token=<redacted>"] {
+        assert!(said.contains(kept), "{kept} lost: {said}");
+    }
+}
+
+#[test]
+fn an_apostrophe_or_a_shell_line_never_hides_a_payload() {
+    let code = "// don't follow redirects\nit('reads the internal admin', () => get(\"http://10.0.0.5/admin\"))\ncurl -s http://169.254.169.254/latest/ ../../etc/passwd";
+    let found = payloads_in(code);
+    for want in [
+        "http://10.0.0.5/admin",
+        "http://169.254.169.254/latest/",
+        "../../etc/passwd",
+    ] {
+        assert!(found.iter().any(|one| one == want), "{want}: {found:?}");
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn a_report_is_never_written_through_a_link_out_of_its_run() {
+    let dir = tempfile::tempdir().expect("dir");
+    let folder = dir.path().join("run");
+    std::fs::create_dir_all(&folder).expect("run");
+    let outside = dir.path().join("outside.md");
+    std::fs::write(&outside, "kept").expect("outside");
+    std::os::unix::fs::symlink(&outside, folder.join(MARKDOWN)).expect("link");
+    std::os::unix::fs::symlink(dir.path(), folder.join(DRAFTS)).expect("link");
+    assert!(written(&folder, &report()).is_err());
+    assert_eq!(std::fs::read_to_string(&outside).expect("outside"), "kept");
+    assert!(!dir.path().join("h1.md").exists(), "no draft outside");
+}

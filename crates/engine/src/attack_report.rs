@@ -40,23 +40,49 @@ impl Format {
     }
 }
 
-/// The strings an exploit's code quotes: what it sends, kept out of every
-/// text the report is made of.
+/// What an exploit's code sends: its quoted strings, read line by line so
+/// an apostrophe in a comment never shifts the rest, and its unquoted words
+/// that look sent (a URL, an escape, a traversal, markup, a long path).
 pub fn payloads_in(code: &str) -> Vec<String> {
-    let mut found = Vec::new();
-    for quote in ['"', '\'', '`'] {
-        let mut parts = code.split(quote);
-        parts.next();
-        // Every other part is inside the quotes.
-        for (at, part) in parts.enumerate() {
-            if at % 2 == 0 && part.chars().count() >= SHORTEST_PAYLOAD && !part.contains('\n') {
-                found.push(part.to_owned());
+    let mut found: Vec<String> = Vec::new();
+    for line in code.lines() {
+        for quote in ['"', '\'', '`'] {
+            let parts: Vec<&str> = line.split(quote).collect();
+            if parts.len() < 3 {
+                continue;
             }
+            for (at, part) in parts.iter().enumerate() {
+                let inside = at % 2 == 1 && at + 1 < parts.len();
+                if inside && part.chars().count() >= SHORTEST_PAYLOAD {
+                    found.push((*part).to_owned());
+                }
+            }
+        }
+        let words = line.split(|ch: char| {
+            ch.is_whitespace()
+                || matches!(
+                    ch,
+                    '(' | ')' | ',' | ';' | '"' | '\'' | '`' | '[' | ']' | '{' | '}'
+                )
+        });
+        for word in words.filter(|word| word.chars().count() >= 8 && looks_sent(word)) {
+            found.push(word.to_owned());
         }
     }
     found.sort_by_key(|one| std::cmp::Reverse(one.len()));
     found.dedup();
     found
+}
+
+/// An unquoted word that is something sent rather than code.
+fn looks_sent(word: &str) -> bool {
+    word.contains("://")
+        || word.contains('%')
+        || word.contains("..")
+        || word.contains('<')
+        || word.contains("\\x")
+        || (word.starts_with('/') && word.matches('/').count() >= 2)
+        || (word.contains('@') && word.contains(':'))
 }
 
 /// The payloads of every exploit a report's run kept.
@@ -71,24 +97,85 @@ pub fn payloads(folder: &Path, report: &Value) -> Vec<String> {
         .filter_map(|file| crate::fsguard::read_within(file, 64 * 1024).ok().flatten())
         .flat_map(|raw| payloads_in(&String::from_utf8_lossy(&raw)))
         .collect();
+    // A test's own name is not what it sends.
+    let tests: Vec<&str> = report["hypotheses"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|one| one["exploit"]["test"].as_str())
+        .collect();
+    found.retain(|one| !tests.contains(&one.as_str()));
     found.sort_by_key(|one| std::cmp::Reverse(one.len()));
     found.dedup();
     found
 }
 
-/// The names a secret is said under, as `name=value` or `name: value`.
-const SECRET_NAMES: [&str; 10] = [
+/// The names a secret is said under: `name=value`, `name: value`, a query's
+/// `?name=value`, a header's `Name: value`; matched whole or as a name's
+/// last part (`x_api_key`, `access_token`).
+const SECRET_NAMES: [&str; 21] = [
     "password",
     "passwd",
+    "pwd",
+    "pass",
     "secret",
     "token",
     "api_key",
     "apikey",
+    "key",
     "authorization",
-    "bearer",
+    "auth",
     "access_key",
     "private_key",
+    "cookie",
+    "session",
+    "sessionid",
+    "sid",
+    "signature",
+    "sig",
+    "credentials",
+    "jwt",
 ];
+
+/// Whether `name` names a secret.
+fn secret_name(name: &str) -> bool {
+    let name = name
+        .trim_matches(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '_' || ch == '-'))
+        .to_ascii_lowercase()
+        .replace('-', "_");
+    !name.is_empty()
+        && SECRET_NAMES
+            .iter()
+            .any(|one| name == *one || name.ends_with(&format!("_{one}")))
+}
+
+/// A word's `name=value` parts with a secret's name, their values taken
+/// out: `?token=…&page=2` keeps its page.
+fn without_values(word: &str) -> String {
+    let mut out = String::new();
+    let mut rest = word;
+    while !rest.is_empty() {
+        let cut = rest.find(['?', '&', ';']).map_or(rest.len(), |at| at + 1);
+        let (part, after) = rest.split_at(cut);
+        let (body, sep) = match part.char_indices().last() {
+            Some((at, '?' | '&' | ';')) => (&part[..at], &part[at..]),
+            _ => (part, ""),
+        };
+        match body.split_once(['=', ':']) {
+            Some((name, value))
+                if secret_name(name) && !value.is_empty() && !value.starts_with("//") =>
+            {
+                out.push_str(&body[..name.len() + 1]);
+                out.push_str("<redacted>");
+            }
+            _ => out.push_str(body),
+        }
+        out.push_str(sep);
+        rest = after;
+    }
+    out
+}
+
 /// The prefixes a token is known by.
 const TOKEN_PREFIXES: [&str; 8] = [
     "ghp_",
@@ -100,10 +187,6 @@ const TOKEN_PREFIXES: [&str; 8] = [
     "AKIA",
     "AIza",
 ];
-
-fn word_char(ch: char) -> bool {
-    ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '+' | '/' | '=' | '.')
-}
 
 /// A word that is a secret by its shape: a known token's prefix, a JWT, or
 /// a long run of letters and digits mixed (a git commit's hex aside).
@@ -184,47 +267,43 @@ pub fn scrub(text: &str, payloads: &[String]) -> String {
     }
     let mut out = String::with_capacity(text.len());
     let mut hide_next = false;
+    let mut hide_line = false;
     for piece in text.split_inclusive(|ch: char| ch.is_whitespace()) {
         let word = piece.trim_end();
         let gap = &piece[word.len()..];
         let lower = word.to_ascii_lowercase();
         let core = lower.trim_matches(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '_'));
-        let named = SECRET_NAMES.iter().any(|name| lower.contains(name));
-        let value_at = word.find(['=', ':']).filter(|at| {
-            !word[at + 1..]
-                .trim_matches(|ch: char| !word_char(ch))
-                .is_empty()
-        });
-        let said = if hide_next && !word.is_empty() {
+        let said = if (hide_line || hide_next) && !word.is_empty() {
             // `Authorization: Bearer value`: the scheme, then its value.
             hide_next = matches!(core, "bearer" | "basic");
             "<redacted>".to_owned()
-        } else if word.contains("://") {
-            match word.split_once("://") {
-                Some((scheme, rest)) => match rest.split_once('@') {
-                    Some((who, host)) if who.contains(':') => {
-                        format!("{scheme}://<redacted>@{host}")
-                    }
-                    _ => word.to_owned(),
-                },
-                None => word.to_owned(),
-            }
-        } else if let (true, Some(at)) = (named, value_at) {
-            // `password=value`, `token:value`: the value goes.
-            format!("{}<redacted>", &word[..=at])
-        } else if named && (word.ends_with([':', '=']) || SECRET_NAMES.contains(&core))
-            || matches!(core, "bearer" | "basic")
-        {
-            // `password: value`, `Bearer value`: the next word goes.
+        } else if word.ends_with([':', '=']) && secret_name(&word[..word.len() - 1]) {
+            // `X-API-Key: value`, `password= value`: the value is next; a
+            // cookie header's every pair.
+            hide_next = true;
+            hide_line = matches!(core, "cookie" | "set_cookie");
+            word.to_owned()
+        } else if matches!(core, "bearer" | "basic") {
             hide_next = true;
             word.to_owned()
-        } else if email_shaped(word) {
+        } else if email_shaped(word) && !word.contains("://") {
             "<email>".to_owned()
-        } else if secret_shaped(word) {
+        } else if secret_shaped(word) && !word.contains(['?', '=', '&']) && !word.contains("://") {
             "<secret>".to_owned()
         } else {
-            word.to_owned()
+            let mut said = without_values(word);
+            if let Some((scheme, rest)) = said.clone().split_once("://") {
+                if let Some((who, host)) = rest.split_once('@') {
+                    if who.contains(':') && !who.contains('/') {
+                        said = format!("{scheme}://<redacted>@{host}");
+                    }
+                }
+            }
+            said
         };
+        if gap.contains('\n') {
+            hide_line = false;
+        }
         out.push_str(&said);
         out.push_str(gap);
     }
@@ -300,7 +379,7 @@ pub fn markdown(report: &Value, payloads: &[String]) -> String {
             text(&one, "severity"),
             text(&one, "file"),
             one["line"],
-            text(&one, "title").replace('|', "\\|"),
+            text(&one, "title").replace('|', "\\|").replace('\n', " "),
             text(&one, "reason").replace('|', "\\|").replace('\n', " "),
         ));
     }
@@ -386,12 +465,7 @@ fn or_unsaid(said: &str) -> &str {
 pub fn written(folder: &Path, report: &Value) -> Result<Vec<String>, String> {
     let payloads = payloads(folder, report);
     let put = |file: &str, text: &str| -> Result<String, String> {
-        let at = folder.join(file);
-        if let Some(parent) = at.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|err| format!("{}: {err}", parent.display()))?;
-        }
-        std::fs::write(&at, text).map_err(|err| format!("{}: {err}", at.display()))?;
+        crate::attack::put(folder, file, text)?;
         Ok(file.to_owned())
     };
     let pretty = |value: &Value| serde_json::to_string_pretty(value).unwrap_or_default() + "\n";

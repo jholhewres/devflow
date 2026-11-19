@@ -82,6 +82,10 @@ fn at_home(home: &Path) -> Option<PathBuf> {
 /// left uncounted for its size. One that is there and cannot be read is an
 /// error, never "nothing spent".
 pub fn read_ledger(home: &Path) -> Result<Vec<Value>, String> {
+    // A project's first attack: nothing ran, so nothing was spent.
+    if std::fs::symlink_metadata(home).is_err() {
+        return Ok(Vec::new());
+    }
     let at = at_home(home).ok_or_else(|| format!("{LEDGER} leads out of {}", home.display()))?;
     let mut file = match std::fs::File::open(&at) {
         Ok(file) => file,

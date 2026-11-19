@@ -550,9 +550,29 @@ pub fn verified_on(report: &mut Value, verified: &[Value]) -> Result<(), String>
 }
 
 fn write(folder: &Path, file: &str, text: &str) -> Result<(), String> {
-    let at = folder.join(file);
-    if let Some(parent) = at.parent() {
-        std::fs::create_dir_all(parent).map_err(|err| format!("{}: {err}", parent.display()))?;
+    put(folder, file, text)
+}
+
+/// Writes `file` inside a run's `folder`, never through a link out of it:
+/// each folder on the way and the file itself are checked first.
+pub(crate) fn put(folder: &Path, file: &str, text: &str) -> Result<(), String> {
+    let out = || format!("{file} leads out of {}", folder.display());
+    let mut made = std::path::PathBuf::new();
+    for part in Path::new(file)
+        .parent()
+        .into_iter()
+        .flat_map(Path::components)
+    {
+        made.push(part);
+        let at =
+            crate::fsguard::resolve_new(folder, &made.display().to_string()).map_err(|_| out())?;
+        if !at.exists() {
+            std::fs::create_dir(&at).map_err(|err| format!("{}: {err}", at.display()))?;
+        }
+    }
+    let at = crate::fsguard::resolve_new(folder, file).map_err(|_| out())?;
+    if std::fs::symlink_metadata(&at).is_ok_and(|meta| meta.is_symlink()) {
+        return Err(out());
     }
     std::fs::write(&at, text).map_err(|err| format!("{}: {err}", at.display()))
 }
