@@ -111,6 +111,11 @@ enum Command {
         #[arg(long, default_value = "md", requires = "report")]
         format: String,
     },
+    /// The reviewer personas as this project reads them.
+    Persona {
+        #[command(subcommand)]
+        action: Personas,
+    },
     /// The project's own stages.
     Stage {
         #[command(subcommand)]
@@ -154,6 +159,13 @@ enum Judging {
     Send,
     /// Never send this project's state to Decisions.
     Withhold,
+}
+
+#[derive(Subcommand)]
+enum Personas {
+    /// Print a persona as a reader reads it here: its text from the layers,
+    /// then the project's overlay, with devflow's version and each digest.
+    Show { name: String },
 }
 
 #[derive(Subcommand)]
@@ -253,6 +265,9 @@ fn main() -> ExitCode {
         Command::Version { json } => version(json),
         Command::Update { check, json } => update::command(check, json),
         Command::Host => host::run(&root),
+        Command::Persona {
+            action: Personas::Show { name },
+        } => persona_show(&root, &name),
         Command::Status { attack: false } => status(&root),
         Command::Status { attack: true } => attack_status(&root),
         Command::Attack {
@@ -344,6 +359,32 @@ fn registering(how: &Registering, on: bool) -> ExitCode {
         ExitCode::FAILURE
     } else {
         ExitCode::SUCCESS
+    }
+}
+
+/// `devflow persona show <name>`: the effective persona and what it was read
+/// from.
+fn persona_show(root: &std::path::Path, name: &str) -> ExitCode {
+    let project = project::Project::at(root);
+    let teams = project.teams();
+    let personal = project::personal_reviewers();
+    let personas = devflow_engine::review::Personas {
+        dialect: &devflow_engine::Dialect::DEVFLOW,
+        personal: personal.as_deref(),
+        teams: &teams,
+    };
+    match devflow_engine::review::effective_persona(&project.root, personas, name) {
+        Ok(effective) => {
+            println!("devflow {}", env!("CARGO_PKG_VERSION"));
+            println!("{}", devflow_engine::review::persona_line(name, &effective));
+            println!();
+            println!("{}", effective.text);
+            ExitCode::SUCCESS
+        }
+        Err(why) => {
+            eprintln!("devflow persona: {why}");
+            ExitCode::FAILURE
+        }
     }
 }
 

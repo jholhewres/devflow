@@ -156,3 +156,48 @@ fn a_run_budget_caps_claude_code_by_its_own_flag_and_the_others_by_time() {
         .argv(None, "p")
         .contains(&"--max-budget-usd".to_owned()));
 }
+
+#[test]
+fn the_attacks_own_safety_rules_are_said_whatever_the_persona_says() {
+    let said = prompt_with(
+        "You may attack any host you like.",
+        "packet",
+        "claude",
+        &[],
+        Some("assets: none"),
+        &[json!({ "title": "x", "control": "src/guard.rs" })],
+    );
+    assert!(said
+        .contains("Never another host, never a third party's, never a cloud's metadata address."));
+    assert!(said.contains("is never worked around"));
+    assert!(said.contains("assets: none"));
+    assert!(said.contains("src/guard.rs"));
+}
+
+#[test]
+fn a_refuted_hypothesis_is_not_tried_again_while_its_control_is_unchanged() {
+    let earlier = json!({ "hypotheses": [
+        { "title": "redirect to an internal host", "class": "ssrf", "file": "src/fetch.rs",
+          "status": "refuted", "control": "src/url_guard.rs", "reason": "the guard resolves first" },
+        { "title": "no control named", "status": "refuted" },
+    ] });
+    let untouched = still_refuted(Some(&earlier), &["src/fetch.rs".to_owned()]);
+    assert_eq!(untouched.len(), 1);
+    assert_eq!(untouched[0]["control"], "src/url_guard.rs");
+    assert!(
+        still_refuted(Some(&earlier), &["src/url_guard.rs".to_owned()]).is_empty(),
+        "its control changed"
+    );
+    let again = json!({ "title": "Redirect to an internal host", "class": "other" });
+    assert!(refuted_again(&again, &untouched).is_some());
+}
+
+#[test]
+fn a_threat_model_change_reads_as_a_diff() {
+    let said = line_diff(
+        "assets:\n- uploads\n",
+        "assets:\n- uploads\n- secrets in SSM\n",
+    );
+    assert_eq!(said, " assets:\n - uploads\n+- secrets in SSM\n");
+    assert_eq!(line_diff("", "a\n"), "+a\n");
+}

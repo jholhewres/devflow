@@ -185,6 +185,38 @@ fn an_item_on_a_sensitive_path_is_held_until_its_attack_ran_and_its_hole_is_shut
             ["uri"],
         "src/auth/session.rs"
     );
+    std::fs::create_dir_all(root.join(".devflow/reviewers")).unwrap();
+    std::fs::write(
+        root.join(".devflow/reviewers/devflow-security.overlay.md"),
+        "Sessions are the asset.",
+    )
+    .unwrap();
+    let shown = Command::new(env!("CARGO_BIN_EXE_devflow"))
+        .args([
+            "--root",
+            &root.display().to_string(),
+            "persona",
+            "show",
+            "devflow-security",
+        ])
+        .env("HOME", home.path())
+        .env("XDG_CONFIG_HOME", home.path().join("config"))
+        .env("DEVFLOW_NO_UPDATE", "1")
+        .output()
+        .unwrap();
+    let shown = String::from_utf8_lossy(&shown.stdout);
+    assert!(
+        shown.starts_with(&format!("devflow {}", env!("CARGO_PKG_VERSION"))),
+        "{shown}"
+    );
+    assert!(
+        shown.contains("devflow-security.overlay.md (sha256:"),
+        "{shown}"
+    );
+    assert!(
+        shown.trim_end().ends_with("Sessions are the asset."),
+        "{shown}"
+    );
     let numbers = Command::new(env!("CARGO_BIN_EXE_devflow"))
         .args(["--root", &root.display().to_string(), "status", "--attack"])
         .env("HOME", home.path())

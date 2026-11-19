@@ -880,3 +880,95 @@ fn the_months_budget_never_counts_what_it_cannot_read_as_nothing() {
     let fresh = devflow_engine::attack_metrics::read_ledger(&root.join("never"));
     assert_eq!(fresh.expect("nothing yet").len(), 0);
 }
+
+/// The attack reads the project's threat model and its overlay, proposes the
+/// threat model's update as a diff, and does not run again what it refuted
+/// before while that control is unchanged.
+#[cfg(unix)]
+#[test]
+fn the_attack_reads_the_threat_model_and_keeps_what_it_refuted_refuted() {
+    use std::time::{Duration, SystemTime};
+    let dir = tempfile::tempdir().expect("dir");
+    let root = dir.path().canonicalize().expect("root");
+    let checkout = root.join("checkout");
+    let folder = checkout.join(devflow_engine::folder::DIR);
+    std::fs::create_dir_all(folder.join("reviewers")).expect("folder");
+    std::fs::write(folder.join("threat-model.md"), "assets:\n- uploads\n").expect("threat model");
+    std::fs::write(
+        folder.join("reviewers/devflow-security.overlay.md"),
+        "Uploads are customers' files.",
+    )
+    .expect("overlay");
+    let runs = devflow_engine::runs::Runs {
+        dialect: &Dialect::DEVFLOW,
+        home: root.join("home"),
+        checkout: checkout.clone(),
+    };
+    let before = runs
+        .fresh(
+            "card_1",
+            SystemTime::UNIX_EPOCH + Duration::from_secs(1_791_000_000),
+        )
+        .expect("earlier run");
+    std::fs::write(
+        before.join(attack::REPORT),
+        json!({ "hypotheses": [{ "title": "redirect to an internal host", "class": "ssrf",
+            "file": SENSITIVE, "status": "refuted", "control": "src/url_guard.rs", "reason": "guarded" }] })
+        .to_string(),
+    )
+    .expect("earlier report");
+    let bin = root.join("bin");
+    std::fs::create_dir_all(&bin).expect("bin");
+    let claude = fake_claude(
+        &bin,
+        &json!({ "version": 1, "threat_model": "assets:\n- uploads\n- session keys\n", "hypotheses": [
+            { "id": "h1", "title": "redirect to an internal host", "class": "ssrf", "file": SENSITIVE, "line": 1,
+              "severity": "high", "status": "tried", "reason": "again",
+              "exploit": { "path": "tests/r.sh", "test": "r", "code": "exit 1" } },
+        ] }),
+    );
+    let reach =
+        move |_: config::Agent| -> Result<String, String> { Ok(claude.display().to_string()) };
+    let redact = |text: &str| text.to_owned();
+    let files = vec![SENSITIVE.to_owned()];
+    let done = attack::attacked(&attack::Given {
+        root: &checkout,
+        runs: &runs,
+        config: &Config::default(),
+        card: devflow_engine::evidence::Card {
+            id: "card_1",
+            title: "Sessions",
+            body: "",
+        },
+        git: devflow_engine::review::Git {
+            base: "b4se",
+            head: "he4d",
+            files: &files,
+            diff: DIFF,
+        },
+        brief: None,
+        evidence: None,
+        review: None,
+        env: &[],
+        at: SystemTime::UNIX_EPOCH + Duration::from_secs(1_792_000_000),
+        budget: Duration::from_secs(60),
+        reach: &reach,
+        redact: &redact,
+        personas: devflow_engine::review::Personas::default(),
+        retro: false,
+        scratch: None,
+    })
+    .expect("attacked");
+    let one = &done.report["hypotheses"][0];
+    assert_eq!(one["status"], "refuted", "not tried again: {one:#}");
+    assert!(one.get("exploit").is_none());
+    let threat = &done.report["threat_model"];
+    assert_eq!(threat["diff"], " assets:\n - uploads\n+- session keys\n");
+    let run = std::path::Path::new(&done.folder);
+    assert!(run.join("threat-model.proposed.md").is_file());
+    let context = std::fs::read_to_string(run.join(attack::PACKET)).expect("context");
+    assert!(
+        context.contains("## Personas") && context.contains("devflow-security.overlay.md"),
+        "{context}"
+    );
+}

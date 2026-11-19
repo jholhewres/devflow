@@ -42,6 +42,16 @@ it headless on the first reviewer's CLI (`stages.attack.model`, `large`
 unless said), and keeps `attack.json` in a new run with the exploits beside
 it. The answer names the run, the counts and the `tried` hypotheses.
 
+The attacker also reads the project's threat model, `threat-model.md` in
+devflow's folder, and its overlay on the security persona,
+`reviewers/devflow-security.overlay.md`: the project's assets and boundaries,
+added after the persona's rules and never taking one away (`devflow persona
+show devflow-security` prints what it reads). Its update to the threat model
+comes back as a diff in the report, with the whole text beside it as
+`threat-model.proposed.md`, for the person to take or leave. A hypothesis an
+earlier attack refuted is not tried again while the file of the control that
+refuted it is unchanged.
+
 Done when the answer names the run and its counts.
 
 ### 2. Run each tried exploit

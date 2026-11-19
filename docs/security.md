@@ -121,6 +121,17 @@ spent by stage and model. With the attack stage, `stages.attack.budget`
 (`run_usd`, `month_usd`) caps it, and `devflow status --attack` adds up what
 its runs cost and confirmed.
 
+## What the attack knows of your project
+
+With the attack stage, a project gives the attack its own context in two
+files of devflow's folder. `threat-model.md` lists the assets, the untrusted
+inputs, the trust boundaries and their controls; each attack reads it and
+proposes its update as a diff, which you take or leave.
+`reviewers/devflow-security.overlay.md` adds the project's context to the
+security persona: it comes after the persona's rules and cannot remove one.
+`devflow persona show devflow-security` prints what a reader reads, and each
+run's context names the persona and the overlay by their digests.
+
 ## Where exploits run
 
 With the attack stage, set `stages.attack.test` to the command that runs one
