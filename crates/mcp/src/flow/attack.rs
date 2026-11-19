@@ -18,6 +18,21 @@ use crate::server::Server;
 /// How long the attacker may take.
 pub const BUDGET: Duration = Duration::from_secs(40 * 60);
 
+/// The answer with the report written beside it as md, JSON and SARIF and
+/// its issue drafts, each named by its path.
+fn with_files(folder: &std::path::Path, report: &Value, mut answer: Value) -> Value {
+    match devflow_engine::attack_report::written(folder, report) {
+        Ok(files) => {
+            answer["files"] = json!(files
+                .iter()
+                .map(|file| folder.join(file).display().to_string())
+                .collect::<Vec<_>>());
+        }
+        Err(why) => answer["files_error"] = json!(why),
+    }
+    answer
+}
+
 pub fn attack(server: &Server, params: Value) -> Result<Value, String> {
     let project = server.project();
     let state = project.read();
@@ -82,7 +97,7 @@ pub fn on_item(
             report,
         };
         signed(project, &item.id, &attack::comment(&done));
-        let mut answer = attack::summary(&done);
+        let mut answer = with_files(&folder, &done.report, attack::summary(&done));
         answer["proofs"] = json!(done.report["hypotheses"]
             .as_array()
             .into_iter()
@@ -111,7 +126,7 @@ pub fn on_item(
             report,
         };
         signed(project, &item.id, &attack::comment(&done));
-        return Ok(attack::summary(&done));
+        return Ok(with_files(&folder, &done.report, attack::summary(&done)));
     }
     if !verified.is_empty() {
         return Err("`verified` goes with the attack's `run`".to_owned());
@@ -168,7 +183,8 @@ pub fn on_item(
         scratch: Some(&project.cache().join("trees")),
     })?;
     signed(project, &item.id, &attack::comment(&done));
-    Ok(attack::summary(&done))
+    let folder = std::path::PathBuf::from(&done.folder);
+    Ok(with_files(&folder, &done.report, attack::summary(&done)))
 }
 
 /// The attack asked with a review by name (`attack: true`), on the item it

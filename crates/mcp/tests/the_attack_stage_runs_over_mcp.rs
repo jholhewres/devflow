@@ -101,6 +101,14 @@ fn an_item_on_a_sensitive_path_is_held_until_its_attack_ran_and_its_hole_is_shut
     assert_eq!(attacked["counts"]["tried"], 1, "{attacked}");
     let report = root.join(format!(".devflow/runs/{item}/{run}/attack.json"));
     assert!(report.is_file(), "{}", report.display());
+    let files = attacked["files"].to_string();
+    for file in [
+        "attack-report.md",
+        "attack-report.json",
+        "attack-report.sarif",
+    ] {
+        assert!(files.contains(file), "{file} named: {files}");
+    }
     assert!(
         !root.join("tests/session.exploit.sh").exists(),
         "never the checkout"
@@ -153,6 +161,30 @@ fn an_item_on_a_sensitive_path_is_held_until_its_attack_ran_and_its_hole_is_shut
     );
     let answer: serde_json::Value = serde_json::from_slice(&said.stdout).unwrap();
     assert_eq!(answer["counts"]["tried"], 1, "{answer}");
+    let sarif = Command::new(env!("CARGO_BIN_EXE_devflow"))
+        .args([
+            "--root",
+            &root.display().to_string(),
+            "attack",
+            &item,
+            "--report",
+            &run,
+            "--format",
+            "sarif",
+        ])
+        .env("HOME", home.path())
+        .env("XDG_CONFIG_HOME", home.path().join("config"))
+        .env("XDG_CACHE_HOME", home.path().join("cache"))
+        .env("DEVFLOW_NO_UPDATE", "1")
+        .output()
+        .unwrap();
+    let sarif: serde_json::Value = serde_json::from_slice(&sarif.stdout).unwrap();
+    assert_eq!(sarif["version"], "2.1.0", "{sarif}");
+    assert_eq!(
+        sarif["runs"][0]["results"][0]["locations"][0]["physicalLocation"]["artifactLocation"]
+            ["uri"],
+        "src/auth/session.rs"
+    );
     let numbers = Command::new(env!("CARGO_BIN_EXE_devflow"))
         .args(["--root", &root.display().to_string(), "status", "--attack"])
         .env("HOME", home.path())

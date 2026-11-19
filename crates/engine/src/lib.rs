@@ -13,6 +13,7 @@ pub mod adhoc;
 pub mod agents;
 pub mod attack;
 pub mod attack_metrics;
+pub mod attack_report;
 pub mod autopilot;
 pub mod available;
 pub mod brief;

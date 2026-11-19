@@ -47,7 +47,7 @@ This reading attacks the change: it does not list risks, it proves them.\n\
 4. A hypothesis you could not reproduce stays at its severity and holds nothing: only an exploit test that was run confirms a hypothesis.\n\
 Read only: change no file of the checkout.\n\n\
 Your whole reply is one JSON object, with no prose around it:\n\
-{ \"version\": 1, \"hypotheses\": [ { \"id\": \"h1\", \"title\": \"<the hole, one line>\", \"class\": \"<ssrf, injection, traversal, redos, authz, secrets, prompt-injection or another word>\", \"file\": \"<path at HEAD>\", \"line\": 1, \"severity\": \"critical|high|medium|low|info\", \"status\": \"tried|refuted|not_run\", \"reason\": \"<what the exploit shows, or why refuted or not run>\", \"from\": \"<the review finding's id when it started from one>\", \"exploit\": { \"path\": \"<where the test belongs in the repository>\", \"test\": \"<the test's name, as the runner names it>\", \"code\": \"<the whole test file>\" } } ] }\n\
+{ \"version\": 1, \"hypotheses\": [ { \"id\": \"h1\", \"title\": \"<the hole, one line>\", \"class\": \"<ssrf, injection, traversal, redos, authz, secrets, prompt-injection or another word>\", \"file\": \"<path at HEAD>\", \"line\": 1, \"severity\": \"critical|high|medium|low|info\", \"status\": \"tried|refuted|not_run\", \"reason\": \"<what the exploit shows, or why refuted or not run>\", \"impact\": \"<what an attacker gets, without the payload>\", \"fix\": \"<the change that shuts it>\", \"from\": \"<the review finding's id when it started from one>\", \"exploit\": { \"path\": \"<where the test belongs in the repository>\", \"test\": \"<the test's name, as the runner names it>\", \"code\": \"<the whole test file>\" } } ] }\n\
 `exploit` is required for `tried` and left out otherwise.\n";
 
 /// What the attack is given.
@@ -224,6 +224,7 @@ fn hypothesis(one: &Value, at: usize) -> Result<Value, String> {
     };
     let mut kept = json!({
         "id": id, "title": title, "class": text(one, "class"), "file": text(one, "file"),
+        "impact": text(one, "impact"), "fix": text(one, "fix"),
         "line": one.get("line").and_then(Value::as_u64).unwrap_or(1).max(1),
         "severity": severity, "status": status, "reason": reason,
     });

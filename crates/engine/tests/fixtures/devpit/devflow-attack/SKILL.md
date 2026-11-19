@@ -95,6 +95,13 @@ each one the sandbox confirmed is proven.
 
 ### 4. Hand back, then stop
 
+Each answer names the report written beside the run: `attack-report.md`,
+`attack-report.json`, `attack-report.sarif`, and one issue draft per
+confirmed hypothesis under `drafts/`. Secrets, tokens, e-mail addresses,
+phone numbers and every string the exploits send are taken out of them, and
+no exploit's code is in them. devflow publishes none of it: where a draft
+goes (a tracker, a report, nowhere) is the person's to say.
+
 Reply with the verdict, each confirmed hypothesis with its test, and what is
 followed up. The next stage is the completion (`devflow-completion`). End the
 turn.

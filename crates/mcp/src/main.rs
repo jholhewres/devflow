@@ -103,6 +103,13 @@ enum Command {
         /// commit each was confirmed on, green at HEAD.
         #[arg(long, value_name = "RUN")]
         prove: Option<String>,
+        /// Print this attack run's report, written beside it with its issue
+        /// drafts, instead of attacking.
+        #[arg(long, value_name = "RUN", conflicts_with = "prove")]
+        report: Option<String>,
+        /// The report's format: md, json or sarif.
+        #[arg(long, default_value = "md", requires = "report")]
+        format: String,
     },
     /// The project's own stages.
     Stage {
@@ -169,6 +176,41 @@ struct Registering {
     bin: Option<PathBuf>,
 }
 
+/// `devflow attack <item> --report <run>`: the run's report in `format`,
+/// written beside it with its drafts, and printed.
+fn reporting(root: &std::path::Path, item: &str, run: &str, format: &str) -> ExitCode {
+    use devflow_engine::attack_report::{self, Format};
+    let Some(format) = Format::of(format) else {
+        eprintln!("devflow attack: --format is md, json or sarif");
+        return ExitCode::FAILURE;
+    };
+    let project = project::Project::at(root);
+    let runs = project.runs();
+    let Some(at) = runs.found(item, Some(run), devflow_engine::attack::REPORT) else {
+        eprintln!("devflow attack: run {run} of {item} has no attack report");
+        return ExitCode::FAILURE;
+    };
+    let Some(report) = flow::json_at(&at) else {
+        eprintln!("devflow attack: {} does not read", at.display());
+        return ExitCode::FAILURE;
+    };
+    let folder = at.parent().unwrap_or(&at);
+    if let Err(why) = attack_report::written(folder, &report) {
+        eprintln!("devflow attack: {why}");
+        return ExitCode::FAILURE;
+    }
+    let payloads = attack_report::payloads(folder, &report);
+    let said = match format {
+        Format::Markdown => attack_report::markdown(&report, &payloads),
+        Format::Json => serde_json::to_string_pretty(&attack_report::json_of(&report, &payloads))
+            .unwrap_or_default(),
+        Format::Sarif => serde_json::to_string_pretty(&attack_report::sarif(&report, &payloads))
+            .unwrap_or_default(),
+    };
+    println!("{said}");
+    ExitCode::SUCCESS
+}
+
 /// `devflow attack`: the attack tool's answer, printed as JSON.
 fn attacking(
     root: &std::path::Path,
@@ -213,9 +255,15 @@ fn main() -> ExitCode {
         Command::Host => host::run(&root),
         Command::Status { attack: false } => status(&root),
         Command::Status { attack: true } => attack_status(&root),
-        Command::Attack { item, base, prove } => {
-            attacking(&root, &item, base.as_deref(), prove.as_deref())
-        }
+        Command::Attack {
+            item,
+            report: Some(run),
+            format,
+            ..
+        } => reporting(&root, &item, &run, &format),
+        Command::Attack {
+            item, base, prove, ..
+        } => attacking(&root, &item, base.as_deref(), prove.as_deref()),
         Command::Setup(how) => setup_cli::run(&root, &how),
         Command::Doctor => doctor::run(&root),
         Command::Register(how) => registering(&how, true),
