@@ -1,7 +1,7 @@
 //! `devflow doctor`: what this machine and this project need for devflow,
 //! each said ok or not with what to do.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use devflow_engine::folder::State;
@@ -11,7 +11,7 @@ use crate::consent::Consent;
 use crate::credentials;
 use crate::decisions::settings::Settings;
 use crate::project::Project;
-use crate::register::{self, Machine};
+use crate::register::{self, Machine, UserServer};
 
 /// One finding: whether it is fine, and what it says.
 pub struct Said {
@@ -45,8 +45,16 @@ fn maybe(what: impl Into<String>) -> Said {
     }
 }
 
-/// Every finding, in the order a person fixes them.
-pub fn findings(root: &Path, machine: &Machine, consent: &Consent, bin: &str) -> Vec<Said> {
+/// Every finding, in the order a person fixes them. `session` is the command
+/// line of each process this one runs under, nearest first: a Claude Code
+/// session's among them says which plugins it loads.
+pub fn findings(
+    root: &Path,
+    machine: &Machine,
+    consent: &Consent,
+    bin: &str,
+    session: &[Vec<String>],
+) -> Vec<Said> {
     let mut said = Vec::new();
     match register::on_path(register::NAME) {
         Some(found) => said.push(ok(format!("devflow is on PATH at {}", found.display()))),
@@ -76,16 +84,50 @@ pub fn findings(root: &Path, machine: &Machine, consent: &Consent, bin: &str) ->
         .collect();
     // One tool is enough; the others are the person's to want.
     let any = registered.iter().any(|(_, yes)| *yes);
+    let server = register::user_server(&machine.claude);
     for (tool, yes) in registered {
-        let what = format!(
-            "{}: devflow is not registered: `devflow register --tools={}`",
-            tool.id(),
-            tool.id()
-        );
+        let what = match (tool, &server) {
+            (register::Tool::Claude, UserServer::Missing) => format!(
+                "claude: devflow's server is not in your user config, so a session has it only \
+                 through the devflow plugin, and one that loads another plugin named devflow \
+                 (`claude --plugin-dir`, as devpit starts its sessions) has no devflow tools: \
+                 `{CLAUDE_FIX}` puts it there, and the plugin's copy steps aside"
+            ),
+            (register::Tool::Claude, UserServer::Other(runs)) => format!(
+                "claude: your user config's devflow server runs `{runs}`, not `devflow mcp`, so \
+                 Claude Code keeps it beside the plugin's and each devflow tool shows twice: \
+                 `{CLAUDE_FIX}` sets it to `devflow mcp`"
+            ),
+            _ => format!(
+                "{}: devflow is not registered: `devflow register --tools={}`",
+                tool.id(),
+                tool.id()
+            ),
+        };
         said.push(match (yes, any) {
+            (true, _) if tool == register::Tool::Claude => ok(
+                "claude: devflow is registered, its server in your user config, so every \
+                 session has it",
+            ),
             (true, _) => ok(format!("{}: devflow is registered", tool.id())),
             (false, true) => maybe(what),
             (false, false) => bad(what),
+        });
+    }
+    if let Some(plugin) = shadowing(session) {
+        said.push(match server {
+            UserServer::Same => ok(format!(
+                "this Claude Code session loads {}, another plugin named devflow, which hides \
+                 the devflow plugin; devflow's server reaches it from your user config (a \
+                 session started before it was put there needs starting again)",
+                plugin.display()
+            )),
+            _ => bad(format!(
+                "this Claude Code session loads {}, another plugin named devflow, which hides \
+                 the devflow plugin: no devflow server here, so no `attack` and no \
+                 devflow-attack skill: `{CLAUDE_FIX}`, then start the session again",
+                plugin.display()
+            )),
         });
     }
     let path = std::env::var_os("PATH").unwrap_or_default();
@@ -114,6 +156,123 @@ pub fn findings(root: &Path, machine: &Machine, consent: &Consent, bin: &str) ->
     said.extend(project(root, consent));
     said.extend(decisions());
     said
+}
+
+/// The one command that puts devflow's server where every Claude Code
+/// session finds it.
+pub const CLAUDE_FIX: &str = "devflow register --tools=claude";
+
+/// The plugin a Claude Code session in `session` loads with `--plugin-dir`
+/// that is named devflow but serves no devflow MCP server: it hides the
+/// devflow plugin, whose server and skills the session then lacks. A
+/// checkout of devflow loaded that way serves its server, and hides nothing.
+pub fn shadowing(session: &[Vec<String>]) -> Option<PathBuf> {
+    session
+        .iter()
+        .flat_map(|argv| plugin_dirs(argv))
+        .find(|dir| hides_devflow(dir))
+}
+
+/// The folders a command line names with `--plugin-dir`, either way of
+/// writing it.
+fn plugin_dirs(argv: &[String]) -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    let mut words = argv.iter();
+    while let Some(word) = words.next() {
+        if let Some(dir) = word.strip_prefix("--plugin-dir=") {
+            dirs.push(PathBuf::from(dir));
+        } else if word == "--plugin-dir" {
+            dirs.extend(words.next().map(PathBuf::from));
+        }
+    }
+    dirs
+}
+
+fn hides_devflow(dir: &Path) -> bool {
+    let json = |file: PathBuf| -> Option<serde_json::Value> {
+        serde_json::from_str(&std::fs::read_to_string(file).ok()?).ok()
+    };
+    let Some(manifest) = json(dir.join(".claude-plugin/plugin.json")) else {
+        return false;
+    };
+    if manifest.get("name").and_then(serde_json::Value::as_str) != Some(register::NAME) {
+        return false;
+    }
+    let in_manifest = manifest
+        .get("mcpServers")
+        .and_then(|servers| servers.get(register::NAME))
+        .is_some();
+    let in_file = json(dir.join(".mcp.json")).is_some_and(|file| {
+        file.get("mcpServers")
+            .unwrap_or(&file)
+            .get(register::NAME)
+            .is_some()
+    });
+    !in_manifest && !in_file
+}
+
+/// The most processes walked up from this one.
+const MOST_ANCESTORS: usize = 32;
+
+/// The command line of each process this one runs under, nearest first.
+#[cfg(unix)]
+pub fn ancestors() -> Vec<Vec<String>> {
+    let mut lines = Vec::new();
+    let mut pid = std::os::unix::process::parent_id();
+    while pid > 1 && lines.len() < MOST_ANCESTORS {
+        let Some((argv, parent)) = process(pid) else {
+            break;
+        };
+        lines.push(argv);
+        pid = parent;
+    }
+    lines
+}
+
+#[cfg(not(unix))]
+pub fn ancestors() -> Vec<Vec<String>> {
+    Vec::new()
+}
+
+/// A process's command line and its parent.
+#[cfg(target_os = "linux")]
+fn process(pid: u32) -> Option<(Vec<String>, u32)> {
+    let raw = std::fs::read(format!("/proc/{pid}/cmdline")).ok()?;
+    let argv = raw
+        .split(|byte| *byte == 0)
+        .filter(|word| !word.is_empty())
+        .map(|word| String::from_utf8_lossy(word).into_owned())
+        .collect();
+    let status = std::fs::read_to_string(format!("/proc/{pid}/status")).ok()?;
+    let parent = status
+        .lines()
+        .find_map(|line| line.strip_prefix("PPid:"))?
+        .trim()
+        .parse()
+        .ok()?;
+    Some((argv, parent))
+}
+
+/// A process's command line, split on spaces, and its parent.
+#[cfg(all(unix, not(target_os = "linux")))]
+fn process(pid: u32) -> Option<(Vec<String>, u32)> {
+    let said = register::asked_within(
+        &[
+            "ps",
+            "-o",
+            "ppid=",
+            "-o",
+            "command=",
+            "-p",
+            &pid.to_string(),
+        ],
+        std::time::Duration::from_secs(5),
+    )?;
+    let (parent, command) = said.trim().split_once(char::is_whitespace)?;
+    Some((
+        command.split_whitespace().map(str::to_owned).collect(),
+        parent.trim().parse().ok()?,
+    ))
 }
 
 fn project(root: &Path, consent: &Consent) -> Vec<Said> {
@@ -211,7 +370,7 @@ pub fn run(root: &Path) -> ExitCode {
         .and_then(|path| path.canonicalize().or(Ok(path)))
         .map(|path| path.display().to_string())
         .unwrap_or_else(|_| register::NAME.to_owned());
-    let said = findings(root, &machine, &Consent::of_user(), &bin);
+    let said = findings(root, &machine, &Consent::of_user(), &bin, &ancestors());
     let mut failed = false;
     for one in &said {
         let mark = match (one.ok, one.optional) {

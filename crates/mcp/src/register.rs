@@ -15,6 +15,12 @@ use serde_json::{json, Map, Value};
 pub const REPO: &str = "jholhewres/devflow";
 /// The server's name in every config.
 pub const NAME: &str = "devflow";
+/// How Claude Code runs devflow's server: as the plugin's manifest says, so
+/// the same entry in the person's user config makes Claude Code keep one of
+/// the two (it leaves out a plugin's server that runs what a configured one
+/// runs), and a session that loads another plugin named devflow, which
+/// hides devflow's, still has the server.
+pub const CLAUDE_SERVER: [&str; 2] = ["devflow", "mcp"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tool {
@@ -59,6 +65,9 @@ pub type Asker = Box<dyn Fn(&[&str]) -> Option<String>>;
 pub struct Machine {
     pub home: PathBuf,
     pub config: PathBuf,
+    /// Where Claude Code keeps `.claude.json`, its user-scope MCP servers
+    /// among it: `$CLAUDE_CONFIG_DIR`, else the home folder.
+    pub claude: PathBuf,
     pub mac: bool,
     /// Whether a program is on `PATH`.
     pub has: Box<dyn Fn(&str) -> bool>,
@@ -74,9 +83,14 @@ impl Machine {
             .map(PathBuf::from)
             .filter(|path| path.is_absolute())
             .unwrap_or_else(|| home.join(".config"));
+        let claude = std::env::var_os("CLAUDE_CONFIG_DIR")
+            .filter(|dir| !dir.is_empty())
+            .map(PathBuf::from)
+            .unwrap_or_else(|| home.clone());
         Machine {
             home,
             config,
+            claude,
             mac: cfg!(target_os = "macos"),
             has: Box::new(|program| on_path(program).is_some()),
             ask: Box::new(|argv| asked_within(argv, ASK_WAIT)),
@@ -151,6 +165,7 @@ pub fn register(tool: Tool, bin: &str, machine: &Machine) -> Vec<Step> {
             } else {
                 steps.push(run(&["claude", "plugin", "install", "devflow@devflow"]));
             }
+            steps.extend(claude_server(&user_server(&machine.claude)));
             steps
         }
         Tool::Codex => match (machine.ask)(&["codex", "mcp", "get", NAME]) {
@@ -215,10 +230,15 @@ pub fn registered(tool: Tool, bin: &str, machine: &Machine) -> bool {
 /// What taking devflow out of `tool` takes.
 pub fn unregister(tool: Tool, machine: &Machine) -> Vec<Step> {
     match tool {
-        Tool::Claude => vec![
-            run(&["claude", "plugin", "uninstall", "devflow@devflow"]),
-            run(&["claude", "plugin", "marketplace", "remove", NAME]),
-        ],
+        Tool::Claude => {
+            let mut steps = Vec::new();
+            if user_server(&machine.claude) != UserServer::Missing {
+                steps.push(run(&["claude", "mcp", "remove", "--scope", "user", NAME]));
+            }
+            steps.push(run(&["claude", "plugin", "uninstall", "devflow@devflow"]));
+            steps.push(run(&["claude", "plugin", "marketplace", "remove", NAME]));
+            steps
+        }
         Tool::Codex => vec![run(&["codex", "mcp", "remove", NAME])],
         Tool::Gemini => vec![run(&["gemini", "extensions", "uninstall", NAME])],
         Tool::Cursor => vec![Step::Drop {
@@ -233,6 +253,79 @@ pub fn unregister(tool: Tool, machine: &Machine) -> Vec<Step> {
             file: machine.vscode_config(),
             under: "servers",
         }],
+    }
+}
+
+/// devflow's server in Claude Code's user config.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UserServer {
+    /// It runs `devflow mcp`, as the plugin's does.
+    Same,
+    Missing,
+    /// It runs something else, which Claude Code keeps beside the plugin's
+    /// server, so each tool shows twice: what it runs.
+    Other(String),
+}
+
+/// The most of `.claude.json` read: Claude Code keeps each project's
+/// history in it, so it is no small config.
+const MOST_CLAUDE_JSON: u64 = 64 * 1024 * 1024;
+
+/// devflow's server in the `.claude.json` under `dir`, Claude Code's user
+/// scope. A file that cannot be read as JSON holds none.
+pub fn user_server(dir: &Path) -> UserServer {
+    let file = dir.join(".claude.json");
+    let text = std::fs::metadata(&file)
+        .ok()
+        .filter(|meta| meta.len() <= MOST_CLAUDE_JSON)
+        .and_then(|_| std::fs::read_to_string(&file).ok());
+    let Some(doc) = text.and_then(|text| serde_json::from_str::<Value>(&text).ok()) else {
+        return UserServer::Missing;
+    };
+    let Some(entry) = doc.get("mcpServers").and_then(|servers| servers.get(NAME)) else {
+        return UserServer::Missing;
+    };
+    let stdio = entry
+        .get("type")
+        .is_none_or(|kind| kind.as_str() == Some("stdio"));
+    let command = entry.get("command").and_then(Value::as_str);
+    let args: Vec<&str> = entry
+        .get("args")
+        .and_then(Value::as_array)
+        .map(|args| args.iter().filter_map(Value::as_str).collect())
+        .unwrap_or_default();
+    match command.filter(|_| stdio) {
+        Some(command) if command == CLAUDE_SERVER[0] && args == CLAUDE_SERVER[1..] => {
+            UserServer::Same
+        }
+        Some(command) => UserServer::Other(
+            std::iter::once(command)
+                .chain(args)
+                .collect::<Vec<_>>()
+                .join(" "),
+        ),
+        None => UserServer::Other(match entry.get("type").and_then(Value::as_str) {
+            Some(kind) => format!("a {kind} server"),
+            None => "no command".to_owned(),
+        }),
+    }
+}
+
+/// What putting devflow's server in Claude Code's user config takes, from
+/// what is there now. The binary is named bare, as the plugin names it:
+/// whole, it would run something else to Claude Code, which keeps both.
+pub fn claude_server(now: &UserServer) -> Vec<Step> {
+    let mut add = vec!["claude", "mcp", "add", "--scope", "user", NAME, "--"];
+    add.extend(CLAUDE_SERVER);
+    match now {
+        UserServer::Same => vec![Step::Done(
+            "devflow's server is in Claude Code's user config: every session has it".to_owned(),
+        )],
+        UserServer::Missing => vec![run(&add)],
+        UserServer::Other(_) => vec![
+            run(&["claude", "mcp", "remove", "--scope", "user", NAME]),
+            run(&add),
+        ],
     }
 }
 

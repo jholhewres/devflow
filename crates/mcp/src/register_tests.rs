@@ -6,6 +6,7 @@ fn machine(home: &Path, said: Option<&'static str>) -> Machine {
     Machine {
         home: home.to_path_buf(),
         config: home.join(".config"),
+        claude: home.to_path_buf(),
         mac: false,
         has: Box::new(|_| true),
         ask: Box::new(move |_| said.map(str::to_owned)),
@@ -82,6 +83,7 @@ fn a_dry_run_writes_nothing_and_a_real_one_keeps_a_copy() {
 fn a_cli_that_already_has_devflow_is_not_asked_again() {
     let dir = tempfile::tempdir().unwrap();
     let said = Some("devflow  devflow@devflow  enabled");
+    claude_user_config(dir.path(), json!({ "command": "devflow", "args": ["mcp"] }));
     let steps = register(Tool::Claude, "devflow", &machine(dir.path(), said));
     assert!(steps.iter().all(|step| matches!(step, Step::Done(_))));
 
@@ -141,7 +143,112 @@ fn a_tool_is_registered_once_every_step_is_done() {
     assert!(registered(Tool::Cursor, "/bin/devflow", &machine));
     assert!(!registered(Tool::Cursor, "/other/devflow", &machine));
     let said = machine_saying(home.path(), "devflow devflow@devflow");
+    assert!(
+        !registered(Tool::Claude, "/bin/devflow", &said),
+        "the plugin alone is not enough: its server is hidden by another plugin named devflow"
+    );
+    claude_user_config(
+        home.path(),
+        json!({ "command": "devflow", "args": ["mcp"] }),
+    );
     assert!(registered(Tool::Claude, "/bin/devflow", &said));
+}
+
+/// Claude Code's `.claude.json` under `dir`, with the person's own server and
+/// `devflow` as given.
+fn claude_user_config(dir: &Path, devflow: Value) {
+    let doc = json!({
+        "numStartups": 3,
+        "mcpServers": { "theirs": { "type": "stdio", "command": "theirs", "args": [] }, "devflow": devflow },
+        "projects": {},
+    });
+    fs::write(dir.join(".claude.json"), doc.to_string()).unwrap();
+}
+
+fn argv(words: &[&str]) -> Step {
+    Step::Run(words.iter().map(|word| (*word).to_owned()).collect())
+}
+
+#[test]
+fn claudes_user_config_runs_the_server_as_the_plugin_names_it() {
+    // Claude Code keeps one of two servers that run the same command and
+    // arguments, so the entry must be the plugin manifest's, word for word.
+    let manifest = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.claude-plugin/plugin.json");
+    let manifest: Value = serde_json::from_str(&fs::read_to_string(manifest).unwrap()).unwrap();
+    let server = &manifest["mcpServers"]["devflow"];
+    assert_eq!(server["command"], CLAUDE_SERVER[0]);
+    assert_eq!(server["args"], json!(CLAUDE_SERVER[1..]));
+
+    let home = tempfile::tempdir().unwrap();
+    let plugin_only = machine_saying(home.path(), "devflow  devflow@devflow  enabled");
+    let steps = register(Tool::Claude, "/home/me/.local/bin/devflow", &plugin_only);
+    assert_eq!(
+        steps.last(),
+        Some(&argv(&[
+            "claude", "mcp", "add", "--scope", "user", "devflow", "--", "devflow", "mcp"
+        ])),
+        "named bare, as the plugin names it, never the binary's whole path: {steps:?}"
+    );
+}
+
+#[test]
+fn the_user_configs_devflow_server_is_read_for_what_it_runs() {
+    let home = tempfile::tempdir().unwrap();
+    assert_eq!(user_server(home.path()), UserServer::Missing);
+    fs::write(home.path().join(".claude.json"), "{ not json").unwrap();
+    assert_eq!(user_server(home.path()), UserServer::Missing);
+    // Its own variables do not matter: Claude Code compares the command.
+    claude_user_config(
+        home.path(),
+        json!({ "type": "stdio", "command": "devflow", "args": ["mcp"], "env": { "DEVFLOW_NO_UPDATE": "1" } }),
+    );
+    assert_eq!(user_server(home.path()), UserServer::Same);
+    claude_user_config(
+        home.path(),
+        json!({ "command": "/opt/devflow/bin/devflow", "args": ["mcp"] }),
+    );
+    assert_eq!(
+        user_server(home.path()),
+        UserServer::Other("/opt/devflow/bin/devflow mcp".to_owned())
+    );
+    claude_user_config(
+        home.path(),
+        json!({ "type": "http", "url": "https://example.test/mcp" }),
+    );
+    assert_eq!(
+        user_server(home.path()),
+        UserServer::Other("a http server".to_owned())
+    );
+}
+
+#[test]
+fn another_devflow_server_in_the_user_config_is_replaced_and_one_there_is_left() {
+    let add = argv(&[
+        "claude", "mcp", "add", "--scope", "user", "devflow", "--", "devflow", "mcp",
+    ]);
+    let remove = argv(&["claude", "mcp", "remove", "--scope", "user", "devflow"]);
+    assert_eq!(claude_server(&UserServer::Missing), vec![add.clone()]);
+    assert_eq!(
+        claude_server(&UserServer::Other("/opt/devflow mcp".to_owned())),
+        vec![remove, add]
+    );
+    assert!(matches!(
+        claude_server(&UserServer::Same)[..],
+        [Step::Done(_)]
+    ));
+}
+
+#[test]
+fn taking_devflow_out_of_claude_removes_its_user_server_only_when_there() {
+    let home = tempfile::tempdir().unwrap();
+    let machine = machine(home.path(), None);
+    let remove = argv(&["claude", "mcp", "remove", "--scope", "user", "devflow"]);
+    assert!(!unregister(Tool::Claude, &machine).contains(&remove));
+    claude_user_config(
+        home.path(),
+        json!({ "command": "devflow", "args": ["mcp"] }),
+    );
+    assert_eq!(unregister(Tool::Claude, &machine)[0], remove);
 }
 
 fn machine_saying(home: &Path, said: &'static str) -> Machine {
