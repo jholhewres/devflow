@@ -83,8 +83,10 @@ fn at_home(home: &Path) -> Option<PathBuf> {
 /// error, never "nothing spent".
 pub fn read_ledger(home: &Path) -> Result<Vec<Value>, String> {
     // A project's first attack: nothing ran, so nothing was spent.
-    if std::fs::symlink_metadata(home).is_err() {
-        return Ok(Vec::new());
+    match std::fs::symlink_metadata(home) {
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(err) => return Err(format!("{}: {err}", home.display())),
+        Ok(_) => {}
     }
     let at = at_home(home).ok_or_else(|| format!("{LEDGER} leads out of {}", home.display()))?;
     let mut file = match std::fs::File::open(&at) {

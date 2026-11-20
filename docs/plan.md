@@ -354,6 +354,64 @@ person's, are served as written.
   it for the call (`folder::pin`): a project that also has another
   devflow.yaml is read and written only in the host's folder.
 
+## The attack stage: 0.6.0
+
+0.6.0 makes the attack a stage of its own. An attacker tries to exploit the
+item's change, its exploit tests run in a sandbox with no network, and a
+hypothesis is confirmed only when its test is red at the base and green at
+HEAD. The details, and how to read the report: [security.md](security.md).
+
+- `stages.attack`: `run` (`sensitive`, `per-item`, `release`, `off`),
+  `model`, `test`, `sandbox` (`auto`, `bwrap`, `docker`, `off`), `image`,
+  `budget` (`run_usd`, `month_usd`), `regression`, `attackers` (four at
+  most) and `concurrency`. `review.attack` still reads, as its older name.
+- The gate holds an item whose attack is due and has not run, an attack
+  that failed, a per-item attack older than the last change, and a
+  hypothesis the sandbox confirmed in `block_on` without its proof.
+- Each run writes `attack.json` and its report as markdown, JSON and SARIF
+  2.1.0, with an issue draft per confirmed hypothesis, held to an allowlist
+  (`attack_report`). devflow publishes none of it.
+- A threat model and the security persona's overlay feed the attack; a
+  hypothesis refuted before is not tried again while its control is
+  unchanged. Scanner findings become hypotheses the attack calls reachable
+  or not. A workspace manifest lets it follow a flow across repositories, a
+  confirmed compose stack runs on an internal network, and a range already
+  in production gets a retro whose exploits stay in a vault outside the
+  checkout.
+- The payload repertoire (`devflow payloads list|table|add`) gives
+  generic cases per class, and `regression` gives them to every attack.
+- Every run's cost goes to a ledger; `month_usd` refuses a run past the
+  month's budget, and the numbers suggest a run mode.
+- Security targets keep the addresses they resolved to when the person
+  confirmed them, so a later answer of the resolver cannot move them.
+- Headless readers are held to reading (`agents::read_only`); OpenCode,
+  which cannot be, is refused as a reader.
+
+**What a host sees change**
+
+- devpit at 366906f3, built against this engine, stops compiling in three
+  places, each a line:
+  - `review::Asked` gains `axes`, the personas a review without a card is
+    held to (all of them when empty): end the literal with
+    `..Default::default()` (`apps/desktop/src/devflow_adhoc.rs`).
+  - `security::in_force` takes the confirmed addresses, `&Pins`, before its
+    resolver, which now answers every name at once (`ResolveAll`, as
+    `security::resolved_here_all`): devpit, which confirms no target, passes
+    `&Pins::default()` (`apps/desktop/src/devflow.rs`).
+  - `dialect::Assets::skills` is a slice, as `parts` already was, not an
+    array of seven: map it with `.iter().map(..).collect()` and leak it as
+    `parts` is (`apps/desktop/src/devflow_dialect.rs`).
+- Public structs gained fields a host reads or builds with `Default`:
+  `config::{Config (criteria), Stages (attack), Attack, Security (stack)}`,
+  `review::{Done (axes), Ran (tries)}`, `adhoc::Standalone` (`axes`,
+  `verified`), `criteria::Unread` (`empty`) and `sarif::ToolFinding`
+  (`package`, `fix`). `config::Report` has `npm-audit` and `govulncheck`
+  words: a host that matches it exhaustively adds their arms.
+- New modules: `attack`, `attack_report`, `attack_metrics`, `payloads`, `sandbox`,
+  `stack`, `vault`, `workspace`. `Ask`, `runner::Context`,
+  `evidence::{Ran, Evidence, Given}`, `review::Given` and `gate::Looked`
+  are as they were.
+
 ## Release
 
 `VERSION` is the one version. `cargo xtask version-sync` writes it into the

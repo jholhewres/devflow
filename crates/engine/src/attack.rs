@@ -1043,6 +1043,23 @@ fn scanner_answered(answer: &Value) -> Vec<Value> {
 
 /// Each scanner finding with the attacker's word on it: reachable, with its
 /// call path and fix; unreachable; or `null` when it said nothing.
+/// The paths hypotheses and scanner findings name that are files of the
+/// checkout, which a report shows as they are.
+fn in_repo(root: &Path, hypotheses: &[Value], scanner: &[Value]) -> Vec<String> {
+    let mut found: Vec<String> = hypotheses
+        .iter()
+        .chain(scanner)
+        .filter_map(|one| one["file"].as_str())
+        .filter(|file| {
+            !file.is_empty() && crate::fsguard::resolve(root, file).is_ok_and(|at| at.is_file())
+        })
+        .map(str::to_owned)
+        .collect();
+    found.sort();
+    found.dedup();
+    found
+}
+
 fn scanner_reached(given: &[Value], said: &[Value]) -> Vec<Value> {
     given
         .iter()
@@ -1341,6 +1358,7 @@ pub fn attacked(given: &Given) -> Result<Done, String> {
         "proposed_cases": cases,
         "flow": given.flow.map(|flowed| json!({ "name": flowed.name, "repos": flowed.repos })),
         "scanner": scanner_reached(&scanner, &scanner_said),
+        "in_repo": in_repo(given.root, &hypotheses, &scanner),
         "scanner_left_out": scanner_left_out(given.evidence),
         "dropped_cases": dropped_cases,
         "threat_model": threat,

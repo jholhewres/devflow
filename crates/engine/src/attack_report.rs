@@ -66,22 +66,29 @@ impl Format {
 pub struct Known {
     pub payloads: Vec<String>,
     pub symbols: BTreeSet<String>,
+    /// The paths devflow found in the checkout when the attack ran.
+    pub files: BTreeSet<String>,
 }
 
 impl Known {
     /// The payloads of every exploit a report's run kept, and the symbols
-    /// the report names.
+    /// and paths the report names.
     pub fn of(folder: &Path, report: &Value) -> Known {
-        Known {
-            payloads: payloads(folder, report),
-            symbols: report["symbols"]
+        let listed = |key: &str| -> BTreeSet<String> {
+            report[key]
                 .as_array()
                 .into_iter()
                 .flatten()
                 .filter_map(Value::as_str)
-                .filter(|one| symbol_shaped(one))
                 .map(str::to_owned)
-                .collect(),
+                .collect()
+        };
+        let mut symbols = listed("symbols");
+        symbols.retain(|one| symbol_shaped(one));
+        Known {
+            payloads: payloads(folder, report),
+            symbols,
+            files: listed("in_repo"),
         }
     }
 }
@@ -98,10 +105,29 @@ pub fn symbols_in(diff: &str) -> Vec<String> {
         let Some(code) = line.strip_prefix(['+', '-', ' ']) else {
             continue;
         };
-        for word in unquoted(code).split(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '_')) {
+        let code = unquoted(code);
+        // A URL's parts and what a secret's name is set to are values.
+        let code = code.split("://").next().unwrap_or_default();
+        let mut rest = code;
+        while !rest.is_empty() {
+            let start = rest
+                .find(|ch: char| ch.is_ascii_alphanumeric() || ch == '_')
+                .unwrap_or(rest.len());
+            rest = &rest[start..];
+            let end = rest
+                .find(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '_'))
+                .unwrap_or(rest.len());
+            let (word, after) = rest.split_at(end);
             if found.len() < MOST_SYMBOLS && symbol_shaped(word) && !plain_word(word) {
                 found.insert(word.to_owned());
             }
+            let set = after.trim_start();
+            let assigned = (set.starts_with('=') && !set.starts_with("=="))
+                || (set.starts_with(':') && !set.starts_with("::"));
+            if assigned && secret_name(word) {
+                break;
+            }
+            rest = after;
         }
     }
     found.into_iter().collect()
@@ -145,8 +171,44 @@ fn symbol_shaped(word: &str) -> bool {
         && word
             .chars()
             .all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
-        && word.chars().filter(char::is_ascii_digit).count() <= 4
+        && named_like_code(word)
         && !secret_shaped(word)
+}
+
+/// An identifier made of words as code names things (`fetch_url`,
+/// `XMLHttpRequest`, `sha256_sum`), not a value's run of letters and
+/// digits: each part a word with at most three digits at its end, one such
+/// part at most, and parts two letters long on average.
+fn named_like_code(word: &str) -> bool {
+    let mut parts: Vec<String> = Vec::new();
+    let mut part = String::new();
+    let mut previous: Option<char> = None;
+    for ch in word.chars() {
+        if ch == '_' {
+            parts.extend((!part.is_empty()).then(|| std::mem::take(&mut part)));
+            previous = None;
+            continue;
+        }
+        let starts = ch.is_ascii_uppercase()
+            && previous
+                .is_some_and(|before| before.is_ascii_lowercase() || before.is_ascii_digit());
+        if starts && !part.is_empty() {
+            parts.push(std::mem::take(&mut part));
+        }
+        part.push(ch);
+        previous = Some(ch);
+    }
+    parts.extend((!part.is_empty()).then_some(part));
+    let shaped = |part: &String| {
+        let letters = part.trim_end_matches(|ch: char| ch.is_ascii_digit());
+        part.len() - letters.len() <= 3 && letters.chars().all(|ch| ch.is_ascii_alphabetic())
+    };
+    let numbered = parts
+        .iter()
+        .filter(|part| part.chars().any(|ch| ch.is_ascii_digit()))
+        .count();
+    let letters: usize = parts.iter().map(String::len).sum();
+    !parts.is_empty() && parts.iter().all(shaped) && numbered <= 1 && letters >= 2 * parts.len()
 }
 
 /// What an exploit's code sends: its quoted strings, read line by line so
@@ -191,9 +253,53 @@ pub fn payloads_in(code: &str) -> Vec<String> {
             take(word);
         }
     }
+    found.extend(spanning(code));
     found.sort_by_key(|one| std::cmp::Reverse(one.len()));
     found.dedup();
     found
+}
+
+/// The strings of `code` that span lines: a template literal, a
+/// triple-quoted string, a heredoc's body.
+fn spanning(code: &str) -> Vec<String> {
+    let mut found = Vec::new();
+    for delimiter in ["\"\"\"", "'''", "`"] {
+        let parts: Vec<&str> = code.split(delimiter).collect();
+        for (at, part) in parts.iter().enumerate() {
+            if at % 2 == 1 && at + 1 < parts.len() && part.contains('\n') {
+                found.push(part.trim().to_owned());
+            }
+        }
+    }
+    let lines: Vec<&str> = code.lines().collect();
+    let mut at = 0;
+    while at < lines.len() {
+        if let Some(marker) = heredoc(lines[at]) {
+            let end = lines[at + 1..]
+                .iter()
+                .position(|line| line.trim() == marker)
+                .map_or(lines.len(), |end| at + 1 + end);
+            found.push(lines[at + 1..end].join("\n"));
+            at = end;
+        }
+        at += 1;
+    }
+    found.retain(|one| one.chars().count() >= SHORTEST_PAYLOAD);
+    found
+}
+
+/// The marker a line's heredoc ends at: `<<EOF`, `<<-'EOF'`, `<<~EOS`.
+fn heredoc(line: &str) -> Option<String> {
+    let (_, after) = line.split_once("<<")?;
+    let after = after
+        .trim_start_matches(['-', '~'])
+        .trim_start()
+        .trim_start_matches(['\'', '"']);
+    let marker: String = after
+        .chars()
+        .take_while(|ch| ch.is_ascii_alphanumeric() || *ch == '_')
+        .collect();
+    (!marker.is_empty()).then_some(marker)
 }
 
 /// An unquoted word that is something sent rather than code.
@@ -260,6 +366,18 @@ const SECRET_NAMES: [&str; 21] = [
 
 /// Whether `name` names a secret, in snake, kebab or camel case.
 fn secret_name(name: &str) -> bool {
+    names_one_of(name, &SECRET_NAMES)
+}
+
+/// Whether `name` names a password or a token, whose value prose may give
+/// with nothing between.
+fn value_name(name: &str) -> bool {
+    names_one_of(name, &VALUE_NAMES)
+}
+
+/// Whether `name`, in snake, kebab or camel case, is one of `names` or ends
+/// in one.
+fn names_one_of(name: &str, names: &[&str]) -> bool {
     let name =
         name.trim_matches(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '_' || ch == '-'));
     let mut camel = String::new();
@@ -272,7 +390,7 @@ fn secret_name(name: &str) -> bool {
     [name.to_ascii_lowercase(), camel].iter().any(|name| {
         let name = name.replace('-', "_");
         !name.is_empty()
-            && SECRET_NAMES
+            && names
                 .iter()
                 .any(|one| name == *one || name.ends_with(&format!("_{one}")))
     })
@@ -394,40 +512,122 @@ const CLOSING: [char; 19] = [
 /// What of that is kept: sentence punctuation, never a quote or markup.
 const KEPT_AROUND: [char; 10] = ['(', ')', '.', ',', ';', ':', '!', '?', '…', '–'];
 
-/// The model's prose as a report may show it: the exploits' strings taken
-/// out first, then each word kept only when it is a plain word, a number,
-/// or a symbol the item's code names; any other word (code, a URL, a path,
-/// a query, an escape, an address, a token) is [`LEFT_OUT`], as is the word
-/// after a secret's name or a `Bearer`, and a phone number.
-pub fn prose(text: &str, known: &Known) -> String {
-    let mut text = text.to_owned();
-    for payload in &known.payloads {
-        text = text.replace(payload.as_str(), LEFT_OUT);
-    }
-    let mut said: Vec<(String, String)> = Vec::new();
-    let mut hide_next = false;
-    let mut named_before = false;
-    for piece in text.split_inclusive(char::is_whitespace) {
-        let word = piece.trim_end();
-        let gap = piece[word.len()..].to_owned();
-        if word.is_empty() {
-            match said.last_mut() {
-                Some(last) => last.1.push_str(&gap),
-                None => said.push((String::new(), gap)),
-            }
+/// How many words of a payload in a row mark it in prose: a payload quoted
+/// in part is taken out too.
+const RUN_OF_PAYLOAD: usize = 4;
+/// How many words after a password's or a token's name its value is looked
+/// for in.
+const AFTER_A_NAME: usize = 3;
+
+/// The names whose value prose may give with no `:` or `=` between:
+/// `password admin123`, `the token is abc`.
+const VALUE_NAMES: [&str; 11] = [
+    "password",
+    "passwd",
+    "passphrase",
+    "pwd",
+    "secret",
+    "token",
+    "apikey",
+    "api_key",
+    "credential",
+    "credentials",
+    "jwt",
+];
+
+/// The words prose puts between a name and what it says of it ("the
+/// password is", "the token was never"): kept, as is any other secret's
+/// name; the first word past them is taken for the value.
+const BETWEEN: [&str; 52] = [
+    "a", "after", "all", "also", "an", "and", "any", "are", "as", "at", "be", "been", "before",
+    "being", "but", "by", "can", "could", "each", "every", "for", "from", "has", "had", "have",
+    "if", "in", "into", "is", "it", "its", "may", "must", "never", "no", "not", "of", "on", "only",
+    "or", "set", "should", "so", "still", "that", "the", "then", "this", "to", "was", "were",
+    "with",
+];
+
+/// A text's words for matching a payload: letters and digits, lowercased.
+fn words_of(text: &str) -> Vec<String> {
+    text.split(|ch: char| !ch.is_alphanumeric())
+        .filter(|word| !word.is_empty())
+        .map(str::to_lowercase)
+        .collect()
+}
+
+/// Which of `words` hold a payload: its text in any case, or a run of its
+/// words (all of them when it has fewer) across words and lines.
+fn payload_marks(words: &[&str], payloads: &[String]) -> Vec<bool> {
+    let mut marked: Vec<bool> = words
+        .iter()
+        .map(|word| {
+            let word = word.to_lowercase();
+            payloads
+                .iter()
+                .any(|payload| word.contains(&payload.to_lowercase()))
+        })
+        .collect();
+    let stream: Vec<(usize, String)> = words
+        .iter()
+        .enumerate()
+        .flat_map(|(at, word)| words_of(word).into_iter().map(move |one| (at, one)))
+        .collect();
+    for payload in payloads {
+        let said = words_of(payload);
+        if said.is_empty() {
             continue;
         }
+        let size = said.len().min(RUN_OF_PAYLOAD);
+        let runs: BTreeSet<&[String]> = said.windows(size).collect();
+        for window in stream.windows(size) {
+            let keys: Vec<String> = window.iter().map(|(_, one)| one.clone()).collect();
+            if runs.contains(keys.as_slice()) {
+                for (at, _) in window {
+                    marked[*at] = true;
+                }
+            }
+        }
+    }
+    marked
+}
+
+/// The model's prose as a report may show it. Each word is kept only when
+/// it is a plain word, a number, or a symbol the item's code names; any
+/// other word (code, a URL, a path, a query, an escape, an address, a
+/// token) is [`LEFT_OUT`]. So is each word of an exploit's string, the
+/// value after a secret's name or a `Bearer`, and a phone number.
+pub fn prose(text: &str, known: &Known) -> String {
+    let mut pieces: Vec<(&str, String)> = Vec::new();
+    for piece in text.split_inclusive(char::is_whitespace) {
+        let word = piece.trim_end();
+        let gap = &piece[word.len()..];
+        match pieces.last_mut() {
+            Some(last) if word.is_empty() => last.1.push_str(gap),
+            _ => pieces.push((word, gap.to_owned())),
+        }
+    }
+    let words: Vec<&str> = pieces.iter().map(|(word, _)| *word).collect();
+    let marked = payload_marks(&words, &known.payloads);
+    let around =
+        |part: &str| -> String { part.chars().filter(|ch| KEPT_AROUND.contains(ch)).collect() };
+    let mut said: Vec<(String, String)> = Vec::new();
+    // The next word is a value, whatever it is.
+    let mut value_next = false;
+    // Words left in which a bare name's value is looked for.
+    let mut looking = 0;
+    let mut named_before = false;
+    for ((word, gap), payload) in pieces.into_iter().zip(marked) {
         let opened = word.trim_start_matches(OPENING);
         let core = opened.trim_end_matches(CLOSING);
         let before = &word[..word.len() - opened.len()];
         let after = &opened[core.len()..];
-        let around =
-            |part: &str| -> String { part.chars().filter(|ch| KEPT_AROUND.contains(ch)).collect() };
-        let kept = core == LEFT_OUT
-            || (!core.is_empty()
-                && (plain_word(core) || number(core) || known.symbols.contains(core)));
-        let bearer = matches!(core.to_ascii_lowercase().as_str(), "bearer" | "basic");
-        let shown = if hide_next {
+        let lower = core.to_lowercase();
+        let named = secret_name(core);
+        let between = BETWEEN.contains(&lower.as_str());
+        let kept =
+            !core.is_empty() && (plain_word(core) || number(core) || known.symbols.contains(core));
+        let hidden =
+            payload || value_next || (looking > 0 && !core.is_empty() && !named && !between);
+        let shown = if hidden {
             LEFT_OUT.to_owned()
         } else if core.is_empty() {
             around(word)
@@ -436,10 +636,19 @@ pub fn prose(text: &str, known: &Known) -> String {
         } else {
             format!("{}{LEFT_OUT}{}", around(before), around(after))
         };
-        // The value after `X-API-Key:`, `password=`, `token =` or `Bearer`.
-        let names = word.ends_with([':', '=']) && secret_name(word.trim_end_matches([':', '=']));
-        hide_next = bearer || names || (named_before && matches!(word, ":" | "="));
-        named_before = secret_name(core);
+        // `X-API-Key: value`, `password=`, `token = value`, `Bearer value`.
+        let set = word.ends_with([':', '=']) && secret_name(word.trim_end_matches([':', '=']));
+        value_next = matches!(lower.as_str(), "bearer" | "basic")
+            || set
+            || (named_before && matches!(word, ":" | "="));
+        looking = if value_name(core) || (named && looking > 0) {
+            AFTER_A_NAME
+        } else if hidden || !between {
+            0
+        } else {
+            looking.saturating_sub(1)
+        };
+        named_before = named;
         // Words left out one after another are said once.
         if shown == LEFT_OUT && said.last().is_some_and(|(last, _)| last == LEFT_OUT) {
             if gap.contains('\n') {
@@ -498,24 +707,43 @@ fn tool_name(value: &Value) -> Value {
     }
 }
 
-/// A repository path, relative, with no `..`, nothing that ends a cell or a
-/// code span, and no part shaped like a secret.
-fn repo_path(value: &Value) -> Value {
-    match value.as_str() {
-        Some(file)
-            if (1..=240).contains(&file.len())
-                && !file.starts_with('/')
-                && file
-                    .chars()
-                    .all(|ch| ch.is_ascii_alphanumeric() || "._-/[]()@+~,".contains(ch))
-                && file
-                    .split('/')
-                    .all(|part| !matches!(part, "" | "." | "..") && !secret_shaped(part)) =>
-        {
-            json!(file)
-        }
-        _ => Value::Null,
+/// A repository path: one devflow found in the checkout, with nothing that
+/// ends a cell or a code span; else one of the characters paths are named
+/// with in any language, relative, with no `..` and no part shaped like a
+/// secret.
+fn repo_path(value: &Value, known: &Known) -> Value {
+    let Some(file) = value.as_str() else {
+        return Value::Null;
+    };
+    let inert = |ch: char| !(ch.is_control() || matches!(ch, '`' | '|' | '\\'));
+    let found = known.files.contains(file) && file.chars().all(inert);
+    let shaped = (1..=240).contains(&file.len())
+        && !file.starts_with('/')
+        && !file.contains("://")
+        && file
+            .chars()
+            .all(|ch| ch.is_alphanumeric() || "._-/[]()@+~,$".contains(ch))
+        && file
+            .split('/')
+            .all(|part| !matches!(part, "" | "." | "..") && !secret_shaped(part));
+    if found || shaped {
+        json!(file)
+    } else {
+        Value::Null
     }
+}
+
+/// A path as a SARIF location's URI: each byte outside what a URI keeps as
+/// it is, percent-encoded.
+fn uri_of(file: &str) -> String {
+    file.bytes()
+        .map(|byte| match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' | b'/' => {
+                (byte as char).to_string()
+            }
+            other => format!("%{other:02X}"),
+        })
+        .collect()
 }
 
 /// A commit devflow read: its hex.
@@ -562,7 +790,7 @@ fn shown(one: &Value, known: &Known) -> Value {
     json!({
         "id": name_of(&one["id"]), "status": one_of(&one["status"], &STATUSES),
         "severity": one_of(&one["severity"], &SEVERITIES),
-        "class": name_of(&one["class"]), "file": repo_path(&one["file"]),
+        "class": name_of(&one["class"]), "file": repo_path(&one["file"], known),
         "line": one["line"].as_u64(),
         "title": said("title"), "reason": said("reason"),
         "impact": said("impact"), "fix": said("fix"),
@@ -607,7 +835,7 @@ fn scanned(report: &Value, known: &Known, reachable: bool) -> Vec<Value> {
             json!({
                 "id": name_of(&one["id"]), "tool": name_of(&one["tool"]),
                 "rule": tool_name(&one["rule"]), "package": tool_name(&one["package"]),
-                "file": repo_path(&one["file"]), "line": one["line"].as_u64(),
+                "file": repo_path(&one["file"], known), "line": one["line"].as_u64(),
                 "severity": one_of(&one["severity"], &SEVERITIES),
                 "reachable": one["reachable"].as_bool(), "path": said("path"),
                 "fix": if text(one, "attacker_fix").is_empty() { said("fix") } else { said("attacker_fix") },
@@ -746,7 +974,7 @@ pub fn sarif(report: &Value, known: &Known) -> Value {
                 "level": level(text(&one, "severity")),
                 "message": { "text": text(&one, "title") },
                 "locations": [{ "physicalLocation": {
-                    "artifactLocation": { "uri": one["file"].as_str().unwrap_or(".") },
+                    "artifactLocation": { "uri": one["file"].as_str().map_or_else(|| ".".to_owned(), uri_of) },
                     "region": { "startLine": one["line"].as_u64().unwrap_or(1).max(1) },
                 } }],
                 "properties": { "severity": one["severity"], "verifiedBy": one["verified_by"] },

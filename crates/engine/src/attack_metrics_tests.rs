@@ -111,3 +111,14 @@ fn the_ledger_is_never_reached_through_a_link_out_of_its_home() {
         "nothing written out"
     );
 }
+
+/// A runs' home that is there but cannot be read is an error, never a month
+/// with nothing spent.
+#[test]
+fn a_home_that_cannot_be_read_is_never_nothing_spent() {
+    let dir = tempfile::tempdir().expect("dir");
+    let file = dir.path().join("a-file");
+    std::fs::write(&file, "x").expect("file");
+    assert!(read_ledger(&file.join("runs")).is_err());
+    assert_eq!(read_ledger(&dir.path().join("none")), Ok(Vec::new()));
+}

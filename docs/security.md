@@ -215,12 +215,22 @@ out:
 - The model's prose (title, reason, impact, fix, the proof's reasons, a
   scanner finding's path) keeps only plain words, numbers (`42`, `1.5`,
   `2.1.0`), sentence punctuation, and the symbols the item's own diff names
-  (`fetch_url`), outside its strings and never one shaped like a secret.
-  Every other word is `<…>`: code, a URL, a path, a query, an escape, an
-  address, markup, a long run of letters and digits. So is the word after a
-  secret's name or `Bearer`, and a phone number.
-- Every string the exploits send is taken out before that, a sentence of
-  plain words included, so a payload never reaches a draft.
+  (`fetch_url`): identifiers outside its strings and URLs, made of words as
+  code names things, never what a secret's name is set to. Every other
+  word is `<…>`: code, a URL, a path, a query, an escape, an address,
+  markup, a long run of letters and digits, a phone number.
+- A value is left out after its name: the word after `X-API-Key:`,
+  `password=` or `Bearer`, and the first word past "is", "was", "the" and
+  their like after a password's or a token's name (`password admin123`,
+  `the token is letmein`). Prose that only names one ("the session cookie
+  is set without HttpOnly") keeps its words, but a word right after
+  `password` that is not its value (`password reset`) is left out too.
+- Every string the exploits send is taken out, in any case, across lines
+  (a template literal, a triple-quoted string, a heredoc) and when only
+  four of its words in a row are quoted, so a payload never reaches a
+  draft.
+- A file devflow found in the checkout keeps its path as it is; any other
+  keeps it when it reads as a relative path in letters of any language.
 
 The cost: a title or a fix loses inline code, and a hole is named by its
 file, line and symbol. A secret written as a bare word of prose, with no
