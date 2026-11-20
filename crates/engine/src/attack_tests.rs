@@ -316,3 +316,42 @@ fn hypotheses_at_one_place_and_class_are_one_naming_who_found_it() {
     let ids: Vec<&str> = kept.iter().filter_map(|one| one["id"].as_str()).collect();
     assert_eq!(ids, ["h1", "h2", "h3"]);
 }
+
+#[test]
+fn an_attackers_own_hypotheses_stay_apart_and_the_one_that_went_furthest_stands() {
+    let h = |line: i64, title: &str, status: &str, exploit: bool| {
+        let mut one = json!({ "id": "h1", "file": "src/a.rs", "line": line, "class": "ssrf", "title": title, "status": status });
+        if exploit {
+            one["exploit"] = json!({ "path": "tests/x.rs", "test": "x", "code": "1" });
+        }
+        one
+    };
+    let alone = consolidated(vec![(
+        "claude/default".to_owned(),
+        vec![
+            h(10, "redirect", "tried", false),
+            h(12, "dns rebinding", "tried", false),
+        ],
+    )]);
+    assert_eq!(alone.len(), 2, "one attacker's two hypotheses are two");
+    let kept = consolidated(vec![
+        (
+            "claude/large".to_owned(),
+            vec![h(10, "guarded", "refuted", false)],
+        ),
+        (
+            "codex/default".to_owned(),
+            vec![h(11, "redirect to metadata", "tried", true)],
+        ),
+    ]);
+    assert_eq!(kept.len(), 1);
+    assert_eq!(
+        kept[0]["title"], "redirect to metadata",
+        "the exploit stands over the refutation"
+    );
+    assert_eq!(
+        kept[0]["found_by"],
+        json!(["claude/large", "codex/default"])
+    );
+    assert!(kept[0]["exploit"].is_object());
+}

@@ -1351,6 +1351,12 @@ fn declared_attackers_are_consolidated_and_a_failed_one_is_not_replaced() {
     assert_eq!(attackers[2]["agent"], "codex");
     assert_eq!(attackers[2]["result"], "not_run");
     assert_eq!(attackers[2]["reason"], "not installed");
+    let comment = attack::comment(&done);
+    assert!(
+        comment.contains("The attacker codex gave no hypotheses: not installed"),
+        "{comment}"
+    );
+    assert_eq!(attackers[0]["capped_by"], "time");
     let calls = std::fs::read_to_string(bin.join("calls")).expect("calls");
     assert_eq!(
         calls.lines().count(),

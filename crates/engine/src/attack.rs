@@ -864,20 +864,43 @@ fn same_place(one: &Value, other: &Value) -> bool {
         && (line(one) - line(other)).abs() <= 5
 }
 
-/// Every attacker's hypotheses as one list: those at one place and of one
-/// class are one hypothesis, naming each attacker that found it; the first
-/// one found stands. Numbered again `h1`, `h2`, so each keeps a folder of
+/// How far a hypothesis went: one with an exploit to run says the most.
+fn strength(one: &Value) -> u8 {
+    match (text(one, "status").as_str(), one["exploit"].is_object()) {
+        ("tried" | "confirmed", true) => 3,
+        ("tried" | "confirmed", false) => 2,
+        ("refuted", _) => 1,
+        _ => 0,
+    }
+}
+
+/// Every attacker's hypotheses as one list: one attacker's at one place
+/// and of one class as another's are one hypothesis, naming each attacker
+/// that found it, and the one that went furthest (an exploit to run over a
+/// refutation) stands. An attacker's own hypotheses are never merged with
+/// each other. Numbered again `h1`, `h2`, so each keeps a folder of
 /// exploits of its own.
 pub fn consolidated(found: Vec<(String, Vec<Value>)>) -> Vec<Value> {
     let mut kept: Vec<Value> = Vec::new();
     for (who, list) in found {
+        let before = kept.len();
         for mut one in list {
-            if let Some(had) = kept.iter_mut().find(|had| same_place(had, &one)) {
-                if let Some(by) = had["found_by"].as_array_mut() {
-                    if !by.iter().any(|said| said == who.as_str()) {
-                        by.push(json!(who));
-                    }
+            let found_by_other = |had: &Value| {
+                !had["found_by"]
+                    .as_array()
+                    .is_some_and(|by| by.iter().any(|said| said == who.as_str()))
+            };
+            // Only a hypothesis another attacker found is one to merge with.
+            if let Some(had) = kept[..before]
+                .iter_mut()
+                .find(|had| found_by_other(had) && same_place(had, &one))
+            {
+                let mut by = had["found_by"].as_array().cloned().unwrap_or_default();
+                by.push(json!(who));
+                if strength(&one) > strength(had) {
+                    *had = one;
                 }
+                had["found_by"] = json!(by);
                 continue;
             }
             one["found_by"] = json!([who]);
@@ -1124,7 +1147,7 @@ pub fn attacked(given: &Given) -> Result<Done, String> {
         let who = format!("{}/{}", agent.word(), model.as_deref().unwrap_or("default"));
         let mut ran = json!({
             "agent": agent.word(), "persona": models::ATTACK_PERSONA, "model": model,
-            "by": dialect.product,
+            "by": dialect.product, "capped_by": capped_by(*agent, budget),
         });
         // One that refuses or fails leaves its part not run: nothing is
         // switched in its place.
@@ -1233,6 +1256,7 @@ pub fn attacked(given: &Given) -> Result<Done, String> {
             "month_usd": budget.month_cents.map(Budget::usd),
             "month_spent_before": spent,
             "run_capped_by": capped_by(declared[0].0, budget),
+            "run_share_usd": share.map(Budget::usd),
         },
     });
     settled(&mut report, &given.config.review.block_on);
@@ -1488,8 +1512,13 @@ pub fn comment(done: &Done) -> String {
             one["reason"].as_str().unwrap_or_default()
         ));
     }
-    if let Some(reason) = report["attackers"][0]["reason"].as_str() {
-        said.push_str(&format!("\n\nThe attacker gave no hypotheses: {reason}"));
+    for one in report["attackers"].as_array().into_iter().flatten() {
+        if let Some(reason) = one["reason"].as_str() {
+            said.push_str(&format!(
+                "\n\nThe attacker {} gave no hypotheses: {reason}",
+                one["agent"].as_str().unwrap_or("?")
+            ));
+        }
     }
     said
 }
