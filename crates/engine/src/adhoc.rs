@@ -48,6 +48,11 @@ pub struct Standalone {
     pub reports: Vec<Value>,
     /// A range already merged and in production, followed up, never held.
     pub retro: bool,
+    /// The personas of the axes it is held to (`axes: [security]`); all of
+    /// them when empty.
+    pub axes: Vec<String>,
+    /// The PoCs the session ran on `run`'s findings.
+    pub verified: Vec<Value>,
 }
 
 /// The review's input when it names no card; `None` when it does, which is
@@ -117,13 +122,20 @@ pub fn standalone_in(dialect: &Dialect, params: &Value) -> Result<Option<Standal
     };
     let reports = review::reports_of(fields)?;
     let run = word("run");
-    review::handed_back(dialect, run.as_deref(), &reports)?;
+    let verified = review::verified_asked(fields.get("verified"))?;
+    if verified.is_empty() {
+        review::handed_back(dialect, run.as_deref(), &reports)?;
+    } else if run.is_none() || !reports.is_empty() {
+        return Err("pass `verified` with `run` and without `reports`".to_owned());
+    }
     Ok(Some(Standalone {
         subject,
         criteria: criteria_of(fields.get("criteria"))?,
         run,
         reports,
         retro,
+        axes: review::axes_asked(fields.get("axes"))?,
+        verified,
     }))
 }
 

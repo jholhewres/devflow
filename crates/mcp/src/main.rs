@@ -94,8 +94,15 @@ enum Command {
     /// The attack stage on a work item: devflow-security tries to exploit its
     /// change headless and keeps attack.json in a run of the item.
     Attack {
-        /// The work item's id.
+        /// The work item's id; or `promote`, then the item or range and the
+        /// hypothesis whose exploit is copied into the repository.
         item: String,
+        /// With `promote`: the item or range, then the hypothesis.
+        #[arg(num_args = 0..=2)]
+        promote: Vec<String>,
+        /// With `promote`: the attack run; the newest when not said.
+        #[arg(long, value_name = "RUN", conflicts_with_all = ["prove", "report"])]
+        run: Option<String>,
         /// Where the diff starts, when not where the item started.
         #[arg(long)]
         base: Option<String>,
@@ -250,6 +257,56 @@ fn reporting(root: &std::path::Path, item: &str, run: &str, format: &str) -> Exi
     ExitCode::SUCCESS
 }
 
+/// `devflow attack promote`: an exploit an attack kept, in the vault or in
+/// an item's run, copied into the repository at its path.
+fn promoting(
+    root: &std::path::Path,
+    subject: &str,
+    hypothesis: &str,
+    run: Option<&str>,
+) -> ExitCode {
+    use devflow_engine::{attack, vault};
+    let failed = |why: String| {
+        eprintln!("devflow attack promote: {why}");
+        ExitCode::FAILURE
+    };
+    let project = project::Project::at(root);
+    let mut places = Vec::new();
+    if let Ok(home) = vault::home(&project.cache(), &project.root) {
+        places.push(vault::runs(home, &project.root));
+    }
+    places.push(project.runs());
+    let found = places.iter().find_map(|runs| match run {
+        Some(run) => runs.found(subject, Some(run), attack::REPORT),
+        None => runs.newest_with(subject, attack::REPORT).map(|(_, at)| at),
+    });
+    let Some(at) = found else {
+        return failed(format!("{subject} has no attack report"));
+    };
+    // A report the repository carries never brings an exploit in.
+    if let Ok(relative) = at.strip_prefix(&project.root) {
+        if devflow_engine::git::tracked(&project.root, &relative.display().to_string())
+            .unwrap_or(true)
+        {
+            return failed(format!(
+                "{} is part of the repository, or git cannot say",
+                relative.display()
+            ));
+        }
+    }
+    let Some(report) = flow::json_at(&at) else {
+        return failed(format!("{} does not read", at.display()));
+    };
+    let folder = at.parent().unwrap_or(&at);
+    match vault::promote(&project.root, folder, &report, hypothesis) {
+        Ok(path) => {
+            println!("{hypothesis}'s exploit copied to {path}");
+            ExitCode::SUCCESS
+        }
+        Err(why) => failed(why),
+    }
+}
+
 /// `devflow attack`: the attack tool's answer, printed as JSON.
 fn attacking(
     root: &std::path::Path,
@@ -298,6 +355,19 @@ fn main() -> ExitCode {
         Command::Payloads { action } => payloads(&root, action),
         Command::Status { attack: false } => status(&root),
         Command::Status { attack: true } => attack_status(&root),
+        Command::Attack {
+            item, promote, run, ..
+        } if item == "promote" => match promote.as_slice() {
+            [subject, hypothesis] => promoting(&root, subject, hypothesis, run.as_deref()),
+            _ => {
+                eprintln!("devflow attack promote <item or range> <hypothesis> [--run RUN]");
+                ExitCode::FAILURE
+            }
+        },
+        Command::Attack { promote, .. } if !promote.is_empty() => {
+            eprintln!("devflow attack takes one item; `devflow attack promote` takes two");
+            ExitCode::FAILURE
+        }
         Command::Attack {
             item,
             report: Some(run),

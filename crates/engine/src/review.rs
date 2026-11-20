@@ -28,12 +28,37 @@ use crate::scale::{self, Sized};
 
 /// The fields the tool takes; `project` is an orchestrator's, as on every
 /// board tool.
-pub const FIELDS: [&str; 11] = [
+pub const FIELDS: [&str; 12] = [
     "card", "base", "head", "pr", "path", "criteria", "run", "reports", "previous", "verified",
-    "mode",
+    "mode", "axes",
 ];
 /// The fields of a review without a card, which a card's refuses.
-pub const WITHOUT_CARD: [&str; 5] = ["head", "pr", "path", "criteria", "mode"];
+pub const WITHOUT_CARD: [&str; 6] = ["head", "pr", "path", "criteria", "mode", "axes"];
+
+/// The axes a review without a card may be held to: `security` reads only
+/// the security axis, and nothing waits on spec or standards.
+pub const AXES: [&str; 3] = ["spec", "standards", "security"];
+
+/// `axes`, each an axis word, as the personas that read them.
+pub fn axes_asked(said: Option<&Value>) -> Result<Vec<String>, String> {
+    let list = match said {
+        None | Some(Value::Null) => return Ok(Vec::new()),
+        Some(Value::Array(list)) if !list.is_empty() => list,
+        Some(_) => return Err(format!("`axes` is a list of {}", AXES.join(", "))),
+    };
+    let mut personas: Vec<String> = Vec::new();
+    for one in list {
+        let word = one.as_str().unwrap_or_default();
+        if !AXES.contains(&word) {
+            return Err(format!("`{word}` is not an axis: {}", AXES.join(", ")));
+        }
+        let persona = format!("devflow-{word}");
+        if !personas.contains(&persona) {
+            personas.push(persona);
+        }
+    }
+    Ok(personas)
+}
 fn shape(said: &Dialect) -> String {
     format!(
         "{{ {}, base?, previous?, run?, reports?: [one findings object per persona you reviewed], verified?: [{{ finding, result, evidence }}] }}, or without {} {{ pr | base and head | path, criteria?, mode?: retro with base and head, run?, reports? }}",
@@ -76,6 +101,9 @@ pub struct Asked {
     /// The PoCs the session ran on `run`'s critical and high findings, each
     /// naming its finding by its place in findings.json.
     pub verified: Vec<Value>,
+    /// The personas of the axes a review without a card is held to; all of
+    /// them when empty.
+    pub axes: Vec<String>,
 }
 
 /// The tool's input, refused with what it takes when it is not that.
@@ -141,6 +169,7 @@ pub fn asked_in(dialect: &Dialect, params: &Value) -> Result<Asked, String> {
                 reports,
                 previous,
                 verified,
+                axes: Vec::new(),
             }),
             _ => Err("pass `verified` with `run` and without `reports`".to_owned()),
         };
@@ -159,6 +188,7 @@ pub fn asked_in(dialect: &Dialect, params: &Value) -> Result<Asked, String> {
         reports,
         previous,
         verified,
+        axes: Vec::new(),
     })
 }
 
@@ -194,7 +224,7 @@ pub(crate) fn handed_back(
 }
 
 /// `verified`, each held to `{ finding, result, evidence }`.
-fn verified_asked(given: Option<&Value>) -> Result<Vec<Value>, String> {
+pub(crate) fn verified_asked(given: Option<&Value>) -> Result<Vec<Value>, String> {
     let list = match given {
         None | Some(Value::Null) => return Ok(Vec::new()),
         Some(Value::Array(list)) if list.len() <= findings::MOST_FINDINGS => list,
@@ -248,6 +278,81 @@ pub fn pending(answered: &[Source], scaled: bool) -> Vec<String> {
         return vec![scale::ALL_AXES.to_owned()];
     }
     left
+}
+
+/// A retro review's report: each finding confirmed, not confirmed or not
+/// run, by the PoC the session ran on it, with where its exploit is; as a
+/// list and as markdown.
+pub fn retro_report(findings_json: &Value) -> (Vec<Value>, String) {
+    let mut listed = Vec::new();
+    let mut markdown = String::from("# Retro report\n\n");
+    for (at, finding) in findings_json["findings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .enumerate()
+    {
+        let verified = &finding["verified"];
+        let status = match verified["result"].as_str() {
+            Some("confirmed") => "confirmed",
+            Some("refuted") => "not confirmed",
+            _ => "not run",
+        };
+        let exploit = verified["test"]
+            .as_str()
+            .filter(|test| !test.trim().is_empty())
+            .map(str::to_owned);
+        let text = |key: &str| finding[key].as_str().unwrap_or_default().replace('\n', " ");
+        markdown.push_str(&format!(
+            "- [{status}] {} {}:{} {} (finding {at}); exploit: {}\n",
+            text("severity"),
+            text("file"),
+            finding["line"].as_i64().unwrap_or(1),
+            text("title"),
+            exploit.as_deref().unwrap_or("none")
+        ));
+        listed.push(json!({
+            "finding": at, "title": finding["title"], "severity": finding["severity"],
+            "file": finding["file"], "line": finding["line"], "status": status, "exploit": exploit,
+        }));
+    }
+    (listed, markdown)
+}
+
+/// [`pending`] held to `axes`: only their personas wait on the session.
+fn pending_in(answered: &[Source], scaled: bool, axes: &[String]) -> Vec<String> {
+    if axes.is_empty() {
+        return pending(answered, scaled);
+    }
+    axes.iter()
+        .filter(|persona| !answered.iter().any(|source| source.persona == **persona))
+        .cloned()
+        .collect()
+}
+
+/// The readers held to `axes`: a reader of every axis reads the one asked,
+/// a reader of another axis is left out, and so is the analysis.
+fn readers_in(readers: Vec<models::Reader>, axes: &[String]) -> Vec<models::Reader> {
+    if axes.is_empty() {
+        return readers;
+    }
+    let mut kept: Vec<models::Reader> = Vec::new();
+    for mut reader in readers
+        .into_iter()
+        .filter(|reader| reader.stage == "review")
+    {
+        if reader.reviewer.persona == scale::ALL_AXES && axes.len() == 1 {
+            reader.reviewer.persona = axes[0].clone();
+        }
+        let same = |had: &models::Reader| {
+            had.reviewer.agent == reader.reviewer.agent
+                && had.reviewer.persona == reader.reviewer.persona
+        };
+        if axes.contains(&reader.reviewer.persona) && !kept.iter().any(same) {
+            kept.push(reader);
+        }
+    }
+    kept
 }
 
 /// Where a persona is looked for after the project's own: each team layer
@@ -1049,6 +1154,8 @@ pub struct Done {
     pub verify: Verify,
     /// A retro review's: its code is already in production.
     pub retro: bool,
+    /// The personas of the axes it is held to; all when empty.
+    pub axes: Vec<String>,
 }
 
 impl Done {
@@ -1085,6 +1192,8 @@ struct Record {
     touched: Option<findings::Touched>,
     scale: Option<Sized>,
     retro: bool,
+    /// The personas of the axes the review is held to; all when empty.
+    axes: Vec<String>,
 }
 
 /// An answer to a retro review, refused when a defect it follows up says
@@ -1204,11 +1313,14 @@ fn reviewed_anew(given: &Given) -> Result<(String, PathBuf, Record), String> {
         git.files,
         git.diff,
     );
-    let readers = models::readers(
-        given.config,
-        scale.as_ref().is_some_and(|scale| scale.one),
-        git.files,
-        git.diff,
+    let readers = readers_in(
+        models::readers(
+            given.config,
+            scale.as_ref().is_some_and(|scale| scale.one),
+            git.files,
+            git.diff,
+        ),
+        &given.asked.axes,
     );
     // With a project's overlay, what each reader read, by digest: the run
     // can be read again as it was.
@@ -1257,6 +1369,7 @@ fn reviewed_anew(given: &Given) -> Result<(String, PathBuf, Record), String> {
         touched,
         scale,
         retro: given.retro,
+        axes: given.asked.axes.clone(),
     };
     for (reader, outcome) in readers.iter().zip(outcomes) {
         let reviewer = &reader.reviewer;
@@ -1351,6 +1464,16 @@ fn reviewed_again(given: &Given, run: &str) -> Result<(String, PathBuf, Record),
         }),
         // The run says what it is: a hand-back that leaves `mode` out is still retro.
         retro: given.retro || kept["mode"] == "retro",
+        // And which axes it is held to, though the hand-back leaves them out.
+        axes: kept["axes"]
+            .as_array()
+            .map(|list| {
+                list.iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_owned)
+                    .collect()
+            })
+            .unwrap_or_else(|| given.asked.axes.clone()),
     };
     for mut one in ran {
         let answer = one.file.as_deref().and_then(|file| read_json(&path, file));
@@ -1640,9 +1763,10 @@ pub fn reviewed(given: &Given) -> Result<Done, String> {
         .filter(|ran| ran.file.is_some() && ran.stage.is_none())
         .map(Ran::source)
         .collect();
-    let pending = pending(
+    let pending = pending_in(
         &by_axes,
         record.scale.as_ref().is_some_and(|scale| scale.one),
+        &record.axes,
     );
     // The session's subagents read each persona as this project resolves it,
     // beside the packet: the project keeps no copy of devpit's.
@@ -1787,6 +1911,7 @@ pub fn reviewed(given: &Given) -> Result<Done, String> {
         scale: record.scale,
         verify: given.config.review.verify,
         retro: record.retro,
+        axes: record.axes,
     };
     write(&path, RECORD, &pretty(&recorded(&done)))?;
     Ok(done)
@@ -1874,6 +1999,7 @@ fn verified(given: &Given, stamp: String, path: &Path, record: Record) -> Result
         scale: record.scale,
         verify: given.config.review.verify,
         retro: record.retro,
+        axes: record.axes,
     })
 }
 
@@ -1919,6 +2045,9 @@ pub fn recorded(done: &Done) -> Value {
     }
     if done.retro {
         recorded["mode"] = json!("retro");
+    }
+    if !done.axes.is_empty() {
+        recorded["axes"] = json!(done.axes);
     }
     recorded
 }

@@ -1918,3 +1918,96 @@ fn an_overlay_adds_to_a_persona_and_takes_no_rule_away() {
     let line = persona_line("devflow-security", &overlaid);
     assert!(line.contains(sum) && line.contains(&plain.base), "{line}");
 }
+
+#[test]
+fn a_retro_report_says_each_finding_confirmed_not_confirmed_or_not_run_and_where_its_exploit_is() {
+    let findings = json!({ "findings": [
+        { "title": "Forged session", "severity": "high", "file": "src/auth.rs", "line": 12,
+          "verified": { "result": "confirmed", "evidence": "red", "test": "/cache/vault/r/exploits/f0/forged.rs" } },
+        { "title": "Open redirect", "severity": "medium", "file": "src/web.rs", "line": 3,
+          "verified": { "result": "refuted", "evidence": "green" } },
+        { "title": "Path in a log", "severity": "low", "file": "src/log.rs", "line": 7 },
+    ] });
+    let (listed, markdown) = retro_report(&findings);
+    let statuses: Vec<&str> = listed
+        .iter()
+        .map(|one| one["status"].as_str().unwrap_or_default())
+        .collect();
+    assert_eq!(statuses, ["confirmed", "not confirmed", "not run"]);
+    assert_eq!(listed[0]["exploit"], "/cache/vault/r/exploits/f0/forged.rs");
+    assert!(listed[1]["exploit"].is_null());
+    assert!(markdown.contains("- [confirmed] high src/auth.rs:12 Forged session (finding 0); exploit: /cache/vault/r/exploits/f0/forged.rs"), "{markdown}");
+    assert!(
+        markdown.contains("- [not run] low src/log.rs:7 Path in a log (finding 2); exploit: none")
+    );
+}
+
+/// A retro held to the security axis reads only it: a reader of every axis
+/// reads security, and nothing waits on spec or standards, nor when the
+/// session hands its PoC runs back.
+#[cfg(unix)]
+#[test]
+fn a_security_only_retro_reads_only_security_and_records_verified_alone() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let root = dir.path();
+    let mut shell = finding("src/app.rs", 1, "high", "Shell injection in open");
+    shell["impact"] = json!("grep -c 'xdg-open' in the app's logs since the deploy");
+    let said = answer("claude", "devflow-security", vec![shell]);
+    let cli = fake_cli(root, "claude-fake", &said, "{}", "0");
+    let reach = move |agent: Agent| match agent {
+        Agent::Claude => Ok(cli.clone()),
+        _ => Err("not installed".to_owned()),
+    };
+    let config = config_with(
+        vec![reviewer(Agent::Claude, "devflow-all")],
+        Consolidate::Nothing,
+    );
+    let mut security = fresh();
+    security.axes = axes_asked(Some(&json!(["security"]))).expect("axes");
+    let ran = Ran {
+        root,
+        config: &config,
+        asked: security,
+        reach: &reach,
+        jev: None,
+    };
+    let done = ran.retro().expect("reviewed");
+    assert_eq!(
+        std::fs::read_to_string(root.join("claude-fake.persona")).expect("persona read"),
+        "devflow-security",
+        "the reader of every axis read security"
+    );
+    assert!(
+        done.pending.is_empty(),
+        "nothing waits on spec or standards: {:?}",
+        done.pending
+    );
+    let record =
+        std::fs::read_to_string(std::path::Path::new(&done.folder).join(RECORD)).expect("record");
+    assert!(record.contains("\"axes\""), "{record}");
+    let mut verified_asked = asked(&json!({ "card": "card_1", "run": done.stamp,
+        "verified": [{ "finding": 0, "result": "confirmed", "evidence": "red in the vault", "test": "/vault/f0/open.rs" }] }))
+    .expect("asked");
+    verified_asked.axes.clear();
+    let verified = Ran {
+        root,
+        config: &config,
+        asked: verified_asked,
+        reach: &reach,
+        jev: None,
+    }
+    .retro()
+    .expect("verified");
+    let kept = verified.findings.as_ref().expect("findings.json");
+    assert_eq!(kept["findings"][0]["verified"]["result"], "confirmed");
+    assert_eq!(kept["verdict"], "follow_up");
+    assert!(verified.pending.is_empty(), "{:?}", verified.pending);
+    assert_eq!(
+        verified.axes,
+        ["devflow-security"],
+        "the run keeps its axes"
+    );
+    for wrong in [json!(["secrity"]), json!([]), json!("security")] {
+        assert!(axes_asked(Some(&wrong)).is_err(), "{wrong}");
+    }
+}

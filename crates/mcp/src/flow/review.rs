@@ -274,9 +274,9 @@ fn worktree_of(root: &Path, path: &str) -> Result<PathBuf, String> {
 }
 
 /// A detached worktree, removed when the review is done with it.
-struct Detached<'a> {
-    root: &'a Path,
-    at: PathBuf,
+pub(crate) struct Detached<'a> {
+    pub(crate) root: &'a Path,
+    pub(crate) at: PathBuf,
 }
 
 impl Drop for Detached<'_> {
@@ -414,7 +414,8 @@ pub fn standalone(
         run: asked.run.clone(),
         reports: asked.reports.clone(),
         previous: None,
-        verified: Vec::new(),
+        verified: asked.verified.clone(),
+        axes: asked.axes.clone(),
     };
     let done = review::reviewed(&Given {
         root: &reading,
@@ -464,6 +465,18 @@ pub fn standalone(
         fields.remove("card");
     }
     answer["reviewed"] = json!(label);
+    let held_to_security = done.axes.iter().any(|axis| axis == "devflow-security");
+    if done.retro {
+        // Each finding as the session's PoC left it, and where its exploit is.
+        if let Some(findings) = &done.findings {
+            let (listed, markdown) = review::retro_report(findings);
+            let at = std::path::Path::new(&done.folder).join("retro-report.md");
+            if let Err(err) = std::fs::write(&at, markdown) {
+                answer["report_error"] = json!(format!("{}: {err}", at.display()));
+            }
+            answer["report"] = json!(listed);
+        }
+    }
     answer["next"] = json!(adhoc::next(
         &asked.subject,
         &label,
@@ -472,6 +485,22 @@ pub fn standalone(
         read_detached.as_deref(),
         done.retro
     ));
+    let unproven = done.findings.as_ref().is_some_and(|findings| {
+        findings["findings"]
+            .as_array()
+            .is_some_and(|list| list.iter().any(|one| one.get("verified").is_none()))
+    });
+    if done.retro && held_to_security && done.pending.is_empty() && unproven {
+        // The exploits of code in production stay out of the repository.
+        let vault = std::path::Path::new(&done.folder).join("exploits");
+        answer["vault"] = json!(vault.display().to_string());
+        answer["next"] = json!(format!(
+            "Prove the retro (devflow-review): for each finding of findings.json, write its exploit test under {} (outside the repository, one folder per finding), run it, then call review with {}, run \"{}\" and verified: one {{ finding, result, evidence, test: the exploit's path }} each. Never write it into the checkout: `devflow attack promote` brings an attack's exploit in once its fix lands.",
+            vault.display(),
+            asked.subject.again(),
+            done.stamp
+        ));
+    }
     Ok(answer)
 }
 

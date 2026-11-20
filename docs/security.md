@@ -94,6 +94,19 @@ devflow config set security.targets '["http://localhost:8080"]'
   model in its place.
 - Publish anything: findings stay in the run's files until the person acts.
 
+## A retro of code in production
+
+A range already merged can be reviewed for security alone: `review` with
+`base`, `head`, `mode: "retro"` and `axes: ["security"]`. Only the security
+reviewer reads it. The exploit tests that prove its findings are written to a
+vault, a folder in devflow's cache outside the repository, and its report
+says each finding confirmed, not confirmed or not run, with where its exploit
+is. An attack on a range (`attack` with `base` and `head`, no item) keeps its
+run and exploits in the same vault. `devflow attack promote <range>
+<hypothesis>` copies one exploit into the repository at its own path, refusing
+a path that leads out of it, and devflow refuses a vault that resolves inside
+the checkout.
+
 ## How to read the results
 
 Each PoC run the session records has a `result`:

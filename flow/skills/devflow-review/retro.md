@@ -22,3 +22,17 @@ query, never a write, a migration or a script left on a server. Tell the
 person what each showed. The draft from {{tool:publish}} carries one
 follow-up ticket per medium or worse finding, each defect with its `impact`,
 for the person to file.
+
+## Security only
+
+`axes: ["security"]` holds a retro to the security axis: only
+devflow-security reads it, and nothing waits on spec or standards. Its
+answer names a `vault`, a folder of the run outside the repository. Write
+each finding's exploit test there, one folder per finding, run it, and hand
+back `verified` (`finding`, `result`, `evidence`, `test`: the exploit's
+path). Never write an exploit into the checkout. The answer's `report`, and
+`retro-report.md` beside findings.json, say each finding confirmed, not
+confirmed or not run, with where its exploit is. An attack on the range
+(`attack` with `base` and `head` and no item) keeps its exploits in the
+project's vault the same way; `devflow attack promote <range> <hypothesis>`
+copies one into the repository at its path once its fix lands.

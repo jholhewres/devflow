@@ -31,7 +31,7 @@ pub const STATUSES: [&str; 4] = ["tried", "confirmed", "refuted", "not_run"];
 /// The most hypotheses one report keeps.
 pub const MOST_HYPOTHESES: usize = 50;
 /// The most of one exploit's code kept.
-const MOST_CODE: usize = 64 * 1024;
+pub(crate) const MOST_CODE: usize = 64 * 1024;
 /// The longest text field kept.
 const MOST_TEXT: usize = 2_000;
 /// The most review findings handed to the attacker as hypotheses.
@@ -864,12 +864,11 @@ fn turn(
     .map_err(|unreviewed| unreviewed.reason())
 }
 
-/// Runs the attacker on the item's change and keeps its report in a new run.
-pub fn attacked(given: &Given) -> Result<Done, String> {
-    let dialect: &Dialect = given.personas.dialect;
-    let budget = given.config.stages.attack.budget;
-    // A month's budget is never checked against a ledger it cannot read.
-    let runs_so_far = match crate::attack_metrics::read_ledger(&given.runs.home) {
+/// Refuses before anything is spent when the attacks in the ledger at
+/// `home` spent the month's budget; a ledger it cannot read refuses too,
+/// never counted as nothing spent. What the month spent so far, in dollars.
+pub fn month_left(home: &Path, budget: Budget, at: std::time::SystemTime) -> Result<f64, String> {
+    let runs_so_far = match crate::attack_metrics::read_ledger(home) {
         Ok(runs) => runs,
         Err(why) if budget.month_cents.is_some() => {
             return Err(format!(
@@ -880,18 +879,25 @@ pub fn attacked(given: &Given) -> Result<Done, String> {
     };
     let spent = crate::attack_metrics::spent_in(
         &runs_so_far,
-        crate::attack_metrics::month_of(&crate::runs::stamp(given.at)),
+        crate::attack_metrics::month_of(&crate::runs::stamp(at)),
     );
-    // Before anything is spent: a month past its budget runs nothing.
-    if let Some(month) = budget
+    match budget
         .month_cents
         .filter(|month| spent * 100.0 >= *month as f64)
     {
-        return Err(format!(
+        Some(month) => Err(format!(
             "the attack's month budget is spent: US$ {spent:.2} of US$ {:.2} (stages.attack.budget.month_usd); raise it, or wait for next month",
             Budget::usd(month)
-        ));
+        )),
+        None => Ok(spent),
     }
+}
+
+/// Runs the attacker on the item's change and keeps its report in a new run.
+pub fn attacked(given: &Given) -> Result<Done, String> {
+    let dialect: &Dialect = given.personas.dialect;
+    let budget = given.config.stages.attack.budget;
+    let spent = month_left(&given.runs.home, budget, given.at)?;
     // What an earlier attack of the item refuted, before this run is made.
     let earlier = earlier_report(given.runs, given.card.id);
     let refuted = still_refuted(earlier.as_ref(), given.git.files);

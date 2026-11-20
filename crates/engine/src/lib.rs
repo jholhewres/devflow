@@ -57,6 +57,7 @@ pub mod setup;
 pub mod skills;
 pub mod stage;
 pub mod started;
+pub mod vault;
 pub mod verdict;
 pub mod work;
 

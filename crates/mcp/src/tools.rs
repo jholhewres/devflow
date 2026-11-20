@@ -131,6 +131,7 @@ pub static TOOLS: [Tool; 19] = [
             "path": { "type": "string", "description": "Without an item: a worktree of this project, reviewed at its own HEAD." },
             "criteria": { "type": "array", "items": { "type": "string" }, "description": "Without an item: what the change is held to, one line each." },
             "mode": { "type": "string", "enum": ["retro"], "description": "Without an item, with `base` and `head`: the range is already merged and in production, so it is followed up, never held." },
+            "axes": { "type": "array", "items": { "enum": ["spec", "standards", "security"] }, "description": "Without an item: the axes it is held to. [\"security\"] reads only security, nothing waits on spec or standards, and a retro's exploits are written to its vault, outside the repository." },
             "previous": { "type": "string", "description": "After fixing a review's blocking findings: that review's run. The reviewers read only what changed since its HEAD." },
             "run": { "type": "string", "description": "The run a first call answered, which `reports` complete." },
             "reports": { "type": "array", "items": { "type": "object" }, "description": "With `run`: one findings object for each persona in `pending` that you reviewed, as devflow-findings.schema.json beside the run's packet describes." },
@@ -147,10 +148,12 @@ pub static TOOLS: [Tool; 19] = [
     },
     Tool {
         name: "attack",
-        description: "The attack stage on a work item, after its review: devflow-security tries to exploit the change headless on the first reviewer's CLI (stages.attack.model, large unless said), from the review's packet and its security findings, and answers with hypotheses, each tried, confirmed, refuted or not_run with its reason. Keeps attack.json in a run of the item, with each exploit's code in the run's exploits/ folder, never the checkout, and comments the item. Only a run of an exploit test confirms: with `run` and `verified`, what each exploit run showed is kept on its hypothesis. A confirmed hypothesis in review.block_on holds the item, and every confirmed exploit test must be green in the newest evidence from then on. stages.attack.run (review.attack is its older name) says when it is due: sensitive (the default), per-item, release (asked by name) or off. Takes as long as the attacker does.",
+        description: "The attack stage on a work item, after its review, or on a range with `base` and `head` and no item, whose run and exploits are kept in the project's vault outside the checkout: devflow-security tries to exploit the change headless on the first reviewer's CLI (stages.attack.model, large unless said), from the review's packet and its security findings, and answers with hypotheses, each tried, confirmed, refuted or not_run with its reason. Keeps attack.json in a run of the item, with each exploit's code in the run's exploits/ folder, never the checkout, and comments the item. Only a run of an exploit test confirms: with `run` and `verified`, what each exploit run showed is kept on its hypothesis. A confirmed hypothesis in review.block_on holds the item, and every confirmed exploit test must be green in the newest evidence from then on. stages.attack.run (review.attack is its older name) says when it is due: sensitive (the default), per-item, release (asked by name) or off. Takes as long as the attacker does.",
         input: || json!({ "type": "object", "properties": {
             "item": item_field(),
             "base": { "type": "string", "description": "The branch or commit the diff starts from, when it is not where the item started or the default branch." },
+            "head": { "type": "string", "description": "Without `item`, with `base`: attack the range base..head. Its run and each exploit are kept in the project's vault, outside the checkout, for `devflow attack promote`." },
+            "mode": { "type": "string", "enum": ["retro"], "description": "With a range: it is already merged and in production, so what it confirms is followed up." },
             "run": { "type": "string", "description": "The attack's run, which `verified` completes or `prove` proves." },
             "prove": { "type": "boolean", "description": "With `run`, once fixed: run each confirmed exploit again in the sandbox at the commit it was confirmed on (red, the hole shown) and at HEAD (green, the hole shut), and keep the proof on its hypothesis. The gate closes a hypothesis the sandbox confirmed only on that proof." },
             "verified": { "type": "array", "items": { "type": "object", "properties": {
@@ -160,7 +163,7 @@ pub static TOOLS: [Tool; 19] = [
                 "test": { "type": "string", "description": "The exploit test, as the runner names it: a confirmed hypothesis names one, and it must then stay green." },
                 "target": { "type": "string", "description": "The URL the exploit ran against, when it reached a running instance: one of the targets in force, or the call is refused." }
             }, "required": ["hypothesis", "result", "evidence"] }, "description": "With `run`: what each exploit run showed." }
-        }, "required": ["item"] }),
+        } }),
         call: attack::attack,
     },
     Tool {

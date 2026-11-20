@@ -37,7 +37,121 @@ pub fn attack(server: &Server, params: Value) -> Result<Value, String> {
     let project = server.project();
     let state = project.read();
     let config = super::config_for(&project, &state, &server.consent, "attack")?;
+    if item_of(&params).is_none() && super::text(&params, "head").is_some() {
+        return on_range(&project, config, &params, &super::review::reach);
+    }
     on_item(server, &project, config, &params, &super::review::reach)
+}
+
+/// The attack on a range with no item: its run and each exploit kept in the
+/// project's vault, outside the checkout, under the range's name.
+pub fn on_range(
+    project: &Project,
+    config: &Config,
+    params: &Value,
+    reach: devflow_engine::review::Reach,
+) -> Result<Value, String> {
+    use devflow_engine::adhoc::{self, Subject};
+    use devflow_engine::git;
+    let said = |err: git::GitError| err.to_string();
+    let revision = |key: &str| -> Result<String, String> {
+        match super::text(params, key) {
+            Some(word) if git::plain_revision(&word) => Ok(word),
+            Some(_) => Err(format!("`{key}` is a branch or a commit")),
+            None => Err("a range is attacked with `base` and `head`".to_owned()),
+        }
+    };
+    let (base, head) = (revision("base")?, revision("head")?);
+    if super::text(params, "run").is_some() || params.get("verified").is_some() {
+        return Err("a range's attack runs once: its exploits wait in the vault for `devflow attack promote`".to_owned());
+    }
+    let root = project.root.as_path();
+    let head = git::commit_of(root, &head).map_err(said)?;
+    let base = git::merge_base(root, &base, &head).map_err(said)?;
+    let label = adhoc::label(
+        &Subject::Range {
+            base: base.clone(),
+            head: head.clone(),
+        },
+        &base,
+        &head,
+    );
+    let home = devflow_engine::vault::home(&project.cache(), root)?;
+    let runs = devflow_engine::vault::runs(home, root);
+    let at = SystemTime::now();
+    // One month's budget for the project's attacks, with or without an item.
+    let budget = config.stages.attack.budget;
+    attack::month_left(&project.runs().home, budget, at)?;
+    let tree = project.review_trees().join(format!(
+        "attack-{label}-{}",
+        devflow_engine::runs::stamp(at)
+    ));
+    git::add_detached(root, &tree, &head).map_err(said)?;
+    let detached = super::review::Detached {
+        root,
+        at: tree.clone(),
+    };
+    let read = git::review_diff(&tree, &base, &head).map_err(said)?;
+    if read.files.is_empty() || read.diff.trim().is_empty() {
+        return Err(format!("nothing to attack: {base}..{head} changes nothing"));
+    }
+    let teams = project.teams();
+    let personal = project::personal_reviewers();
+    let redacting = |text: &str| redact(text);
+    let title = format!(
+        "{}..{}",
+        &base[..12.min(base.len())],
+        &head[..12.min(head.len())]
+    );
+    let done = attack::attacked(&Given {
+        root: &tree,
+        runs: &runs,
+        config,
+        card: Card {
+            id: &label,
+            title: &title,
+            body: "",
+        },
+        git: Git {
+            base: &base,
+            head: &head,
+            files: &read.files,
+            diff: &read.diff,
+        },
+        brief: None,
+        evidence: None,
+        review: None,
+        env: &super::review::standalone_env(),
+        at,
+        budget: BUDGET,
+        reach,
+        redact: &redacting,
+        personas: Personas {
+            dialect: &devflow_engine::Dialect::DEVFLOW,
+            personal: personal.as_deref(),
+            teams: &teams,
+        },
+        retro: super::text(params, "mode").as_deref() == Some("retro"),
+        scratch: Some(&project.cache().join("trees")),
+    });
+    drop(detached);
+    let done = done?;
+    // Counted in the project's ledger too, where the month is read.
+    let _ = devflow_engine::attack_metrics::record(
+        &project.runs().home,
+        &label,
+        &done.stamp,
+        &done.report,
+    );
+    let folder = std::path::PathBuf::from(&done.folder);
+    let mut answer = with_files(&folder, &done.report, attack::summary(&done));
+    answer["attacked"] = json!(label);
+    answer["vault"] = json!(done.folder);
+    answer["next"] = json!(format!(
+        "The exploits stay in the vault, outside the repository. `devflow attack promote {label} <hypothesis> --run {}` copies one into the repository at its path, once its fix lands.",
+        done.stamp
+    ));
+    Ok(answer)
 }
 
 /// The `verified` the session sends: what each exploit run showed.
