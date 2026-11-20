@@ -204,12 +204,16 @@ const INSIDE: [&str; 9] = [
 ];
 
 /// Whether `label`, a last label, names a real place or an inside one: any
-/// two-letter country's, delegated or not yet, any written in Unicode (as
-/// every IDN one IANA delegates is), IANA's, or an inside name. A file's or
-/// a call's name ending in one is refused too: never guessed at.
+/// two-letter country's, delegated or not yet, IANA's, or an inside name. A
+/// label in Unicode is judged as the ASCII one DNS resolves (`рф` as
+/// `xn--p1ai`), and one that has none counts as a place. A file's or a
+/// call's name ending in one is refused too: never guessed at.
 fn top_level(label: &str) -> bool {
-    !label.is_ascii()
-        || (label.len() == 2 && label.chars().all(|ch| ch.is_ascii_alphabetic()))
+    if !label.is_ascii() {
+        return idna::domain_to_ascii(label)
+            .map_or(true, |ascii| ascii.is_empty() || top_level(&ascii));
+    }
+    (label.len() == 2 && label.chars().all(|ch| ch.is_ascii_alphabetic()))
         || INSIDE.contains(&label)
         || TLDS
             .lines()

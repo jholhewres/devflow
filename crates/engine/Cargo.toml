@@ -21,6 +21,9 @@ yaml-rust2 = { version = "0.13.0", default-features = false }
 
 # JUnit reports.
 quick-xml = "0.41"
+# A name in Unicode, read as the ASCII one DNS resolves: already in the
+# tree through the CLI's HTTP client.
+idna = "1.1"
 
 [target.'cfg(unix)'.dependencies]
 # A check's shell leads a process group of its own, ended together.
