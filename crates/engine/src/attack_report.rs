@@ -57,15 +57,14 @@ impl Format {
     }
 }
 
-/// What a report knows besides itself: the paths devflow found in the
-/// checkout when the attack ran.
+/// What a report knows besides itself: the paths the commit attacked has.
 #[derive(Debug, Default, Clone)]
 pub struct Known {
     pub files: BTreeSet<String>,
 }
 
 impl Known {
-    /// The paths `report` says devflow found in the checkout.
+    /// The paths `report` says the commit attacked has.
     pub fn of(report: &Value) -> Known {
         Known {
             files: report["in_repo"]
@@ -377,9 +376,9 @@ fn tool_name(value: &Value) -> Value {
     }
 }
 
-/// A repository path, only one devflow found in the checkout when the
-/// attack ran: what the attack names that is not there is its own word,
-/// and may be anything. Found or not, it is relative, with no `..`, nothing
+/// A repository path, only one the commit attacked has (`in_repo`): what
+/// the attack names that is not there, a file it had written since
+/// included, is its own word and may be anything. Found or not, it is relative, with no `..`, nothing
 /// that ends a cell or a code span, and no part shaped like a secret.
 fn repo_path(value: &Value, known: &Known) -> Value {
     let Some(file) = value.as_str() else {

@@ -1440,6 +1440,25 @@ fn an_attack_on_a_flow_reads_both_sides_and_names_each_sides_fix() {
         std::fs::write(at, text).expect("file");
     }
     let checkout = root.join("api");
+    // The project's own checkout is a repository whose commit is attacked;
+    // a file written into it after that commit is not one of its files.
+    std::fs::remove_dir_all(checkout.join(".git")).expect("no fake git");
+    git(&checkout, &["init", "-q"]);
+    git(&checkout, &["config", "user.email", "test@example.invalid"]);
+    git(&checkout, &["config", "user.name", "Test"]);
+    git(&checkout, &["config", "commit.gpgsign", "false"]);
+    git(&checkout, &["add", "-A"]);
+    git(&checkout, &["commit", "-q", "-m", "first"]);
+    let head = std::process::Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(&checkout)
+        .output()
+        .expect("head");
+    let head = String::from_utf8(head.stdout)
+        .expect("utf-8")
+        .trim()
+        .to_owned();
+    std::fs::write(checkout.join("src/written-later.ts"), "x").expect("later");
     let manifest = json!({ "root": "..", "repositories": { "api": "api", "worker": "worker" },
         "flows": [{ "name": "jobs",
             "writer": { "repo": "api", "path": "src/publish.ts" },
@@ -1463,7 +1482,9 @@ fn an_attack_on_a_flow_reads_both_sides_and_names_each_sides_fix() {
               "fixes": [
                   { "repo": "api", "fix": "send the upload's id, never a path" },
                   { "repo": "worker", "fix": "read only under the jobs folder" },
-                  { "repo": "elsewhere", "fix": "nothing" } ] } ] }),
+                  { "repo": "elsewhere", "fix": "nothing" } ] },
+            { "id": "h2", "title": "a file the attack wrote", "class": "traversal", "file": "src/written-later.ts", "line": 1,
+              "severity": "low", "status": "refuted", "reason": "shown on paper" } ] }),
     );
     let reach =
         move |_: config::Agent| -> Result<String, String> { Ok(claude.display().to_string()) };
@@ -1480,7 +1501,7 @@ fn an_attack_on_a_flow_reads_both_sides_and_names_each_sides_fix() {
         },
         git: devflow_engine::review::Git {
             base: "b4se",
-            head: "he4d",
+            head: &head,
             files: &files,
             diff: DIFF,
         },
@@ -1521,7 +1542,7 @@ fn an_attack_on_a_flow_reads_both_sides_and_names_each_sides_fix() {
     assert_eq!(
         done.report["in_repo"],
         json!(["src/publish.ts"]),
-        "the paths devflow found in the checkout"
+        "the files of the commit attacked, not one written since"
     );
     let known = devflow_engine::attack_report::Known::of(&done.report);
     assert!(known.files.contains("src/publish.ts"));

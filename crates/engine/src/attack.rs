@@ -1044,15 +1044,18 @@ fn scanner_answered(answer: &Value) -> Vec<Value> {
 /// Each scanner finding with the attacker's word on it: reachable, with its
 /// call path and fix; unreachable; or `null` when it said nothing.
 /// The paths hypotheses and scanner findings name that are files of the
-/// checkout, which a report shows as they are.
-fn in_repo(root: &Path, hypotheses: &[Value], scanner: &[Value]) -> Vec<String> {
+/// commit attacked, which a report shows as they are: what the attack wrote
+/// into the checkout since, an exploit's own path above all, is not one.
+fn in_repo(root: &Path, head: &str, hypotheses: &[Value], scanner: &[Value]) -> Vec<String> {
+    let exploits: Vec<&str> = hypotheses
+        .iter()
+        .filter_map(|one| one["exploit"]["path"].as_str())
+        .collect();
     let mut found: Vec<String> = hypotheses
         .iter()
         .chain(scanner)
         .filter_map(|one| one["file"].as_str())
-        .filter(|file| {
-            !file.is_empty() && crate::fsguard::resolve(root, file).is_ok_and(|at| at.is_file())
-        })
+        .filter(|file| !exploits.contains(file) && crate::git::has_file_at(root, head, file))
         .map(str::to_owned)
         .collect();
     found.sort();
@@ -1357,7 +1360,7 @@ pub fn attacked(given: &Given) -> Result<Done, String> {
         "proposed_cases": cases,
         "flow": given.flow.map(|flowed| json!({ "name": flowed.name, "repos": flowed.repos })),
         "scanner": scanner_reached(&scanner, &scanner_said),
-        "in_repo": in_repo(given.root, &hypotheses, &scanner),
+        "in_repo": in_repo(given.root, given.git.head, &hypotheses, &scanner),
         "scanner_left_out": scanner_left_out(given.evidence),
         "dropped_cases": dropped_cases,
         "threat_model": threat,

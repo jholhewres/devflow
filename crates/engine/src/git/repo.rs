@@ -298,6 +298,18 @@ pub fn code_changed_between(root: &Path, from: &str, to: &str) -> Result<bool, G
     Ok(!names(&raw).is_empty())
 }
 
+/// Whether `commit` has `path` as a file: what the repository carried
+/// there, never a file written into the checkout since.
+pub fn has_file_at(root: &Path, commit: &str, path: &str) -> bool {
+    super::plain_revision(commit)
+        && !path.is_empty()
+        && !path.starts_with('/')
+        && !path.split('/').any(|part| part == "..")
+        && run(root, &["cat-file", "-e", &format!("{commit}:{path}")]).is_ok()
+        && run(root, &["cat-file", "-t", &format!("{commit}:{path}")])
+            .is_ok_and(|kind| kind.trim() == "blob")
+}
+
 /// How many lines `path` has at `commit`: `None` when the commit has no such
 /// file. Refused past `most` bytes before it is read.
 pub fn lines_at(
