@@ -17,6 +17,7 @@ mod host;
 mod jev_cli;
 mod person;
 mod project;
+mod ready;
 mod register;
 mod server;
 mod setup_cli;

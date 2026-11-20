@@ -35,12 +35,20 @@ fn with_files(folder: &std::path::Path, report: &Value, mut answer: Value) -> Va
 
 pub fn attack(server: &Server, params: Value) -> Result<Value, String> {
     let project = server.project();
+    // What only the person gives is asked of them, never read from `params`.
+    let launching = super::text(&params, "run").is_none();
+    let asked = crate::ready::before_attack(server, &project, launching)?;
     let state = project.read();
     let config = super::config_for(&project, &state, &server.consent, "attack")?;
-    if item_of(&params).is_none() && super::text(&params, "head").is_some() {
-        return on_range(server, &project, config, &params, &super::review::reach);
+    let mut answer = if item_of(&params).is_none() && super::text(&params, "head").is_some() {
+        on_range(server, &project, config, &params, &super::review::reach)
+    } else {
+        on_item(server, &project, config, &params, &super::review::reach)
+    }?;
+    if let Some(asked) = asked {
+        answer["asked"] = asked;
     }
-    on_item(server, &project, config, &params, &super::review::reach)
+    Ok(answer)
 }
 
 /// The attack on a range with no item: its run and each exploit kept in the

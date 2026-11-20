@@ -1,6 +1,8 @@
 //! `status`, `setup` and `set`: the project's state with what was detected,
 //! a setup previewed and applied, and one field changed. Switching devflow
-//! on and moving Decisions to `enforce` are the person's, in a terminal.
+//! on and moving Decisions to `enforce` are the person's: in a terminal, or
+//! by their own answer to the question the `attack` tool asks them through
+//! the client.
 
 use std::path::Path;
 
@@ -40,7 +42,11 @@ pub fn next_step(state: &State, switched_on: bool, active: bool) -> String {
         }
         State::Missing => "`setup` previews one".to_owned(),
         State::Invalid(..) => "`set` fixes the field the error names".to_owned(),
-        State::Valid(..) => format!("the person runs `{ENABLE}` in a terminal"),
+        State::Valid(..) => format!(
+            "the person switches it on: the `attack` tool asks them when this client can ask \
+             (MCP elicitation); else they run `{}` or `{ENABLE}` in a terminal",
+            crate::ready::COMMAND
+        ),
     }
 }
 
@@ -70,6 +76,12 @@ pub fn status_of(project: &Project, server: &Server) -> Value {
     if let Some(layered) = project.layered() {
         said["teams"] = json!(layered.teams);
         said["stages_from"] = json!(layered.stages_from);
+    }
+    // How each of the person's yeses here came: a terminal, or their answer
+    // to the question asked through the client.
+    let given = server.consent.given(&project.root);
+    if !given.is_empty() {
+        said["consent"] = json!(given);
     }
     let note = match &state {
         State::Missing if switched_on => Some(
@@ -112,8 +124,12 @@ pub fn status_of(project: &Project, server: &Server) -> Value {
             }
             let waiting = (!switched_on).then(|| {
                 format!(
-                    "devflow is set up here but not switched on: the person runs `{ENABLE}` in a \
-                     terminal, which no tool does for them."
+                    "devflow is set up here but not switched on. devflow.yaml's `enabled` is the \
+                     file's switch (devpit's click writes it); devflow's own is kept on this \
+                     machine, and only the person sets it: by their answer when the `attack` \
+                     tool asks them through the client, or with `{}` or `{ENABLE}` in a \
+                     terminal. No tool argument does it for them.",
+                    crate::ready::COMMAND
                 )
             });
             [waiting, unread_note(&unread)]

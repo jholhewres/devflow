@@ -342,7 +342,7 @@ pub(crate) fn pins_after(after: &[String], shown: &[String], pins: &Pins, found:
 /// What a target new to this machine is shown with before the yes: what
 /// its name resolves to here (`found`), which is what an attack would reach
 /// and what is kept with the yes.
-fn shown(url: &str, found: &Pins) -> String {
+pub(crate) fn shown(url: &str, found: &Pins) -> String {
     use devflow_engine::security::target;
     match target(url) {
         Ok(one) if one.named => {

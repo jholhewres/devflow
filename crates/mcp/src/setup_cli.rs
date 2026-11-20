@@ -2,6 +2,8 @@
 //! registers devflow with each the person says yes to, previews a
 //! devflow.yaml for the project and writes it on a yes, switches devflow on
 //! there, and offers Decisions. Every step asks first, on a terminal.
+//! `devflow setup --attack` asks only what the attack needs, the question an
+//! MCP client that can ask shows the person, for a client that cannot.
 
 use std::path::Path;
 use std::process::ExitCode;
@@ -32,6 +34,27 @@ pub struct Wizard {
     /// Do not offer Decisions.
     #[arg(long)]
     no_jev: bool,
+    /// Only what the attack needs here, with one yes: devflow switched on,
+    /// the command that runs one exploit test, the sandbox and a budget,
+    /// each detected from the project; then the targets it may reach.
+    #[arg(long)]
+    attack: bool,
+    /// With --attack: the command that runs one exploit test, given its path
+    /// as $DEVFLOW_EXPLOIT, instead of the one detected.
+    #[arg(long, requires = "attack")]
+    test: Option<String>,
+    /// With --attack: auto, bwrap, docker or off.
+    #[arg(long, requires = "attack")]
+    sandbox: Option<String>,
+    /// With --attack: the image a docker sandbox runs the test in.
+    #[arg(long, requires = "attack")]
+    image: Option<String>,
+    /// With --attack: US$ one attack may spend.
+    #[arg(long, requires = "attack")]
+    run_usd: Option<f64>,
+    /// With --attack: US$ the month's attacks may spend.
+    #[arg(long, requires = "attack")]
+    month_usd: Option<f64>,
 }
 
 fn failed(why: &str) -> ExitCode {
@@ -47,6 +70,12 @@ pub fn run(root: &Path, how: &Wizard) -> ExitCode {
         ));
     };
     let consent = Consent::of_user();
+    if how.attack {
+        return match attack(root, how, &consent, &confirmed) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(why) => failed(&why),
+        };
+    }
     let steps: [(&str, bool); 3] = [
         ("tools", !how.no_register),
         ("project", !how.no_project),
@@ -68,6 +97,80 @@ pub fn run(root: &Path, how: &Wizard) -> ExitCode {
     }
     println!("Done. `devflow doctor` checks it all again.");
     ExitCode::SUCCESS
+}
+
+/// `devflow setup --attack`: the attack's question, shown with what was
+/// detected (or given as a flag), applied after one yes; the targets listed
+/// are asked on their own.
+fn attack(
+    root: &Path,
+    how: &Wizard,
+    consent: &Consent,
+    confirm: &dyn Fn(&str) -> Result<bool, String>,
+) -> Result<(), String> {
+    use serde_json::{json, Value};
+    let project = Project::at(root);
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    let wanted = crate::ready::wanted(&project, consent, &path, true)?;
+    if !wanted.needed() && !wanted.optional() {
+        println!("The attack has what it needs here: nothing to ask.");
+        return Ok(());
+    }
+    let (message, schema) = wanted.question(&project);
+    let mut answer = crate::ready::defaults(&schema);
+    let given: [(&str, Option<Value>); 5] = [
+        ("test", how.test.clone().map(Value::from)),
+        ("sandbox", how.sandbox.clone().map(Value::from)),
+        ("image", how.image.clone().map(Value::from)),
+        ("run_usd", how.run_usd.map(|usd| json!(usd))),
+        ("month_usd", how.month_usd.map(|usd| json!(usd))),
+    ];
+    for (name, value) in given {
+        if let Some(value) = value {
+            answer.insert(name.to_owned(), value);
+        }
+    }
+    let targets = answer.remove("targets");
+    let mut shown = schema.clone();
+    if let Some(fields) = shown["properties"].as_object_mut() {
+        fields.remove("targets");
+    }
+    println!("{}\n", crate::ready::shown(&message, &shown, &answer));
+    if !confirm("Apply it?")? {
+        println!("Nothing was written, and nothing was switched on.");
+        return Ok(());
+    }
+    if targets.is_some() {
+        let about = schema["properties"]["targets"]["description"]
+            .as_str()
+            .unwrap_or_default();
+        println!("\n{about}");
+        let yes = confirm("Allow these targets, on this machine?")?;
+        answer.insert("targets".to_owned(), Value::Bool(yes));
+    }
+    let applied = crate::ready::apply(
+        &project,
+        consent,
+        &wanted,
+        &answer,
+        crate::consent::How::Terminal,
+        std::time::SystemTime::now(),
+    )
+    .map_err(|not| not.to_string())?;
+    if applied.switched {
+        println!("devflow is on here.");
+    }
+    if !applied.set.is_empty() {
+        println!(
+            "Set in {}: {}. devflow never commits: it is yours to commit.",
+            project.layout().file,
+            applied.set.join(", ")
+        );
+    }
+    if !applied.targets.is_empty() {
+        println!("Targets allowed: {}", applied.targets.join(", "));
+    }
+    Ok(())
 }
 
 fn tools() -> Result<(), String> {
@@ -151,6 +254,7 @@ fn project(root: &Path, preset: Preset, consent: &Consent) -> Result<(), String>
         println!("It stays off: `devflow config set enabled true` switches it on later.");
         return Ok(());
     }
+    let now = std::time::SystemTime::now();
     let state = project.read();
     if let State::Valid(_, config) = &state {
         if !config.enabled {
@@ -160,6 +264,13 @@ fn project(root: &Path, preset: Preset, consent: &Consent) -> Result<(), String>
         }
     }
     consent.remember(&project.root, Ask::Enable, true)?;
+    consent.record(
+        &project.root,
+        "enabled",
+        crate::consent::How::Terminal,
+        "setup",
+        now,
+    )?;
     println!("devflow is on here.");
     Ok(())
 }
@@ -180,3 +291,7 @@ fn decisions() -> Result<(), String> {
     }
     crate::jev_cli::set_up(&crate::jev_cli::Setup::default())
 }
+
+#[cfg(test)]
+#[path = "setup_cli_tests.rs"]
+mod tests;
