@@ -234,7 +234,8 @@ pipeline runs it, with the stage's settings and budget:
   the project's vault, outside the checkout.
 - It exits 0 when nothing confirmed is in `review.block_on`, 1 when a
   confirmed exploit is, and 2 when the attack could not run: devflow off in
-  the project, the month's budget spent, no attacker answering.
+  the project, its attack stage off (as in a devflow.yaml that names none),
+  the month's budget spent, no attacker answering.
 - A hypothesis no sandbox ran proves nothing either way. Each is warned of
   on stderr (and as a `::warning` on GitHub Actions) and is a skipped case
   in the JUnit, never a quiet pass. Set `stages.attack.test` and a sandbox
@@ -263,6 +264,8 @@ on:
 jobs:
   attack:
     runs-on: ubuntu-latest
+    # The SARIF upload writes code scanning alerts.
+    permissions: { contents: read, security-events: write }
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }

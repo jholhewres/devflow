@@ -415,9 +415,11 @@ HEAD. The details, and how to read the report: [security.md](security.md).
   `verified`), `criteria::Unread` (`empty`) and `sarif::ToolFinding`
   (`package`, `fix`). `config::Report` has `npm-audit` and `govulncheck`
   words: a host that matches it exhaustively adds their arms.
-- `config::Attack::default()` is `run: off`, and `Config::to_json` leaves
-  an attack at its default out, as the file does; `preset::starting` sets
-  `sensitive`.
+- `config::Attack::default()` is `run: off`, and `preset::starting` sets
+  `sensitive`. In a change's JSON, `review.attack` still sets an attack
+  that is at its default.
+- `tests/fixtures/devpit-golden/` gains, on purpose, the attack stage that
+  `devflow setup` now writes for a new project.
 - New modules: `attack`, `attack_report`, `attack_metrics`, `payloads`, `sandbox`,
   `stack`, `vault`, `workspace`. `Ask`, `runner::Context`,
   `evidence::{Ran, Evidence, Given}`, `review::Given` and `gate::Looked`
