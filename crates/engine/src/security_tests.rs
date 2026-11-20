@@ -378,3 +378,18 @@ fn a_name_that_resolves_to_a_public_address_after_it_was_confirmed_is_refused() 
         "{left:?}"
     );
 }
+
+#[test]
+fn a_name_with_more_addresses_than_a_pin_keeps_says_so_not_that_it_moved() {
+    let target = Target {
+        scheme: "http".to_owned(),
+        host: "api.test".to_owned(),
+        port: 8080,
+        named: true,
+    };
+    let found: Vec<IpAddr> = (1..=17).map(|at| IpAddr::from([10, 0, 0, at])).collect();
+    let pinned: Vec<IpAddr> = found[..MOST_PINNED].to_vec();
+    let refused = pinned_to(&target, &found, Some(&pinned)).expect_err("too many");
+    assert!(refused.contains("17 addresses"), "{refused}");
+    assert!(!refused.contains("not to what it resolved"), "{refused}");
+}

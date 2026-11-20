@@ -417,6 +417,14 @@ pub fn pinned_to(
         ));
     };
     answered(target, found)?;
+    // More than a confirmation keeps can never all be pinned: said as that,
+    // not as a move the person would confirm again in vain.
+    if found.len() > MOST_PINNED {
+        return Err(format!(
+            "`{host}` resolves to {} addresses, more than the {MOST_PINNED} a confirmed target keeps: name one of them, or a host with fewer",
+            found.len()
+        ));
+    }
     match found.iter().find(|address| !pinned.contains(address)) {
         None => Ok(()),
         Some(address) => {
