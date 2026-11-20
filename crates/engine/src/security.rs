@@ -402,6 +402,23 @@ const AGAIN: &str = "the person confirms it again with `devflow config set secur
 /// confirmed it: this machine or a private network, and none but the
 /// addresses kept with their yes (`pinned`). A later answer of the resolver
 /// cannot move it; a pin never makes a public address one.
+/// Whether the name in `url` can be confirmed with what it resolves to
+/// here (`found`): never one that resolves to more than a confirmation
+/// keeps, which no yes would put in force.
+pub fn pinnable(url: &str, found: &Pins) -> Result<(), String> {
+    let Ok(one) = target(url) else {
+        return Ok(());
+    };
+    let resolved = found.get(&one.origin()).map_or(0, Vec::len);
+    if one.named && resolved > MOST_PINNED {
+        return Err(format!(
+            "`{}` resolves to {resolved} addresses, more than the {MOST_PINNED} a confirmed target keeps: name one of them, or a host with fewer",
+            one.host
+        ));
+    }
+    Ok(())
+}
+
 pub fn pinned_to(
     target: &Target,
     found: &[IpAddr],

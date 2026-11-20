@@ -1444,10 +1444,7 @@ fn reviewed_anew(given: &Given) -> Result<(String, PathBuf, Record), String> {
     let started = std::time::Instant::now();
     let tried = |reader: &Reader| {
         let mut failed: Vec<Unread> = Vec::new();
-        // The first try leaves time for another, so one that runs out of
-        // time can be asked again too.
-        let reserve = (LEAST_TRY + RETRY_PAUSES.iter().sum::<Duration>()).max(deadline / 3);
-        let mut outcome = one(reader, deadline.saturating_sub(reserve));
+        let mut outcome = one(reader, first_try(deadline));
         for pause in RETRY_PAUSES {
             match &outcome {
                 Err((why, _)) if asked_again(why) => {}
@@ -1573,6 +1570,16 @@ const RETRY_PAUSES: [Duration; 2] = [Duration::from_millis(5), Duration::from_mi
 const LEAST_TRY: Duration = Duration::from_secs(60);
 #[cfg(test)]
 const LEAST_TRY: Duration = Duration::from_secs(2);
+
+/// The first try's time: the deadline less what one more try needs (its
+/// pause, its least time, and a quarter of that to end the one that ran
+/// out), so it can be asked again; never under [`LEAST_TRY`], and the whole
+/// deadline when that is shorter.
+fn first_try(deadline: Duration) -> Duration {
+    deadline
+        .saturating_sub(LEAST_TRY + LEAST_TRY / 4 + RETRY_PAUSES[0])
+        .max(LEAST_TRY.min(deadline))
+}
 
 /// Whether a reader that gave no answer is worth asking again: not when its
 /// CLI is missing or signed out, or its persona cannot be read.

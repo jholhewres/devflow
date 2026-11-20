@@ -2449,3 +2449,19 @@ fn the_packet_names_only_the_overlays_someone_reads() {
         "the session reads it: {said}"
     );
 }
+
+/// A slow reader keeps nearly all of its deadline on its first try: only
+/// what one more try needs is held back, and a short deadline is given whole.
+#[test]
+fn the_first_try_keeps_all_but_what_one_more_try_needs() {
+    let long = Duration::from_secs(600);
+    assert_eq!(
+        first_try(long),
+        long - LEAST_TRY - LEAST_TRY / 4 - RETRY_PAUSES[0]
+    );
+    assert!(first_try(long) > long * 3 / 4);
+    let short = LEAST_TRY / 2;
+    assert_eq!(first_try(short), short, "a short deadline is given whole");
+    let tight = LEAST_TRY + LEAST_TRY / 8;
+    assert_eq!(first_try(tight), LEAST_TRY, "never under the least try");
+}

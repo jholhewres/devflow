@@ -237,3 +237,26 @@ fn the_readme_model_example_names_the_recommended_reviewer() {
         );
     }
 }
+
+/// The recommended reviewer is one a headless reader can be held to
+/// reading: OpenCode, installed and signed in, is never picked.
+#[test]
+fn the_recommended_reviewer_is_one_held_to_reading() {
+    let mut only_opencode = detected();
+    only_opencode.clis = vec![Cli {
+        name: Agent::OpenCode,
+        installed: true,
+        signed_in: Some(true),
+    }];
+    let config = starting(Preset::Recommended, &only_opencode);
+    assert!(
+        config.review.reviewers.is_empty(),
+        "{:?}",
+        config.review.reviewers
+    );
+    for agent in reviewers() {
+        let cli = crate::agents::Cli::of(agent.word()).expect("a cli");
+        assert!(crate::agents::read_only(cli).is_ok(), "{agent:?}");
+    }
+    assert!(reviewers().all(|agent| agent != Agent::OpenCode));
+}

@@ -393,3 +393,37 @@ fn a_name_with_more_addresses_than_a_pin_keeps_says_so_not_that_it_moved() {
     assert!(refused.contains("17 addresses"), "{refused}");
     assert!(!refused.contains("not to what it resolved"), "{refused}");
 }
+
+/// A name is confirmed with at most [`MOST_PINNED`] addresses: at the
+/// ceiling it is kept, past it refused before the person is asked.
+#[test]
+fn a_name_past_the_pinned_ceiling_is_refused_before_it_is_asked() {
+    let url = "http://shop:8080";
+    let origin = target(url).expect("target").origin();
+    let addresses = |count: usize| -> Vec<IpAddr> {
+        (0..count)
+            .map(|at| IpAddr::from([10, 0, 0, u8::try_from(at).expect("few")]))
+            .collect()
+    };
+    let at = |count: usize| Pins::from([(origin.clone(), addresses(count))]);
+    assert!(pinnable(url, &at(MOST_PINNED)).is_ok());
+    let refused = pinnable(url, &at(MOST_PINNED + 1)).expect_err("past it");
+    assert!(refused.contains("more than the 16"), "{refused}");
+    assert!(
+        pinnable("http://127.0.0.1:8080", &Pins::new()).is_ok(),
+        "an address is no name"
+    );
+    let target_at = target(url).expect("target");
+    assert!(pinned_to(
+        &target_at,
+        &addresses(MOST_PINNED),
+        Some(&addresses(MOST_PINNED))
+    )
+    .is_ok());
+    assert!(pinned_to(
+        &target_at,
+        &addresses(MOST_PINNED + 1),
+        Some(&addresses(MOST_PINNED))
+    )
+    .is_err());
+}

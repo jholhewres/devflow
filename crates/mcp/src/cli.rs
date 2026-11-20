@@ -158,6 +158,10 @@ fn setting(root: &Path, path: &str, value: &Value, consent: &Consent) -> Result<
         _ => Pins::new(),
     };
     let new = to_confirm(&targets, &kept, &pins, &found);
+    // A name no yes could put in force is refused before it is asked.
+    for target in &new {
+        devflow_engine::security::pinnable(target, &found)?;
+    }
     // The stack as compose resolves it now: what is shown is what is kept.
     let seen = match kind {
         Kind::Stack => {

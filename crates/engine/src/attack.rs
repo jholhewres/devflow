@@ -79,6 +79,9 @@ pub struct Given<'a> {
     pub flow: Option<&'a crate::workspace::Flowed>,
     /// A stack started for this attack: its exploits run on its network.
     pub stack: Option<&'a crate::stack::Up>,
+    /// Where the month's ledger is kept: the runs' home unless said, so an
+    /// attack whose runs are kept apart still counts against the project's.
+    pub ledger: Option<&'a Path>,
 }
 
 /// How long one exploit test may run in the sandbox.
@@ -1091,7 +1094,8 @@ pub fn month_left(home: &Path, budget: Budget, at: std::time::SystemTime) -> Res
 pub fn attacked(given: &Given) -> Result<Done, String> {
     let dialect: &Dialect = given.personas.dialect;
     let budget = given.config.stages.attack.budget;
-    let spent = month_left(&given.runs.home, budget, given.at)?;
+    let ledger = given.ledger.unwrap_or(&given.runs.home);
+    let spent = month_left(ledger, budget, given.at)?;
     // What an earlier attack of the item refuted, before this run is made.
     let earlier = earlier_report(given.runs, given.card.id);
     let refuted = still_refuted(earlier.as_ref(), given.git.files);
@@ -1350,7 +1354,7 @@ pub fn attacked(given: &Given) -> Result<Done, String> {
     });
     settled(&mut report, &given.config.review.block_on);
     write(&path, REPORT, &pretty(&report))?;
-    crate::attack_metrics::record(&given.runs.home, given.card.id, &stamp, &report)?;
+    crate::attack_metrics::record(ledger, given.card.id, &stamp, &report)?;
     Ok(Done {
         folder: path.display().to_string(),
         stamp,

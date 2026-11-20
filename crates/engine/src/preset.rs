@@ -18,9 +18,14 @@ pub const SECURITY: &str = "devflow-security";
 /// item: the E2E suites, too long to repeat on every evidence run.
 pub const RELEASE: [&str; 2] = ["e2e", "e2e-suite"];
 
-/// The agent CLIs, in the order a reviewer is picked from them: each one
-/// that can be held to reading, so never OpenCode.
-const REVIEWERS: [Agent; 4] = [Agent::Claude, Agent::Codex, Agent::Cursor, Agent::Gemini];
+/// The agent CLIs a reviewer is picked from, in order: each one a headless
+/// reader can be held to reading, as [`crate::agents::read_only`] says.
+fn reviewers() -> impl Iterator<Item = Agent> {
+    Agent::ALL.iter().copied().filter(|agent| {
+        crate::agents::Cli::of(agent.word())
+            .is_some_and(|cli| crate::agents::read_only(cli).is_ok())
+    })
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Preset {
@@ -152,7 +157,7 @@ pub fn starting(preset: Preset, detected: &Detected) -> Config {
         .partition(|check| RELEASE.contains(&check.name.as_str()));
     config.stages.execution.checks = checks;
     config.stages.execution.release = release;
-    let reviewer = REVIEWERS.into_iter().find(|agent| {
+    let reviewer = reviewers().find(|agent| {
         detected
             .clis
             .iter()

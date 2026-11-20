@@ -51,16 +51,15 @@ neither attack confirmed an exploit.
 
 **Economy stays the recommended preset: write `models: economy`.** A
 devflow.yaml that names no preset keeps reviewing as it did before presets,
-with no analysis reading, which is not what was measured here. On this change
-economy gave the same verdict and
-the same gate, found the change's worst problem, and its review cost 28%
-less (US$ 1.89 against US$ 2.62) in the same time. The analysis reading runs
-on the large model under both presets, and it finds most of what economy's
-small reviewer leaves. Quality found one more medium and three more lows,
-which is worth paying for on a sensitive change or before a release:
-`models: quality` in devflow.yaml, or `review.reviewers.<persona>.model:
-large` for one reviewer.
+with no analysis reading, which is not what was measured here. On this
+change economy gave the same verdict and the same gate, found the change's
+worst problem, and its review cost 28% less (US$ 1.89 against US$ 2.62) in
+the same time. The analysis reading runs on the large model under both
+presets, and it finds most of what economy's small reviewer leaves. Quality
+found one more medium and three more lows, which is worth paying for on a
+sensitive change or before a release: `models: quality` in devflow.yaml, or
+`review.reviewers.<persona>.model: large` for one reviewer.
 
 One change is one sample: a run of the same preset varies too (the attack
-rows show how much). These numbers set the default; they do not rank the
-presets once and for all.
+rows show how much). These numbers back the recommendation; they do not
+rank the presets once and for all.

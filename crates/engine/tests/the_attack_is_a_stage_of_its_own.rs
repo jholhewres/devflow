@@ -201,6 +201,7 @@ fn the_attack_keeps_each_hypothesis_and_its_exploits_out_of_the_checkout() {
         scratch: None,
         flow: None,
         stack: None,
+        ledger: None,
     })
     .expect("attacked");
     let report = &done.report;
@@ -515,6 +516,7 @@ fn attacked_with(hypotheses: Value, yaml: &str) -> Value {
         scratch: Some(&scratch),
         flow: None,
         stack: None,
+        ledger: None,
     })
     .expect("attacked");
     assert_eq!(
@@ -803,6 +805,7 @@ fn a_run_past_the_months_budget_is_refused_before_it_starts() {
         scratch: None,
         flow: None,
         stack: None,
+        ledger: None,
     })
     .expect_err("past the month's budget");
     assert!(refused.contains("month budget"), "{refused}");
@@ -861,6 +864,7 @@ fn the_months_budget_never_counts_what_it_cannot_read_as_nothing() {
             scratch: None,
             flow: None,
             stack: None,
+            ledger: None,
         })
     };
     let capped = parsed("version: 1\nstages:\n  attack:\n    run: sensitive\n    budget: { run_usd: 3, month_usd: 40 }\n");
@@ -956,36 +960,39 @@ fn the_attack_reads_the_threat_model_and_keeps_what_it_refuted_refuted() {
         move |_: config::Agent| -> Result<String, String> { Ok(claude.display().to_string()) };
     let redact = |text: &str| text.to_owned();
     let files = vec![SENSITIVE.to_owned()];
-    let done = attack::attacked(&attack::Given {
-        root: &checkout,
-        runs: &runs,
-        config: &Config::default(),
-        card: devflow_engine::evidence::Card {
-            id: "card_1",
-            title: "Sessions",
-            body: "",
-        },
-        git: devflow_engine::review::Git {
-            base: "b4se",
-            head: "he4d",
-            files: &files,
-            diff: DIFF,
-        },
-        brief: None,
-        evidence: None,
-        review: None,
-        env: &[],
-        at: SystemTime::UNIX_EPOCH + Duration::from_secs(1_792_000_000),
-        budget: Duration::from_secs(60),
-        reach: &reach,
-        redact: &redact,
-        personas: devflow_engine::review::Personas::default(),
-        retro: false,
-        scratch: None,
-        flow: None,
-        stack: None,
-    })
-    .expect("attacked");
+    let attack_at = |later: u64| {
+        attack::attacked(&attack::Given {
+            root: &checkout,
+            runs: &runs,
+            config: &Config::default(),
+            card: devflow_engine::evidence::Card {
+                id: "card_1",
+                title: "Sessions",
+                body: "",
+            },
+            git: devflow_engine::review::Git {
+                base: "b4se",
+                head: "he4d",
+                files: &files,
+                diff: DIFF,
+            },
+            brief: None,
+            evidence: None,
+            review: None,
+            env: &[],
+            at: SystemTime::UNIX_EPOCH + Duration::from_secs(1_792_000_000 + later),
+            budget: Duration::from_secs(60),
+            reach: &reach,
+            redact: &redact,
+            personas: devflow_engine::review::Personas::default(),
+            retro: false,
+            scratch: None,
+            flow: None,
+            stack: None,
+            ledger: None,
+        })
+    };
+    let done = attack_at(0).expect("attacked");
     let one = &done.report["hypotheses"][0];
     assert_eq!(one["status"], "refuted", "not tried again: {one:#}");
     assert!(one.get("exploit").is_none());
@@ -1002,6 +1009,27 @@ fn the_attack_reads_the_threat_model_and_keeps_what_it_refuted_refuted() {
     assert!(
         context.contains("## Personas") && context.contains("devflow-security.overlay.md"),
         "{context}"
+    );
+    // The refutation is in the report, and the next run carries it on though
+    // its attacker never names it again.
+    assert_eq!(done.report["not_tried_again"], 1, "{:#}", done.report);
+    assert_eq!(
+        done.report["refuted_before"][0]["title"],
+        "redirect to an internal host"
+    );
+    fake_claude(
+        &bin,
+        &json!({ "version": 1, "hypotheses": [
+            { "id": "h1", "title": "token replay", "class": "authz", "file": SENSITIVE, "line": 2,
+              "severity": "high", "status": "tried", "reason": "replayed",
+              "exploit": { "path": "tests/t.sh", "test": "t", "code": "exit 1" } },
+        ] }),
+    );
+    let next = attack_at(60).expect("attacked again");
+    assert_eq!(
+        next.report["refuted_before"][0]["title"], "redirect to an internal host",
+        "{:#}",
+        next.report
     );
 }
 
@@ -1078,6 +1106,7 @@ fn a_regression_class_goes_to_every_attack_and_a_proposed_case_waits_for_a_perso
         scratch: None,
         flow: None,
         stack: None,
+        ledger: None,
     })
     .expect("attacked");
     let prompt = std::fs::read_to_string(bin.join("prompt.txt")).expect("prompt");
@@ -1171,6 +1200,7 @@ fn a_scanner_finding_is_called_reachable_or_not_and_the_reachable_stand_apart() 
         scratch: None,
         flow: None,
         stack: None,
+        ledger: None,
     })
     .expect("attacked");
     let prompt = std::fs::read_to_string(bin.join("prompt.txt")).expect("prompt");
@@ -1256,6 +1286,7 @@ fn the_attacks_packet_reads_criteria_under_the_projects_headings() {
         scratch: None,
         flow: None,
         stack: None,
+        ledger: None,
     })
     .expect("attacked");
     let packet = std::fs::read_to_string(std::path::Path::new(&done.folder).join(attack::PACKET))
@@ -1357,6 +1388,7 @@ fn declared_attackers_are_consolidated_and_a_failed_one_is_not_replaced() {
         scratch: None,
         flow: None,
         stack: None,
+        ledger: None,
     })
     .expect("attacked");
     let hypotheses = done.report["hypotheses"].as_array().expect("hypotheses");
@@ -1465,6 +1497,7 @@ fn an_attack_on_a_flow_reads_both_sides_and_names_each_sides_fix() {
         scratch: None,
         flow: Some(&flowed),
         stack: None,
+        ledger: None,
     })
     .expect("attacked");
     let prompt = std::fs::read_to_string(bin.join("prompt.txt")).expect("prompt");

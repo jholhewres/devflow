@@ -403,3 +403,33 @@ fn a_declared_target_is_on_the_stack_however_it_is_written() {
     }
     assert!(!on_stack(None, &declaring("http://web:8080")), "no stack");
 }
+
+/// A later attacker's own hypotheses stay apart too: two of its own at one
+/// place are two, and one already merged with an earlier attacker's takes
+/// no other of the same attacker.
+#[test]
+fn a_later_attackers_own_hypotheses_stay_apart() {
+    let h = |line: i64, title: &str| json!({ "id": "h1", "file": "src/a.rs", "line": line, "class": "ssrf", "title": title, "status": "tried" });
+    let apart = consolidated(vec![
+        ("claude/large".to_owned(), vec![h(40, "elsewhere")]),
+        (
+            "codex/default".to_owned(),
+            vec![h(10, "redirect"), h(12, "dns rebinding")],
+        ),
+    ]);
+    assert_eq!(apart.len(), 3, "{apart:#?}");
+    let merged_once = consolidated(vec![
+        ("claude/large".to_owned(), vec![h(10, "redirect")]),
+        (
+            "codex/default".to_owned(),
+            vec![h(11, "redirect to metadata"), h(12, "dns rebinding")],
+        ),
+    ]);
+    assert_eq!(merged_once.len(), 2, "{merged_once:#?}");
+    assert_eq!(
+        merged_once[0]["found_by"],
+        json!(["claude/large", "codex/default"])
+    );
+    assert_eq!(merged_once[1]["title"], "dns rebinding");
+    assert_eq!(merged_once[1]["found_by"], json!(["codex/default"]));
+}

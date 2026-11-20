@@ -21,18 +21,38 @@ pub fn home(cache: &Path, checkout: &Path) -> Result<PathBuf, String> {
 /// `folder`, made when missing, as it resolves; refused when that is inside
 /// the checkout: an exploit is never kept in the repository.
 pub fn outside(folder: &Path, checkout: &Path) -> Result<PathBuf, String> {
+    let tree = checkout
+        .canonicalize()
+        .unwrap_or_else(|_| checkout.to_path_buf());
+    let inside = |real: &Path| {
+        Err(format!(
+            "the vault {} is inside the checkout: an exploit is never kept in the repository; set XDG_CACHE_HOME outside it",
+            real.display()
+        ))
+    };
+    // Judged where it would resolve before anything is made: the nearest
+    // folder that exists, as it resolves, with the rest of the path.
+    let mut existing = folder;
+    let mut rest = Vec::new();
+    while std::fs::symlink_metadata(existing).is_err() {
+        let (Some(parent), Some(name)) = (existing.parent(), existing.file_name()) else {
+            break;
+        };
+        rest.push(name);
+        existing = parent;
+    }
+    if let Ok(real) = existing.canonicalize() {
+        let would = rest.iter().rev().fold(real, |at, name| at.join(name));
+        if would.starts_with(&tree) {
+            return inside(&would);
+        }
+    }
     std::fs::create_dir_all(folder).map_err(|err| format!("{}: {err}", folder.display()))?;
     let real = folder
         .canonicalize()
         .map_err(|err| format!("{}: {err}", folder.display()))?;
-    let tree = checkout
-        .canonicalize()
-        .unwrap_or_else(|_| checkout.to_path_buf());
     if real.starts_with(&tree) {
-        return Err(format!(
-            "the vault {} is inside the checkout: an exploit is never kept in the repository; set XDG_CACHE_HOME outside it",
-            real.display()
-        ));
+        return inside(&real);
     }
     Ok(real)
 }

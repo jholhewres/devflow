@@ -275,6 +275,7 @@ fn an_exploit_that_wants_a_target_runs_against_the_stack() {
         scratch: Some(&dir.path().join("trees")),
         flow: None,
         stack: Some(&up),
+        ledger: None,
     })
     .expect("attacked");
     let one = &done.report["hypotheses"][0];

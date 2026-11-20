@@ -81,7 +81,8 @@ pub fn on_range(
     let at = SystemTime::now();
     // One month's budget for the project's attacks, with or without an item.
     let budget = config.stages.attack.budget;
-    attack::month_left(&project.runs().home, budget, at)?;
+    let ledger = project.runs().home;
+    attack::month_left(&ledger, budget, at)?;
     let tree = project.review_trees().join(format!(
         "attack-{label}-{}",
         devflow_engine::runs::stamp(at)
@@ -135,16 +136,10 @@ pub fn on_range(
         scratch: Some(&project.cache().join("trees")),
         flow: None,
         stack: None,
+        ledger: Some(&ledger),
     });
     drop(detached);
     let done = done?;
-    // Counted in the project's ledger too, where the month is read.
-    let _ = devflow_engine::attack_metrics::record(
-        &project.runs().home,
-        &label,
-        &done.stamp,
-        &done.report,
-    );
     let folder = std::path::PathBuf::from(&done.folder);
     let mut answer = with_files(&folder, &done.report, attack::summary(&done));
     answer["attacked"] = json!(label);
@@ -387,6 +382,7 @@ pub fn on_item(
         scratch: Some(&project.cache().join("trees")),
         flow: flowed.as_ref(),
         stack: stack.as_ref(),
+        ledger: None,
     })?;
     drop(stack);
     signed(project, &item.id, &attack::comment(&done));

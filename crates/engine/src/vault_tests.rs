@@ -96,3 +96,17 @@ fn promote_refuses_a_path_or_a_link_out_of_the_repository() {
     assert!(refused.contains("hidden"), "{refused}");
     assert!(!root.join(".github").exists());
 }
+
+/// A vault that would resolve inside the checkout is refused before any
+/// folder of it is made there.
+#[cfg(unix)]
+#[test]
+fn a_vault_inside_the_checkout_is_refused_before_it_is_made() {
+    let checkout = tempfile::tempdir().expect("checkout");
+    let cache = tempfile::tempdir().expect("cache");
+    let linked = cache.path().join("linked");
+    std::os::unix::fs::symlink(checkout.path(), &linked).expect("link");
+    let refused = home(&linked.join("project"), checkout.path()).expect_err("inside");
+    assert!(refused.contains("inside the checkout"), "{refused}");
+    assert!(!checkout.path().join("project").exists(), "nothing made");
+}
