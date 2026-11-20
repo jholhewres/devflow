@@ -141,3 +141,12 @@ fn plan_json_rows(config: &Config) -> Vec<serde_json::Value> {
         .cloned()
         .unwrap_or_default()
 }
+
+/// The default preset is the one docs/measurements/2026-11-presets.md
+/// recommends from its numbers.
+#[test]
+fn the_default_preset_is_the_one_the_measurements_recommend() {
+    assert_eq!(preset(&Config::default()), Models::Economy);
+    let measured = include_str!("../../../docs/measurements/2026-11-presets.md");
+    assert!(measured.contains("**Economy stays the default.**"));
+}

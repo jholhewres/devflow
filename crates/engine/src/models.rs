@@ -12,7 +12,11 @@ pub const ATTACK: &str = "attack";
 /// The persona the attack reads as.
 pub const ATTACK_PERSONA: &str = "devflow-security";
 
-/// The preset in force: `economy` when devflow.yaml says none.
+/// The preset in force: `economy` when devflow.yaml says none. Economy is the
+/// recommended default: on the same real change it gave quality's verdict and
+/// gate and found the change's worst problem, for 28% less on the review
+/// (docs/measurements/2026-11-presets.md); quality is worth it on a sensitive
+/// change or before a release.
 pub fn preset(config: &Config) -> Models {
     config.models.unwrap_or(Models::Economy)
 }
