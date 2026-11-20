@@ -125,15 +125,15 @@ fn a_stack_that_would_leave_its_network_never_starts() {
     let dir = project(&format!(
         "services:\n  open:\n    image: {image}\n    ports: [\"127.0.0.1:16379:6379\"]\n"
     ));
-    let refused = stack::up(
+    let Err(refused) = stack::up(
         &docker(),
         dir.path(),
         "compose.yaml",
         &dir.path().join("scratch"),
         "t3",
-    )
-    .err()
-    .expect("refused");
+    ) else {
+        panic!("refused");
+    };
     assert!(refused.contains("`ports`"), "{refused}");
     assert!(gone("devflow-stack-t3", "devflow-stack-t3-net"));
 }
@@ -189,10 +189,16 @@ fn an_exploit_that_wants_a_target_runs_against_the_stack() {
     let bin = dir.path().join("bin");
     std::fs::create_dir_all(&bin).expect("bin");
     let code = "if redis-cli -h store ping | grep -q PONG; then echo \"FAIL store-reachable: the store answers\"; exit 1; fi\necho \"ok store-reachable\"\n";
-    let answer = serde_json::json!({ "version": 1, "hypotheses": [{
-        "id": "h1", "title": "the store answers anyone", "class": "authz", "file": "src/session.rs", "line": 1,
-        "severity": "high", "status": "tried", "reason": "no password on the store",
-        "exploit": { "path": "tests/store.sh", "test": "store-reachable", "code": code } }] });
+    // One exploit says the stack's target it reaches; one says none, and
+    // runs with no network at all.
+    let answer = serde_json::json!({ "version": 1, "hypotheses": [
+        { "id": "h1", "title": "the store answers anyone", "class": "authz", "file": "src/session.rs", "line": 1,
+          "severity": "high", "status": "tried", "reason": "no password on the store",
+          "exploit": { "path": "tests/store.sh", "test": "store-reachable", "code": code, "target": "http://store:6379" } },
+        { "id": "h2", "title": "the store answers from outside", "class": "exposure", "file": "src/session.rs", "line": 1,
+          "severity": "high", "status": "tried", "reason": "said no target",
+          "exploit": { "path": "tests/outside.sh", "test": "store-reachable", "code": code } },
+    ] });
     let envelope = serde_json::json!({ "type": "result", "result": answer.to_string(), "total_cost_usd": 0.1 });
     std::fs::write(bin.join("answer.json"), envelope.to_string()).expect("answer");
     let script = bin.join("claude");
@@ -255,6 +261,13 @@ fn an_exploit_that_wants_a_target_runs_against_the_stack() {
     .expect("attacked");
     let one = &done.report["hypotheses"][0];
     assert_eq!(one["status"], "confirmed", "{one:#}");
+    assert_eq!(one["verified"]["stack"], true);
+    let alone = &done.report["hypotheses"][1];
+    assert_eq!(
+        alone["status"], "refuted",
+        "no target said, no network: {alone:#}"
+    );
+    assert!(alone["verified"]["stack"].is_null());
     // Its proof runs against the stack too, at HEAD only: the stack runs
     // the checkout as it is now, so its base side is said skipped.
     let proved = devflow_engine::attack::prove(&devflow_engine::attack::Proving {
@@ -294,4 +307,26 @@ fn a_change_to_what_the_stack_pulls_in_changes_what_was_confirmed() {
     let (config, second) =
         stack::resolved(&docker(), dir.path(), "compose.yaml").expect("resolved");
     assert_ne!(first, second, "{config}");
+}
+
+/// A stack runs only images its person saw: one not on this machine is
+/// refused, and a tag moved to another image is another stack.
+#[test]
+fn a_retagged_or_missing_image_is_another_stack() {
+    let Some(image) = image() else { return };
+    let tag = "devflow-retag:test";
+    let other = std::env::var("DEVFLOW_STACK_OTHER_IMAGE")
+        .unwrap_or_else(|_| "postgres:15-alpine".to_owned());
+    assert!(said(&["tag", &image, tag]).0, "tag");
+    let dir = project(&format!("services:\n  store:\n    image: {tag}\n"));
+    let (_, first) = stack::resolved(&docker(), dir.path(), "compose.yaml").expect("resolved");
+    assert!(said(&["tag", &other, tag]).0, "retag");
+    let (_, second) = stack::resolved(&docker(), dir.path(), "compose.yaml").expect("resolved");
+    let _ = said(&["rmi", tag]);
+    assert_ne!(first, second, "a moved tag is another stack");
+    let missing = project("services:\n  store:\n    image: devflow-absent:none\n");
+    let Err(refused) = stack::resolved(&docker(), missing.path(), "compose.yaml") else {
+        panic!("absent");
+    };
+    assert!(refused.contains("not on this machine"), "{refused}");
 }

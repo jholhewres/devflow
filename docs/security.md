@@ -232,8 +232,11 @@ you confirm it again. MCP `set` and `setup` refuse the field.
 Before an attack, devflow starts the stack on a network of its own that
 docker makes internal, so nothing on it reaches beyond it. The exploits run
 in the docker sandbox (chosen whenever the sandbox is `auto`), attached only
-to that network, with the services' exposed ports as targets. The stack is
-taken down when the attack is done, even when it failed. An exploit
+to that network, with the services' exposed ports as targets. Only an exploit
+that says which target it reaches joins the network; every other exploit has
+no network at all. Each service runs on the image it was confirmed with,
+pinned by its id, and an image that is not on this machine is refused. The
+stack is taken down when the attack is done, even when it failed. An exploit
 confirmed against the stack is proven at HEAD only, since the stack runs the
 checkout as it is.
 

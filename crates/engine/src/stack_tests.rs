@@ -20,8 +20,13 @@ fn a_stack_kept_on_its_private_network_names_its_services_as_targets() {
     .expect("kept");
     assert_eq!(targets(&services), ["http://web:8080", "http://web:9090"]);
     assert_eq!(
-        override_yaml("devflow-stack-1-net"),
+        override_yaml("devflow-stack-1-net", &[]),
         "networks:\n  default:\n    name: devflow-stack-1-net\n    internal: true\n"
+    );
+    let pinned = override_yaml("n", &[("web".to_owned(), "sha256:abc".to_owned())]);
+    assert!(
+        pinned.ends_with("services:\n  web:\n    image: sha256:abc\n"),
+        "{pinned}"
     );
 }
 

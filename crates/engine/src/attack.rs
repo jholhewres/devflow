@@ -47,7 +47,7 @@ This reading attacks the change: it does not list risks, it proves them.\n\
 4. A hypothesis you could not reproduce stays at its severity and holds nothing: only an exploit test that was run confirms a hypothesis.\n\
 Read only: change no file of the checkout.\n\n\
 Your whole reply is one JSON object, with no prose around it:\n\
-{ \"version\": 1, \"hypotheses\": [ { \"id\": \"h1\", \"title\": \"<the hole, one line>\", \"class\": \"<ssrf, injection, traversal, redos, authz, secrets, prompt-injection or another word>\", \"file\": \"<path at HEAD>\", \"line\": 1, \"severity\": \"critical|high|medium|low|info\", \"status\": \"tried|refuted|not_run\", \"reason\": \"<what the exploit shows, or why refuted or not run>\", \"impact\": \"<what an attacker gets, without the payload>\", \"fix\": \"<the change that shuts it>\", \"from\": \"<the review finding's id when it started from one>\", \"control\": \"<for a refuted one: the file of the control that stops it>\", \"exploit\": { \"path\": \"<where the test belongs in the repository>\", \"test\": \"<the test's name, as the runner names it>\", \"code\": \"<the whole test file>\" } } ], \"scanner\": [ { \"id\": \"<s1, s2…: a scanner finding given below>\", \"reachable\": true, \"path\": \"<from untrusted input to the vulnerable call, file:line → … → file:line; or why nothing reaches it>\", \"fix\": \"<the upgrade or change that shuts it>\" } ], \"cases\": [ { \"class\": \"<ssrf, redos, traversal, sqli, nosqli, xxe, deserialization or prompt-injection>\", \"from\": \"<for prompt-injection: user, tool or document, who wrote the text>\", \"input\": \"<a neutral input that would catch this hole again: a URL's host is loopback or private on port 1, or a .test name; no secret, no real name>\", \"want\": \"rejected|inert|fast, or data for prompt-injection\", \"why\": \"<the hole it catches>\" } ], \"threat_model\": \"<the project's threat model as it should read after this attack: its assets, the untrusted inputs with file:line, the trust boundaries and their controls, and the hypotheses tried with their result>\" }\n\
+{ \"version\": 1, \"hypotheses\": [ { \"id\": \"h1\", \"title\": \"<the hole, one line>\", \"class\": \"<ssrf, injection, traversal, redos, authz, secrets, prompt-injection or another word>\", \"file\": \"<path at HEAD>\", \"line\": 1, \"severity\": \"critical|high|medium|low|info\", \"status\": \"tried|refuted|not_run\", \"reason\": \"<what the exploit shows, or why refuted or not run>\", \"impact\": \"<what an attacker gets, without the payload>\", \"fix\": \"<the change that shuts it>\", \"from\": \"<the review finding's id when it started from one>\", \"control\": \"<for a refuted one: the file of the control that stops it>\", \"exploit\": { \"path\": \"<where the test belongs in the repository>\", \"test\": \"<the test's name, as the runner names it>\", \"code\": \"<the whole test file>\", \"target\": \"<the stack's target it reaches, said exactly as listed; left out when it reaches none>\" } } ], \"scanner\": [ { \"id\": \"<s1, s2…: a scanner finding given below>\", \"reachable\": true, \"path\": \"<from untrusted input to the vulnerable call, file:line → … → file:line; or why nothing reaches it>\", \"fix\": \"<the upgrade or change that shuts it>\" } ], \"cases\": [ { \"class\": \"<ssrf, redos, traversal, sqli, nosqli, xxe, deserialization or prompt-injection>\", \"from\": \"<for prompt-injection: user, tool or document, who wrote the text>\", \"input\": \"<a neutral input that would catch this hole again: a URL's host is loopback or private on port 1, or a .test name; no secret, no real name>\", \"want\": \"rejected|inert|fast, or data for prompt-injection\", \"why\": \"<the hole it catches>\" } ], \"threat_model\": \"<the project's threat model as it should read after this attack: its assets, the untrusted inputs with file:line, the trust boundaries and their controls, and the hypotheses tried with their result>\" }\n\
 `exploit` is required for `tried` and left out otherwise. Do not try again a hypothesis listed as refuted before. Say of each scanner finding given whether untrusted input reaches it, with the call path.\n";
 
 /// What the attack is given.
@@ -427,6 +427,10 @@ fn hypothesis(one: &Value, at: usize) -> Result<Value, String> {
                 return wrong("is tried and needs its exploit's `test` and `code`");
             }
             kept["exploit"] = json!({ "path": path, "test": test, "code": code });
+            let target: String = text(exploit, "target").chars().take(200).collect();
+            if !target.is_empty() {
+                kept["exploit"]["target"] = json!(target);
+            }
         }
         ("tried", None) => return wrong("is tried and needs its `exploit`"),
         _ => {}
@@ -478,11 +482,13 @@ fn proven(given: &Given, stamp: &str, hypotheses: &mut [Value]) {
     };
     let path = std::env::var_os("PATH").unwrap_or_default();
     let choice = sandbox_for(attack.sandbox, given.stack.is_some());
-    let mut found = match sandbox::found(choice, attack.image.as_deref(), &path) {
+    let found = match sandbox::found(choice, attack.image.as_deref(), &path) {
         Ok(found) => found,
         Err(why) => return left(hypotheses, &why),
     };
-    // A stack's exploits reach it on its internal network, and nothing else.
+    // An exploit that says which of the stack's targets it reaches runs on
+    // the stack's internal network; every other one has no network at all.
+    let mut stacked = found.clone();
     if let Some(stack) = given.stack {
         if found.kind != sandbox::Kind::Docker {
             return left(
@@ -490,8 +496,8 @@ fn proven(given: &Given, stamp: &str, hypotheses: &mut [Value]) {
                 "a stack is reached only from the docker sandbox",
             );
         }
-        found.network = Some(stack.network.clone());
-        found.env = crate::security::environment(&stack.targets);
+        stacked.network = Some(stack.network.clone());
+        stacked.env = crate::security::environment(&stack.targets);
     }
     let Some(scratch) = given.scratch else {
         return left(hypotheses, "no folder for a throwaway worktree");
@@ -530,7 +536,14 @@ fn proven(given: &Given, stamp: &str, hypotheses: &mut [Value]) {
             one["ran"] = json!({ "result": "not_run", "reason": why });
             continue;
         }
-        let ran = sandbox::run(&found, &tree, command, (&exploit_at, &test), limits);
+        let on_stack = on_stack(given.stack, one);
+        let ran = sandbox::run(
+            if on_stack { &stacked } else { &found },
+            &tree,
+            command,
+            (&exploit_at, &test),
+            limits,
+        );
         drop(tree);
         let said: Vec<char> = ran.tail.chars().collect();
         let tail: String = said[said.len().saturating_sub(MOST_TAIL)..]
@@ -563,8 +576,7 @@ fn proven(given: &Given, stamp: &str, hypotheses: &mut [Value]) {
                 "result": result, "by": "sandbox",
                 "evidence": format!("{} at {head}: {why}", found.kind.word()),
             });
-            // Only an exploit that names a service of the stack met it.
-            if given.stack.is_some_and(|stack| stack.reached_by(&code)) {
+            if on_stack {
                 one["verified"]["stack"] = json!(true);
             }
         }
@@ -932,6 +944,13 @@ pub fn consolidated(found: Vec<(String, Vec<Value>)>) -> Vec<Value> {
         one["id"] = json!(format!("h{}", at + 1));
     }
     kept
+}
+
+/// Whether a hypothesis's exploit said it reaches one of the stack's
+/// targets: only then does it run on the stack's network.
+fn on_stack(stack: Option<&crate::stack::Up>, one: &Value) -> bool {
+    let said = text(&one["exploit"], "target");
+    stack.is_some_and(|stack| !said.is_empty() && stack.targets.contains(&said))
 }
 
 /// The sandbox an attack's exploits run in: with a stack, docker unless one

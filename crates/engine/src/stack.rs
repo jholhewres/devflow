@@ -163,9 +163,46 @@ pub fn targets(services: &[Service]) -> Vec<String> {
         .collect()
 }
 
-/// The override that puts every service on one internal network.
-pub fn override_yaml(network: &str) -> String {
-    format!("networks:\n  default:\n    name: {network}\n    internal: true\n")
+/// The override that puts every service on one internal network, each on
+/// the image it was confirmed with, by its id: a tag moved since runs
+/// nothing new.
+pub fn override_yaml(network: &str, pins: &[(String, String)]) -> String {
+    let mut yaml = format!("networks:\n  default:\n    name: {network}\n    internal: true\n");
+    if !pins.is_empty() {
+        yaml.push_str("services:\n");
+        for (service, id) in pins {
+            yaml.push_str(&format!("  {service}:\n    image: {id}\n"));
+        }
+    }
+    yaml
+}
+
+/// Each service's image id on this machine; one not here is refused, so a
+/// stack never runs an image its person did not see.
+fn image_ids(docker: &Path, config: &Value) -> Result<Vec<(String, String)>, String> {
+    let mut pins = Vec::new();
+    for (name, service) in config["services"].as_object().into_iter().flatten() {
+        let Some(image) = service["image"].as_str() else {
+            continue;
+        };
+        let mut inspect = crate::env::command(docker);
+        inspect.args(["image", "inspect", "--format", "{{.Id}}", image]);
+        match ran(inspect)? {
+            (true, raw, _) => {
+                let id = String::from_utf8_lossy(&raw).trim().to_owned();
+                if !id.starts_with("sha256:") {
+                    return Err(format!("image {image} has no id docker says"));
+                }
+                pins.push((name.clone(), id));
+            }
+            _ => {
+                return Err(format!(
+                    "image {image} is not on this machine: pull it, then confirm the stack"
+                ))
+            }
+        }
+    }
+    Ok(pins)
 }
 
 /// A started stack: taken down when dropped, whatever happened.
@@ -181,18 +218,6 @@ pub struct Up {
 }
 
 impl Up {
-    /// Whether exploit `code` names a service of the stack, and so meets it.
-    pub fn reached_by(&self, code: &str) -> bool {
-        self.targets.iter().any(|target| {
-            let host = target
-                .trim_start_matches("http://")
-                .split(':')
-                .next()
-                .unwrap_or_default();
-            !host.is_empty() && code.contains(host)
-        })
-    }
-
     fn compose(&self) -> Command {
         compose(&self.docker, &self.name, &self.files, &self.cwd)
     }
@@ -275,24 +300,10 @@ pub fn resolved(docker: &Path, root: &Path, file: &str) -> Result<(Value, String
         serde_json::from_slice(&raw).map_err(|err| format!("docker compose config: {err}"))?;
     // The images as they are here, not only their tags: a retagged image is
     // another stack.
-    let mut images: Vec<String> = config["services"]
-        .as_object()
-        .into_iter()
-        .flatten()
-        .filter_map(|(_, service)| service["image"].as_str().map(str::to_owned))
+    let pinned: String = image_ids(docker, &config)?
+        .iter()
+        .map(|(service, id)| format!("{service}={id}\n"))
         .collect();
-    images.sort();
-    images.dedup();
-    let mut pinned = String::new();
-    for image in &images {
-        let mut inspect = crate::env::command(docker);
-        inspect.args(["image", "inspect", "--format", "{{.Id}}", image]);
-        let id = match ran(inspect)? {
-            (true, raw, _) => String::from_utf8_lossy(&raw).trim().to_owned(),
-            _ => "absent".to_owned(),
-        };
-        pinned.push_str(&format!("{image}={id}\n"));
-    }
     let digest = format!(
         "{:x}",
         Sha256::digest(format!("{config}\n{pinned}").as_bytes())
@@ -315,8 +326,11 @@ pub fn up(
     let name = format!("devflow-stack-{}", stamp.to_ascii_lowercase());
     let network = format!("{name}-net");
     std::fs::create_dir_all(scratch).map_err(|err| format!("{}: {err}", scratch.display()))?;
+    // Each service on the image it was confirmed with, by its id.
+    let (plain, _) = resolved(docker, root, file)?;
+    let pins = image_ids(docker, &plain)?;
     let overriding = scratch.join(format!("{name}.override.yaml"));
-    std::fs::write(&overriding, override_yaml(&network))
+    std::fs::write(&overriding, override_yaml(&network, &pins))
         .map_err(|err| format!("{}: {err}", overriding.display()))?;
     let files = vec![compose_file, overriding];
     let mut read = compose(docker, &name, &files, root);
