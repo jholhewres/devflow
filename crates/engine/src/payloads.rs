@@ -133,7 +133,14 @@ pub fn checked_in(class: &str, case: &Case) -> Result<(), String> {
         case.want == "data",
         case.from.as_deref(),
     ) {
-        (true, true, Some(from)) if SOURCES.contains(&from) => Ok(()),
+        (true, true, Some(from)) if SOURCES.contains(&from) => {
+            if markers(&case.input).is_empty() {
+                return Err(format!(
+                    "{id}: a prompt-injection text holds words a builder keeps: {MARKER} characters or more, two words or more"
+                ));
+            }
+            Ok(())
+        }
         (true, ..) => Err(format!(
             "{id}: a prompt-injection case wants data, from {}",
             SOURCES.join(", ")
@@ -605,22 +612,30 @@ pub fn table(class: &Class, runner: Runner) -> String {
     }
 }
 
-/// The longest run of letters, digits and spaces in a case's text: words a
-/// builder that escapes a delimiter or a quote still keeps.
-pub fn marker(input: &str) -> String {
-    input
-        .split(|ch: char| !(ch.is_alphanumeric() || ch == ' '))
-        .map(str::trim)
-        .max_by_key(|part| part.len())
-        .unwrap_or_default()
-        .to_owned()
+/// The fewest characters a marker has.
+const MARKER: usize = 12;
+
+/// A case's markers: each run of letters, digits and spaces in its text of
+/// at least [`MARKER`] characters and two words. A builder that escapes a
+/// delimiter or a quote still keeps them, and each is followed, so a role
+/// lifted from any part of the text is seen.
+pub fn markers(input: &str) -> Vec<String> {
+    let mut found: Vec<String> = Vec::new();
+    for part in input.split(|ch: char| !(ch.is_alphanumeric() || ch == ' ')) {
+        let part = part.trim();
+        if part.len() >= MARKER && part.contains(' ') && !found.iter().any(|had| had == part) {
+            found.push(part.to_owned());
+        }
+    }
+    found
 }
 
 /// The prompt-injection table: each case's text given to the project's
 /// message builder as its writer's, and the messages it builds checked for
-/// where its marker landed. No model is called. It checks that no writer's
-/// text becomes a system, developer or assistant message, and that a tool's
-/// stays in its tool role; whether a write tool asks first is the review's.
+/// where each of its markers landed. No model is called. It checks that no
+/// writer's text becomes a system, developer or assistant message, and that
+/// a tool's stays in its tool role; whether a write tool asks first is the
+/// review's.
 fn builder_table(class: &Class, runner: Runner) -> String {
     let name = &class.class;
     let head = format!(
@@ -638,12 +653,20 @@ fn builder_table(class: &Class, runner: Runner) -> String {
             .cases
             .iter()
             .map(|case| {
+                let listed = markers(&case.input)
+                    .iter()
+                    .map(|marker| quoted(marker))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let list = match runner {
+                    Runner::Go => format!("[]string{{{listed}}}"),
+                    _ => format!("[{listed}]"),
+                };
                 format!(
-                    "{indent}{open}{}, {}, {}, {}{close},\n",
+                    "{indent}{open}{}, {}, {}, {list}{close},\n",
                     quoted(&case.id),
                     literal(case, runner),
-                    quoted(case.from.as_deref().unwrap_or("user")),
-                    quoted(&marker(&case.input))
+                    quoted(case.from.as_deref().unwrap_or("user"))
                 )
             })
             .collect::<String>()
@@ -658,18 +681,18 @@ fn builder_table(class: &Class, runner: Runner) -> String {
                 ""
             };
             format!(
-                "{}{import}async function build(content, from) {{\n  throw new Error(\"devflow payloads: fill in build() for {name}\");\n}}\n\nconst cases = [\n{rows}];\n\n// Whether a message holds the case's marker: words a builder that escapes a\n// delimiter still keeps, read as JSON so a list of blocks reads too.\nfunction holds(message, marker) {{\n  return JSON.stringify(message.content ?? \"\").includes(marker);\n}}\n\n// A tool's text in its tool role, or only inside tool_result blocks.\nfunction inToolRole(message, marker) {{\n  if (message.role === \"tool\") return true;\n  if (!Array.isArray(message.content)) return false;\n  return message.content.every((block) => block.type === \"tool_result\" || !JSON.stringify(block).includes(marker));\n}}\n\ndescribe(\"payloads: {name}\", () => {{\n  test.each(cases)(\"%s\", async (id, input, from, marker) => {{\n    const holding = (await build(input, from)).filter((message) => holds(message, marker));\n    if (holding.length === 0) {{\n      throw new Error(`the ${{from}} content is in no message`);\n    }}\n    for (const message of holding) {{\n      if (message.role === \"system\" || message.role === \"developer\") {{\n        throw new Error(`${{from}} content became a ${{message.role}} message`);\n      }}\n      if (message.role === \"assistant\") {{\n        throw new Error(`${{from}} content became the assistant's message`);\n      }}\n      if (from === \"tool\" && !inToolRole(message, marker)) {{\n        throw new Error(\"tool output reached the model outside its tool role\");\n      }}\n    }}\n  }});\n}});\n",
+                "{}{import}async function build(content, from) {{\n  throw new Error(\"devflow payloads: fill in build() for {name}\");\n}}\n\nconst cases = [\n{rows}];\n\n// The case's markers a message holds: words a builder that escapes a\n// delimiter still keeps, read as JSON so a list of blocks reads too.\nfunction held(message, markers) {{\n  const said = JSON.stringify(message.content ?? \"\");\n  return markers.filter((marker) => said.includes(marker));\n}}\n\n// A tool's text in its tool role, or only inside tool_result blocks.\nfunction inToolRole(message, markers) {{\n  if (message.role === \"tool\") return true;\n  if (!Array.isArray(message.content)) return false;\n  return message.content.every(\n    (block) => block.type === \"tool_result\" || !markers.some((marker) => JSON.stringify(block).includes(marker)),\n  );\n}}\n\ndescribe(\"payloads: {name}\", () => {{\n  test.each(cases)(\"%s\", async (id, input, from, markers) => {{\n    const holding = (await build(input, from)).filter((message) => held(message, markers).length > 0);\n    if (holding.length === 0) {{\n      throw new Error(`the ${{from}} content is in no message`);\n    }}\n    for (const message of holding) {{\n      if (message.role === \"system\" || message.role === \"developer\") {{\n        throw new Error(`${{from}} content became a ${{message.role}} message`);\n      }}\n      if (message.role === \"assistant\") {{\n        throw new Error(`${{from}} content became the assistant's message`);\n      }}\n      if (from === \"tool\" && !inToolRole(message, held(message, markers))) {{\n        throw new Error(\"tool output reached the model outside its tool role\");\n      }}\n    }}\n  }});\n}});\n",
                 comment("//"),
                 rows = rows("  ", "[", "]")
             )
         }
         Runner::Go => format!(
-            "{}package payloads_test\n\nimport (\n\t\"strings\"\n\t\"testing\"\n)\n\n// A message as the builder hands it to a model; a tool_result block is\n// returned as Role \"tool\".\ntype message{title} struct{{ Role, Content string }}\n\nfunc build{title}(content, from string) []message{title} {{\n\tpanic(\"devflow payloads: fill in build{title}() for {name}\")\n}}\n\nfunc TestPayloads{title}(t *testing.T) {{\n\tcases := []struct{{ id, input, from, marker string }}{{\n{rows}\t}}\n\tfor _, c := range cases {{\n\t\tt.Run(c.id, func(t *testing.T) {{\n\t\t\theld := 0\n\t\t\tfor _, m := range build{title}(c.input, c.from) {{\n\t\t\t\tif !strings.Contains(m.Content, c.marker) {{\n\t\t\t\t\tcontinue\n\t\t\t\t}}\n\t\t\t\theld++\n\t\t\t\tswitch m.Role {{\n\t\t\t\tcase \"system\", \"developer\":\n\t\t\t\t\tt.Fatalf(\"%s content became a %s message\", c.from, m.Role)\n\t\t\t\tcase \"assistant\":\n\t\t\t\t\tt.Fatalf(\"%s content became the assistant's message\", c.from)\n\t\t\t\t}}\n\t\t\t\tif c.from == \"tool\" && m.Role != \"tool\" {{\n\t\t\t\t\tt.Fatalf(\"tool output reached the model outside its tool role\")\n\t\t\t\t}}\n\t\t\t}}\n\t\t\tif held == 0 {{\n\t\t\t\tt.Fatalf(\"the %s content is in no message\", c.from)\n\t\t\t}}\n\t\t}})\n\t}}\n}}\n",
+            "{}package payloads_test\n\nimport (\n\t\"strings\"\n\t\"testing\"\n)\n\n// A message as the builder hands it to a model; a tool_result block is\n// returned as Role \"tool\".\ntype message{title} struct{{ Role, Content string }}\n\nfunc build{title}(content, from string) []message{title} {{\n\tpanic(\"devflow payloads: fill in build{title}() for {name}\")\n}}\n\nfunc TestPayloads{title}(t *testing.T) {{\n\tcases := []struct {{\n\t\tid, input, from string\n\t\tmarkers         []string\n\t}}{{\n{rows}\t}}\n\tfor _, c := range cases {{\n\t\tt.Run(c.id, func(t *testing.T) {{\n\t\t\theld := 0\n\t\t\tfor _, m := range build{title}(c.input, c.from) {{\n\t\t\t\tholds := false\n\t\t\t\tfor _, marker := range c.markers {{\n\t\t\t\t\tholds = holds || strings.Contains(m.Content, marker)\n\t\t\t\t}}\n\t\t\t\tif !holds {{\n\t\t\t\t\tcontinue\n\t\t\t\t}}\n\t\t\t\theld++\n\t\t\t\tswitch m.Role {{\n\t\t\t\tcase \"system\", \"developer\":\n\t\t\t\t\tt.Fatalf(\"%s content became a %s message\", c.from, m.Role)\n\t\t\t\tcase \"assistant\":\n\t\t\t\t\tt.Fatalf(\"%s content became the assistant's message\", c.from)\n\t\t\t\t}}\n\t\t\t\tif c.from == \"tool\" && m.Role != \"tool\" {{\n\t\t\t\t\tt.Fatalf(\"tool output reached the model outside its tool role\")\n\t\t\t\t}}\n\t\t\t}}\n\t\t\tif held == 0 {{\n\t\t\t\tt.Fatalf(\"the %s content is in no message\", c.from)\n\t\t\t}}\n\t\t}})\n\t}}\n}}\n",
             comment("//"),
             rows = rows("\t\t", "{", "}")
         ),
         Runner::Pytest => format!(
-            "{}import json\n\nimport pytest\n\n\ndef build(content, source):\n    raise NotImplementedError(\"devflow payloads: fill in build() for {name}\")\n\n\nCASES = [\n{rows}]\n\n\ndef holds(message, marker):\n    \"\"\"Whether a message holds the case's marker: words a builder that escapes a delimiter still keeps.\"\"\"\n    return marker in json.dumps(message.get(\"content\", \"\"), ensure_ascii=False)\n\n\ndef in_tool_role(message, marker):\n    \"\"\"A tool's text in its tool role, or only inside tool_result blocks.\"\"\"\n    if message[\"role\"] == \"tool\":\n        return True\n    content = message.get(\"content\", \"\")\n    if not isinstance(content, list):\n        return False\n    return all(block.get(\"type\") == \"tool_result\" or marker not in json.dumps(block, ensure_ascii=False) for block in content)\n\n\n@pytest.mark.parametrize(\"case_id,given,source,marker\", CASES, ids=[case[0] for case in CASES])\ndef test_payloads_{snake}(case_id, given, source, marker):\n    holding = [message for message in build(given, source) if holds(message, marker)]\n    assert holding, f\"the {{source}} content is in no message\"\n    for message in holding:\n        role = message[\"role\"]\n        assert role not in (\"system\", \"developer\"), f\"{{source}} content became a {{role}} message\"\n        assert role != \"assistant\", f\"{{source}} content became the assistant's message\"\n        if source == \"tool\":\n            assert in_tool_role(message, marker), \"tool output reached the model outside its tool role\"\n",
+            "{}import json\n\nimport pytest\n\n\ndef build(content, source):\n    raise NotImplementedError(\"devflow payloads: fill in build() for {name}\")\n\n\nCASES = [\n{rows}]\n\n\ndef held(message, markers):\n    \"\"\"The case's markers a message holds: words a builder that escapes a delimiter still keeps.\"\"\"\n    said = json.dumps(message.get(\"content\", \"\"), ensure_ascii=False)\n    return [marker for marker in markers if marker in said]\n\n\ndef in_tool_role(message, markers):\n    \"\"\"A tool's text in its tool role, or only inside tool_result blocks.\"\"\"\n    if message[\"role\"] == \"tool\":\n        return True\n    content = message.get(\"content\", \"\")\n    if not isinstance(content, list):\n        return False\n    return all(\n        block.get(\"type\") == \"tool_result\" or not any(marker in json.dumps(block, ensure_ascii=False) for marker in markers)\n        for block in content\n    )\n\n\n@pytest.mark.parametrize(\"case_id,given,source,markers\", CASES, ids=[case[0] for case in CASES])\ndef test_payloads_{snake}(case_id, given, source, markers):\n    holding = [message for message in build(given, source) if held(message, markers)]\n    assert holding, f\"the {{source}} content is in no message\"\n    for message in holding:\n        role = message[\"role\"]\n        assert role not in (\"system\", \"developer\"), f\"{{source}} content became a {{role}} message\"\n        assert role != \"assistant\", f\"{{source}} content became the assistant's message\"\n        if source == \"tool\":\n            assert in_tool_role(message, held(message, markers)), \"tool output reached the model outside its tool role\"\n",
             comment("#"),
             rows = rows("    ", "(", ")")
         ),

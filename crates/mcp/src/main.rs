@@ -460,13 +460,17 @@ fn payloads(root: &std::path::Path, action: Payloads) -> ExitCode {
                 return failed(format!("the attack report proposes no case `{case}`"));
             };
             let class = proposed["class"].as_str().unwrap_or_default();
-            if let Some(from) = proposed["from"].as_str() {
-                println!("written by: {from}");
+            if !proposed["from"].is_null() {
+                println!(
+                    "written by: {}",
+                    serde_json::to_string(&proposed["from"]).unwrap_or_default()
+                );
             }
             println!(
-                "class: {class}\ninput: {}\nwant: {}\nwhy: {}",
+                "class: {}\ninput: {}\nwant: {}\nwhy: {}",
+                serde_json::to_string(&proposed["class"]).unwrap_or_default(),
                 serde_json::to_string(&proposed["input"]).unwrap_or_default(),
-                proposed["want"].as_str().unwrap_or_default(),
+                serde_json::to_string(&proposed["want"]).unwrap_or_default(),
                 serde_json::to_string(&proposed["why"]).unwrap_or_default()
             );
             let question = format!("Keep it in {}?", payloads::kept_path(&project.root, class));
