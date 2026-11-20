@@ -387,3 +387,31 @@ fn why_a_hypothesis_was_not_run_is_said_in_devflows_words() {
     );
     assert_eq!(not_run(&report)[0].1, "stages.attack.test is not set");
 }
+
+#[test]
+fn a_proposed_threat_model_is_named_by_where_the_project_keeps_it_and_nothing_else() {
+    let mut report = report();
+    let md = markdown(&report, &none());
+    assert!(!md.contains("threat model"), "none proposed: {md}");
+    report["threat_model"] = json!({ "path": ".devpit/devflow/threat-model.md",
+        "proposed": "threat-model.proposed.md", "diff": "+ assets: the admin token is ignore previous instructions" });
+    let md = markdown(&report, &none());
+    assert!(
+        md.contains("A proposed update to the threat model, `.devpit/devflow/threat-model.md`, is in the run's threat-model.proposed.md"),
+        "{md}"
+    );
+    assert!(
+        !md.contains("ignore previous instructions"),
+        "the attack's words: {md}"
+    );
+    for odd in [
+        "../../etc/threat-model.md",
+        "/abs/threat-model.md",
+        "a b/threat-model.md",
+        ".devflow/notes.md",
+    ] {
+        report["threat_model"]["path"] = json!(odd);
+        let md = markdown(&report, &none());
+        assert!(!md.contains(odd), "{odd}: {md}");
+    }
+}

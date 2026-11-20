@@ -509,6 +509,24 @@ fn scanned(report: &Value, known: &Known, reachable: bool) -> Vec<Value> {
 }
 
 /// A field as a markdown cell or line shows it.
+/// Where the project keeps its threat model, when the attack proposed an
+/// update to it: shown only in devflow's own shape, a plain folder of the
+/// project and `threat-model.md`.
+fn threat_path(report: &Value) -> Option<String> {
+    let path = report["threat_model"]["path"].as_str()?;
+    let folder = path.strip_suffix("/threat-model.md")?;
+    let plain = !folder.is_empty()
+        && !folder.starts_with('/')
+        && folder.split('/').all(|part| {
+            !part.is_empty()
+                && part != ".."
+                && part
+                    .chars()
+                    .all(|one| one.is_ascii_alphanumeric() || "._-".contains(one))
+        });
+    plain.then(|| path.to_owned())
+}
+
 fn cell(value: &Value) -> String {
     match value {
         Value::String(said) => said.replace('|', "\\|").replace('\n', " "),
@@ -558,6 +576,11 @@ pub fn markdown(report: &Value, known: &Known) -> String {
             "Cost US$ {:.2}, {} min.\n",
             metrics["cost_usd"].as_f64().unwrap_or_default(),
             metrics["duration_ms"].as_u64().unwrap_or_default() / 60_000
+        ));
+    }
+    if let Some(path) = threat_path(report) {
+        out.push_str(&format!(
+            "A proposed update to the threat model, `{path}`, is in the run's threat-model.proposed.md, its diff in attack.json: the person's to take or leave.\n"
         ));
     }
     out.push_str(
