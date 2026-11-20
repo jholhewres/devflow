@@ -366,7 +366,9 @@ fn waited(child: &mut Child, deadline: Instant) -> Option<std::process::ExitStat
             Ok(Some(status)) => return Some(status),
             Ok(None) if Instant::now() < deadline => std::thread::sleep(EVERY),
             _ => {
-                let _ = child.kill();
+                // The CLI and everything it started: a timed-out reader left
+                // running would go on spending beside the one asked again.
+                crate::runner::descendants::end_it_all(child);
                 let _ = child.wait();
                 return None;
             }
@@ -379,18 +381,20 @@ fn waited(child: &mut Child, deadline: Instant) -> Option<std::process::ExitStat
 pub fn review(asked: &Review<'_>) -> Result<Reviewed, Unreviewed> {
     let began = Instant::now();
     let agent = asked.agent;
-    let mut child = crate::env::command(asked.program)
+    let mut command = crate::env::command(asked.program);
+    command
         .args(agent.argv(asked.model, asked.prompt))
         .current_dir(asked.cwd)
         .envs(asked.env.iter().map(|(key, value)| (key, value)))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|err| match err.kind() {
-            std::io::ErrorKind::NotFound => Unreviewed::Missing,
-            _ => Unreviewed::Failed(format!("could not start: {err}")),
-        })?;
+        .stderr(Stdio::piped());
+    // Its own group, so a timeout ends all it started.
+    crate::runner::descendants::in_a_session_of_its_own(&mut command);
+    let mut child = command.spawn().map_err(|err| match err.kind() {
+        std::io::ErrorKind::NotFound => Unreviewed::Missing,
+        _ => Unreviewed::Failed(format!("could not start: {err}")),
+    })?;
     let stdin = child.stdin.take();
     let prompt = agent.on_stdin().then(|| asked.prompt.to_owned());
     // Its own thread: a prompt past the pipe's buffer would block until the

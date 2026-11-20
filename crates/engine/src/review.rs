@@ -853,6 +853,41 @@ pub fn raw_file_for(agent: &str, persona: &str) -> String {
     format!("raw-{}-{}.txt", plain(agent), plain(persona))
 }
 
+/// Where a failed try's answer is kept, by its number.
+fn raw_try_for(agent: &str, persona: &str, at: usize) -> String {
+    format!("raw-{}-{}-{at}.txt", plain(agent), plain(persona))
+}
+
+/// What a reader's tries spent, added up.
+#[derive(Default)]
+struct Spent {
+    tried: bool,
+    duration_ms: u64,
+    cost_usd: Option<f64>,
+    tokens: Option<Tokens>,
+}
+
+impl Spent {
+    fn add(&mut self, said: &reviewing::Reviewed) {
+        self.tried = true;
+        self.duration_ms += said.duration_ms;
+        if let Some(cost) = said.cost_usd {
+            *self.cost_usd.get_or_insert(0.0) += cost;
+        }
+        if let Some(tokens) = said.tokens {
+            self.tokens.get_or_insert_with(Tokens::default).add(tokens);
+        }
+    }
+
+    fn onto(&self, ran: &mut Ran) {
+        if self.tried {
+            ran.duration_ms = Some(self.duration_ms);
+            ran.cost_usd = self.cost_usd;
+            ran.tokens = self.tokens;
+        }
+    }
+}
+
 fn plain(name: &str) -> String {
     name.chars()
         .map(|ch| {
@@ -884,8 +919,9 @@ pub struct Ran {
     pub stage: Option<String>,
     /// The tokens its turn spent, when its CLI says.
     pub tokens: Option<Tokens>,
-    /// Why each earlier try gave no answer, when it was asked again.
-    pub tries: Vec<String>,
+    /// Each earlier try that gave no answer, when it was asked again: its
+    /// reason, and what it spent and said when it ran.
+    pub tries: Vec<Value>,
 }
 
 impl Ran {
@@ -931,13 +967,7 @@ impl Ran {
             tries: value
                 .get("tries")
                 .and_then(Value::as_array)
-                .map(|tries| {
-                    tries
-                        .iter()
-                        .filter_map(Value::as_str)
-                        .map(str::to_owned)
-                        .collect()
-                })
+                .cloned()
                 .unwrap_or_default(),
         })
     }
@@ -1375,21 +1405,26 @@ fn reviewed_anew(given: &Given) -> Result<(String, PathBuf, Record), String> {
     // while the review has time for a try; each try's reason is kept.
     let started = std::time::Instant::now();
     let tried = |reader: &Reader| {
-        let mut tries: Vec<String> = Vec::new();
-        let mut outcome = one(reader, deadline);
+        let mut failed: Vec<Unread> = Vec::new();
+        // The first try leaves time for another, so one that runs out of
+        // time can be asked again too.
+        let reserve = (LEAST_TRY + RETRY_PAUSES.iter().sum::<Duration>()).max(deadline / 3);
+        let mut outcome = one(reader, deadline.saturating_sub(reserve));
         for pause in RETRY_PAUSES {
-            let why = match &outcome {
-                Err((why, _)) if asked_again(why) => why.clone(),
+            match &outcome {
+                Err((why, _)) if asked_again(why) => {}
                 _ => break,
-            };
+            }
             if deadline.saturating_sub(started.elapsed() + pause) < LEAST_TRY {
                 break;
             }
-            tries.push(why);
+            if let Err(unread) = outcome {
+                failed.push(unread);
+            }
             std::thread::sleep(pause);
             outcome = one(reader, deadline.saturating_sub(started.elapsed()));
         }
-        (outcome, tries)
+        (outcome, failed)
     };
     let outcomes = in_parallel(&readers, &tried);
     let mut record = Record {
@@ -1430,32 +1465,48 @@ fn reviewed_anew(given: &Given) -> Result<(String, PathBuf, Record), String> {
             tokens: None,
             tries: Vec::new(),
         };
-        let outcome = match outcome {
-            Some((outcome, tries)) => {
-                ran.tries = tries;
-                outcome
-            }
-            None => Err(("its turn stopped before it answered".to_owned(), None)),
+        let (outcome, failed) = match outcome {
+            Some((outcome, failed)) => (outcome, failed),
+            None => (
+                Err(("its turn stopped before it answered".to_owned(), None)),
+                Vec::new(),
+            ),
         };
+        // Each failed try is kept with what it spent and said: a paid try
+        // counts though it was asked again.
+        let mut spent = Spent::default();
+        for (at, (why, said)) in failed.into_iter().enumerate() {
+            let mut entry = json!({ "reason": why });
+            if let Some(said) = said {
+                let file = raw_try_for(&ran.agent, &ran.persona, at + 1);
+                write(&path, &file, &(given.redact)(&said.text))?;
+                entry["file"] = json!(file);
+                entry["duration_ms"] = json!(said.duration_ms);
+                entry["cost_usd"] = json!(said.cost_usd);
+                spent.add(&said);
+            }
+            ran.tries.push(entry);
+        }
         match outcome {
             Ok((answer, said)) => {
                 let taken: Vec<String> = record.ran.iter().filter_map(|r| r.file.clone()).collect();
                 let file = file_for(&taken, &ran.agent, &ran.persona);
                 write(&path, &file, &pretty(&answer))?;
-                ran.duration_ms = Some(said.duration_ms);
-                ran.cost_usd = said.cost_usd;
-                ran.tokens = said.tokens;
+                spent.add(&said);
+                spent.onto(&mut ran);
                 ran.findings = answer["findings"].as_array().map_or(0, Vec::len);
                 ran.file = Some(file);
                 record.answers.push(answer);
             }
-            Err((why, None)) => ran.reason = Some(why),
+            Err((why, None)) => {
+                spent.onto(&mut ran);
+                ran.reason = Some(why);
+            }
             Err((why, Some(said))) => {
                 let file = raw_file_for(&ran.agent, &ran.persona);
                 write(&path, &file, &(given.redact)(&said.text))?;
-                ran.duration_ms = Some(said.duration_ms);
-                ran.cost_usd = said.cost_usd;
-                ran.tokens = said.tokens;
+                spent.add(&said);
+                spent.onto(&mut ran);
                 ran.reason = Some(format!("{why}; what it said is in {file}"));
             }
         }
@@ -1480,7 +1531,10 @@ const RETRY_PAUSES: [Duration; 2] = [Duration::from_secs(5), Duration::from_secs
 #[cfg(test)]
 const RETRY_PAUSES: [Duration; 2] = [Duration::from_millis(5), Duration::from_millis(20)];
 /// The least time a try is given: less, and it is not made.
+#[cfg(not(test))]
 const LEAST_TRY: Duration = Duration::from_secs(60);
+#[cfg(test)]
+const LEAST_TRY: Duration = Duration::from_secs(2);
 
 /// Whether a reader that gave no answer is worth asking again: not when its
 /// CLI is missing or signed out, or its persona cannot be read.

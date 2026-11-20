@@ -2101,7 +2101,13 @@ fn a_reader_that_failed_is_retried_and_each_tries_reason_is_kept() {
     let ran = &done.ran[0];
     assert!(ran.file.is_some(), "the second try answered: {ran:?}");
     assert_eq!(ran.tries.len(), 1);
-    assert!(ran.tries[0].contains("overloaded"), "{:?}", ran.tries);
+    assert!(
+        ran.tries[0]["reason"]
+            .as_str()
+            .is_some_and(|why| why.contains("overloaded")),
+        "{:?}",
+        ran.tries
+    );
     let record = std::fs::read_to_string(Path::new(&done.folder).join(RECORD)).expect("record");
     assert!(record.contains("\"tries\""), "{record}");
 }
@@ -2213,5 +2219,144 @@ fn a_persona_the_sessions_report_filled_is_recorded_via_session() {
             json!("session")
         };
         assert_eq!(ran["via"], via, "{ran}");
+    }
+}
+
+/// A fake claude that answers in its JSON envelope: its first try says
+/// `first` at `first_cost`, every later one `then`; or, with `hang`, its
+/// first try sleeps past the time it has.
+#[cfg(unix)]
+fn enveloped_cli(dir: &Path, name: &str, first: &str, then: &Value, hang: bool) -> String {
+    let path = dir.join(name);
+    let envelope = |result: &str, cost: f64| {
+        json!({ "type": "result", "result": result, "total_cost_usd": cost }).to_string()
+    };
+    let first_try = if hang {
+        format!("sleep 30 &\necho $! > \"$here/{name}.sleeper\"\nwait")
+    } else {
+        format!("cat <<'EOF'\n{}\nEOF", envelope(first, 0.4))
+    };
+    let script = format!(
+        "#!/bin/sh\ncat > /dev/null\nhere=$(dirname \"$0\")\necho try >> \"$here/{name}.tries\"\nif [ $(wc -l < \"$here/{name}.tries\") -le 1 ]; then\n{first_try}\nexit 0\nfi\ncat <<'EOF'\n{}\nEOF\n",
+        envelope(&then.to_string(), 0.6)
+    );
+    written_apart(&path, &script);
+    path.display().to_string()
+}
+
+#[cfg(unix)]
+#[test]
+fn a_paid_try_that_is_asked_again_keeps_its_cost_and_what_it_said() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let root = dir.path();
+    let said = answer("claude", "devflow-security", vec![]);
+    let cli = enveloped_cli(
+        root,
+        "claude-paid",
+        "I looked and have no JSON for you",
+        &said,
+        false,
+    );
+    let reach = move |agent: Agent| match agent {
+        Agent::Claude => Ok(cli.clone()),
+        _ => Err("not installed".to_owned()),
+    };
+    let config = config_with(
+        vec![reviewer(Agent::Claude, "devflow-security")],
+        Consolidate::Nothing,
+    );
+    let done = Ran {
+        root,
+        config: &config,
+        asked: fresh(),
+        reach: &reach,
+        jev: None,
+    }
+    .review()
+    .expect("reviewed");
+    let ran = &done.ran[0];
+    assert!(ran.file.is_some(), "{ran:?}");
+    let first = &ran.tries[0];
+    let raw = first["file"].as_str().expect("its answer kept");
+    assert_eq!(raw, "raw-claude-devflow-security-1.txt");
+    let kept = std::fs::read_to_string(Path::new(&done.folder).join(raw)).expect("raw");
+    assert!(kept.contains("no JSON for you"), "{kept}");
+    assert!((first["cost_usd"].as_f64().unwrap_or_default() - 0.4).abs() < 1e-9);
+    assert!(
+        (ran.cost_usd.unwrap_or_default() - 1.0).abs() < 1e-9,
+        "every try's cost counts: {:?}",
+        ran.cost_usd
+    );
+}
+
+/// A reader that runs out of time on its first try is asked again: the
+/// first try leaves room for another.
+#[cfg(unix)]
+#[test]
+fn a_reader_that_timed_out_is_asked_again() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let root = dir.path();
+    let said = answer("claude", "devflow-security", vec![]);
+    let cli = enveloped_cli(root, "claude-slow", "", &said, true);
+    let reach = move |agent: Agent| match agent {
+        Agent::Claude => Ok(cli.clone()),
+        _ => Err("not installed".to_owned()),
+    };
+    let config = config_with(
+        vec![reviewer(Agent::Claude, "devflow-security")],
+        Consolidate::Nothing,
+    );
+    let asked = fresh();
+    let no_redaction = |text: &str| text.to_owned();
+    let files = vec!["src/app.rs".to_owned()];
+    let done = reviewed(&Given {
+        root,
+        runs: &runs_of(root),
+        config: &config,
+        asked: &asked,
+        card: Card {
+            id: "card_1",
+            title: "[devflow] Open links",
+            body: "## Acceptance criteria\n- [ ] opens the first link\n",
+        },
+        git: Some(git(&files, FIRST_DIFF)),
+        brief: None,
+        evidence: None,
+        env: &[],
+        at: SystemTime::now(),
+        // Ten seconds after the consolidating pass's share.
+        budget: PASS + Duration::from_secs(10),
+        reach: &reach,
+        redact: &no_redaction,
+        personas: Personas::default(),
+        jev: None,
+        previous: None,
+        lines_at: &|_, _| Ok(Some(LONG_ENOUGH)),
+        retro: false,
+    })
+    .expect("reviewed");
+    let ran = &done.ran[0];
+    assert!(ran.file.is_some(), "the second try answered: {ran:?}");
+    assert!(
+        ran.tries[0]["reason"]
+            .as_str()
+            .is_some_and(|why| why.contains("time")),
+        "{:?}",
+        ran.tries
+    );
+    // Nothing the timed-out try started is left running.
+    #[cfg(target_os = "linux")]
+    {
+        let pid = std::fs::read_to_string(root.join("claude-slow.sleeper")).expect("sleeper");
+        let stat = format!("/proc/{}/stat", pid.trim());
+        let running = || {
+            std::fs::read_to_string(&stat)
+                .is_ok_and(|said| said.split(' ').nth(2).is_some_and(|state| state != "Z"))
+        };
+        let given_up = std::time::Instant::now() + Duration::from_secs(3);
+        while running() && std::time::Instant::now() < given_up {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert!(!running(), "the try's own child was ended with it");
     }
 }
