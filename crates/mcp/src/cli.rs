@@ -245,6 +245,23 @@ fn setting(root: &Path, path: &str, value: &Value, consent: &Consent) -> Result<
         }
         Kind::Field => {}
     }
+    // How the yes came, when, and what it was for, beside it.
+    let what = match kind {
+        Kind::Switch(Ask::Enable) => Some("enabled"),
+        Kind::Switch(Ask::Enforce) => Some("decisions.mode"),
+        Kind::Targets => Some("security.targets"),
+        Kind::Stack => Some("security.stack"),
+        Kind::Field => None,
+    };
+    if let Some(what) = what {
+        consent.record(
+            &project.root,
+            what,
+            crate::consent::How::Terminal,
+            "config set",
+            std::time::SystemTime::now(),
+        )?;
+    }
     if path == "enabled" && *value == Value::Bool(false) {
         consent.remember(&project.root, Ask::Enable, false)?;
     }

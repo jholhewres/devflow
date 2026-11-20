@@ -123,3 +123,89 @@ fn a_confirmed_stack_is_kept_with_the_digest_compose_resolved_then() {
     consent.confirm_stack(&root, None).expect("forgotten");
     assert_eq!(consent.confirmed_stack(&root), None);
 }
+
+#[test]
+fn how_when_and_what_for_the_person_said_yes_is_kept_by_project() {
+    use std::time::{Duration, SystemTime};
+    let (folder, one, other) = (
+        tempfile::tempdir().expect("folder"),
+        tempfile::tempdir().expect("one"),
+        tempfile::tempdir().expect("other"),
+    );
+    let consent = Consent::at(folder.path());
+    let at = SystemTime::UNIX_EPOCH + Duration::from_secs(1_795_000_000);
+    consent
+        .record(one.path(), "enabled", How::Elicitation, "attack", at)
+        .expect("kept");
+    consent
+        .record(
+            one.path(),
+            "security.targets",
+            How::Terminal,
+            "config set",
+            at,
+        )
+        .expect("kept");
+    let given = consent.given(one.path());
+    assert_eq!(given.len(), 2);
+    assert_eq!(given[0].what, "enabled");
+    assert_eq!(given[0].how, How::Elicitation);
+    assert_eq!(given[0].asked_for, "attack");
+    assert_eq!(given[0].at, "20261118T110640Z");
+    assert_eq!(given[1].how, How::Terminal);
+    assert!(consent.given(other.path()).is_empty(), "by project");
+    let file: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(folder.path().join(FILE)).expect("file"))
+            .expect("json");
+    let said = file["given"].to_string();
+    assert!(said.contains("\"how\":\"elicitation\""), "{said}");
+    assert!(said.contains("\"for\":\"attack\""), "{said}");
+    for _ in 0..MOST_GIVEN + 5 {
+        consent
+            .record(one.path(), "enabled", How::Terminal, "setup", at)
+            .expect("kept");
+    }
+    assert_eq!(
+        consent.kept().given.len(),
+        MOST_GIVEN,
+        "the newest are kept"
+    );
+
+    assert!(consent.answered(one.path()).is_empty());
+    let answered = |parts: &[&str]| {
+        let parts: Vec<String> = parts.iter().map(|one| one.to_string()).collect();
+        consent
+            .keep_answer(
+                one.path(),
+                &Answered {
+                    switched_on: false,
+                    targets: None,
+                    yeses: &[],
+                    parts: &parts,
+                    how: How::Elicitation,
+                    asked_for: "attack",
+                    at,
+                },
+            )
+            .expect("kept");
+    };
+    answered(&["test", "run_usd"]);
+    answered(&["test"]);
+    let parts: Vec<String> = consent.answered(one.path()).into_iter().collect();
+    assert_eq!(parts, ["run_usd", "test"]);
+    assert!(consent.answered(other.path()).is_empty());
+    assert!(
+        !consent.made(one.path(), Ask::Enable),
+        "a part is not a switch"
+    );
+    // Past the most kept, the oldest part goes first.
+    for index in 0..MOST_COMMANDS {
+        answered(&[&format!("targets:{index}")]);
+    }
+    let kept = consent.answered(one.path());
+    assert!(
+        !kept.contains("run_usd") && !kept.contains("test"),
+        "{kept:?}"
+    );
+    assert!(kept.contains("targets:0"));
+}

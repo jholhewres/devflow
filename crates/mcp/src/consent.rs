@@ -1,9 +1,12 @@
 //! What only the person decides, kept on their machine: devflow switched on
 //! in a project, Decisions moved to `enforce` there, a team layer's command
 //! confirmed at its commit, and the targets an attack may reach there, with
-//! the addresses each name resolved to then. A terminal command with a confirmation
-//! writes it (`devflow config set`, `devflow stage confirm`); an MCP tool
-//! only reads it, and answers with the command to run.
+//! the addresses each name resolved to then. A terminal command with a
+//! confirmation writes it (`devflow config set`, `devflow stage confirm`,
+//! `devflow setup --attack`), or the person's own answer to the question the
+//! MCP server asked them through the client (`elicitation/create`). Each yes
+//! is kept with how it came, when, and what it was asked for. A tool's
+//! arguments never write it.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -15,6 +18,31 @@ use serde::{Deserialize, Serialize};
 const FILE: &str = "consent.json";
 /// The newest confirmed commands kept: an old one that comes back is asked again.
 const MOST_COMMANDS: usize = 256;
+/// The newest yeses kept with how they came.
+const MOST_GIVEN: usize = 256;
+
+/// How the person said yes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum How {
+    /// On a terminal, to a devflow command.
+    Terminal,
+    /// To the question the MCP server asked through the client.
+    Elicitation,
+}
+
+/// One yes: what it allowed in which project, how, when, and what for.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Given {
+    pub project: String,
+    pub what: String,
+    pub how: How,
+    /// As a run's stamp, UTC.
+    pub at: String,
+    /// What it was asked for: `attack`, `config set`, `setup`.
+    #[serde(rename = "for")]
+    pub asked_for: String,
+}
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 struct Kept {
@@ -35,6 +63,13 @@ struct Kept {
     /// SHA-256 of its compose file then.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     stacks: BTreeMap<String, (String, String)>,
+    /// Each yes, how it came, when and what for; the newest last.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    given: Vec<Given>,
+    /// By project: the parts of the attack's question the person answered
+    /// there, which are not asked again.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    answered: BTreeMap<String, Vec<String>>,
 }
 
 /// The person's decisions, in one file.
@@ -108,16 +143,7 @@ impl Consent {
             return Ok(());
         }
         let mut kept = self.kept();
-        let key = key_of(root);
-        let set = match ask {
-            Ask::Enable => &mut kept.enabled,
-            Ask::Enforce => &mut kept.enforced,
-        };
-        if yes {
-            set.insert(key);
-        } else {
-            set.remove(&key);
-        }
+        kept.switched(&key_of(root), ask, yes);
         self.keep(&kept)
     }
 
@@ -171,31 +197,61 @@ impl Consent {
         pins: &Pins,
     ) -> Result<(), String> {
         let mut kept = self.kept();
+        kept.targets_confirmed(&key_of(root), targets, pins);
+        self.keep(&kept)
+    }
+
+    /// Keeps that the person said yes to `what` in the project, `how`, at
+    /// `at`, when asked for `asked_for`.
+    pub fn record(
+        &self,
+        root: &Path,
+        what: &str,
+        how: How,
+        asked_for: &str,
+        at: std::time::SystemTime,
+    ) -> Result<(), String> {
+        let mut kept = self.kept();
+        kept.recorded(&key_of(root), what, how, asked_for, at);
+        self.keep(&kept)
+    }
+
+    /// The yeses kept for the project, oldest first.
+    pub fn given(&self, root: &Path) -> Vec<Given> {
         let key = key_of(root);
-        let listed: Vec<String> = targets
-            .iter()
-            .take(devflow_engine::security::MOST_TARGETS)
-            .cloned()
-            .collect();
-        let origins = devflow_engine::security::origins(&listed);
-        let pins: Pins = pins
-            .iter()
-            .filter(|(origin, _)| origins.contains(origin))
-            .map(|(origin, addresses)| {
-                let most = addresses.len().min(MOST_PINNED);
-                (origin.clone(), addresses[..most].to_vec())
-            })
-            .collect();
-        if listed.is_empty() {
-            kept.targets.remove(&key);
-        } else {
-            kept.targets.insert(key.clone(), listed);
+        self.kept()
+            .given
+            .into_iter()
+            .filter(|one| one.project == key)
+            .collect()
+    }
+
+    /// The parts of the attack's question the person answered in the project.
+    pub fn answered(&self, root: &Path) -> BTreeSet<String> {
+        self.kept()
+            .answered
+            .remove(&key_of(root))
+            .unwrap_or_default()
+            .into_iter()
+            .collect()
+    }
+
+    /// One answer of the person's in the project, kept in one write: devflow
+    /// switched on, the targets they allowed with the addresses shown, each
+    /// yes with how it came, and the parts of the question answered.
+    pub fn keep_answer(&self, root: &Path, answer: &Answered) -> Result<(), String> {
+        let mut kept = self.kept();
+        let key = key_of(root);
+        if answer.switched_on && self.switches.is_none() {
+            kept.switched(&key, Ask::Enable, true);
         }
-        if pins.is_empty() {
-            kept.pinned.remove(&key);
-        } else {
-            kept.pinned.insert(key, pins);
+        if let Some((targets, pins)) = answer.targets {
+            kept.targets_confirmed(&key, targets, pins);
         }
+        for what in answer.yeses {
+            kept.recorded(&key, what, answer.how, answer.asked_for, answer.at);
+        }
+        kept.parts_answered(&key, answer.parts);
         self.keep(&kept)
     }
 
@@ -212,6 +268,93 @@ impl Consent {
         let over = kept.commands.len().saturating_sub(MOST_COMMANDS);
         kept.commands.drain(..over);
         self.keep(&kept)
+    }
+}
+
+/// One answer of the person's, as [`Consent::keep_answer`] keeps it.
+pub struct Answered<'a> {
+    pub switched_on: bool,
+    /// The targets now confirmed, with the addresses shown for them.
+    pub targets: Option<(&'a [String], &'a Pins)>,
+    /// What each yes allowed, as `given` names it.
+    pub yeses: &'a [&'a str],
+    pub parts: &'a [String],
+    pub how: How,
+    pub asked_for: &'a str,
+    pub at: std::time::SystemTime,
+}
+
+impl Kept {
+    fn switched(&mut self, key: &str, ask: Ask, yes: bool) {
+        let set = match ask {
+            Ask::Enable => &mut self.enabled,
+            Ask::Enforce => &mut self.enforced,
+        };
+        if yes {
+            set.insert(key.to_owned());
+        } else {
+            set.remove(key);
+        }
+    }
+
+    fn targets_confirmed(&mut self, key: &str, targets: &[String], pins: &Pins) {
+        let listed: Vec<String> = targets
+            .iter()
+            .take(devflow_engine::security::MOST_TARGETS)
+            .cloned()
+            .collect();
+        let origins = devflow_engine::security::origins(&listed);
+        let pins: Pins = pins
+            .iter()
+            .filter(|(origin, _)| origins.contains(origin))
+            .map(|(origin, addresses)| {
+                let most = addresses.len().min(MOST_PINNED);
+                (origin.clone(), addresses[..most].to_vec())
+            })
+            .collect();
+        if listed.is_empty() {
+            self.targets.remove(key);
+        } else {
+            self.targets.insert(key.to_owned(), listed);
+        }
+        if pins.is_empty() {
+            self.pinned.remove(key);
+        } else {
+            self.pinned.insert(key.to_owned(), pins);
+        }
+    }
+
+    fn recorded(
+        &mut self,
+        key: &str,
+        what: &str,
+        how: How,
+        asked_for: &str,
+        at: std::time::SystemTime,
+    ) {
+        self.given.push(Given {
+            project: key.to_owned(),
+            what: what.to_owned(),
+            how,
+            at: devflow_engine::runs::stamp(at),
+            asked_for: asked_for.to_owned(),
+        });
+        let over = self.given.len().saturating_sub(MOST_GIVEN);
+        self.given.drain(..over);
+    }
+
+    /// `parts` answered in the project, the oldest dropped past the most kept.
+    fn parts_answered(&mut self, key: &str, parts: &[String]) {
+        if parts.is_empty() {
+            return;
+        }
+        let answered = self.answered.entry(key.to_owned()).or_default();
+        for part in parts {
+            answered.retain(|one| one != part);
+            answered.push(part.clone());
+        }
+        let over = answered.len().saturating_sub(MOST_COMMANDS);
+        answered.drain(..over);
     }
 }
 
