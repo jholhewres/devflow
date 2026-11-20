@@ -150,7 +150,9 @@ with no model called. Each case is text a user, a tool or a document wrote.
 You fill in `build`, which gives the text to your message builder and returns
 the messages it built. The table fails when the text became a system,
 developer or assistant message, or when a tool's output reached the model
-undelimited. The security persona checks the same properties in a review.
+outside its tool role or tool_result block. Whether a tool that writes asks
+the person first, and how a delimiter is escaped, is left to the security
+review.
 
 ## Where exploits run
 

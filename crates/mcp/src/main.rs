@@ -460,6 +460,9 @@ fn payloads(root: &std::path::Path, action: Payloads) -> ExitCode {
                 return failed(format!("the attack report proposes no case `{case}`"));
             };
             let class = proposed["class"].as_str().unwrap_or_default();
+            if let Some(from) = proposed["from"].as_str() {
+                println!("written by: {from}");
+            }
             println!(
                 "class: {class}\ninput: {}\nwant: {}\nwhy: {}",
                 serde_json::to_string(&proposed["input"]).unwrap_or_default(),

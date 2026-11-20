@@ -64,8 +64,9 @@ this axis, and report what an attacker can actually reach, not theory.
   data in the context, tools with more reach than the task, no cap on tokens,
   calls or recursion.
 - **Prompt-building code,** when the change builds the messages a model
-  reads, holds four structural properties, each checked with no model called
-  (`devflow payloads table prompt-injection`):
+  reads, holds four structural properties. The first three are also checked
+  by a test with no model called (`devflow payloads table prompt-injection`);
+  the fourth, and how a delimiter is escaped, only a review checks:
   - text a user, a tool or a document wrote never becomes a system or
     developer message, nor the assistant's;
   - a tool's output reaches the model delimited as data, in its tool-result
