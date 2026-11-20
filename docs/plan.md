@@ -430,6 +430,10 @@ HEAD. The details, and how to read the report: [security.md](security.md).
   `doctor` lists the person's yeses and what the question does not ask
   again; the update's lock holds its pid, is taken over once its holder is
   gone, and a lock that cannot be made says why.
+- 0.6.6: before the attacker, an attack runs again at HEAD the exploits
+  earlier attacks left open, of the same work or of a range its history
+  holds, and tells the attacker how each ended (`attack::open_before`,
+  `run_again`, each hypothesis's `again`).
 
 **What a host sees change**
 
@@ -475,6 +479,9 @@ HEAD. The details, and how to read the report: [security.md](security.md).
 - 0.6.5 adds `sandbox::Ran::reached`, whether the whole output named the
   exploit's test; `attack::reached` reads a test's name as the runner joins
   its parts.
+- 0.6.6 adds `attack::open_before`, `runs::newest_all_with` and `git::is_ancestor`; an attack's
+  report gains `run_again`, and a hypothesis run again carries `again`
+  (`item`, `run`, `id`, `was`).
 
 ## Release
 

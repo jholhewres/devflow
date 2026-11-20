@@ -50,7 +50,11 @@ show devflow-security` prints what it reads). Its update to the threat model
 comes back as a diff in the report, with the whole text beside it as
 `threat-model.proposed.md`, for the person to take or leave. A hypothesis an
 earlier attack refuted is not tried again while the file of the control that
-refuted it is unchanged.
+refuted it is unchanged. One an earlier attack left open (confirmed, or tried
+with an exploit kept), of this work or of a range this one's history holds,
+is run again at HEAD in the sandbox before the attacker, and the attacker is
+told how each ended so it covers the rest: a hole once shown is shown again
+whether or not this attacker finds it.
 
 `stages.attack.regression` names payload classes (`devflow payloads list`)
 whose generic cases every attack is given to run again. A case the attacker

@@ -542,6 +542,15 @@ The project's dependency folders (`node_modules`, `vendor`, `.venv` and the
 like) are mounted read-only into each worktree, from the checkout, else from
 the repository's main worktree, so an exploit test never fetches them
 offline, even when the attack reads a detached tree of a range.
+Before the attacker, each exploit an earlier attack left open (confirmed,
+or tried: a red run that did not name its test among them), of the same
+work or of a range whose head this one's history holds, in their eight
+newest runs (one whose attacker wrote nothing hides none before it), is run
+again at HEAD from the run that kept it, at most twelve: red is confirmed again,
+green is refuted (the hole is shut), and one that cannot run stays tried
+with why. The attacker is told how each ended and covers the rest; the
+report counts them as `run_again`, each with where it came from under
+`again`, and keeps its exploit so the next attack runs it again too.
 A red run confirms only when what it printed names the exploit's test, its
 parts joined as the runner joins them (jest's `describe › test`, vitest's
 `describe > test`, `::`), and no harness error: all of it is read, not only
