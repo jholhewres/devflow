@@ -553,7 +553,7 @@ fn proven(given: &Given, stamp: &str, hypotheses: &mut [Value]) {
             .iter()
             .collect();
         let (status, result, why) = match &ran.outcome {
-            Outcome::Red if reached(&ran.tail, &test) => {
+            Outcome::Red if ran.reached => {
                 ("confirmed", "confirmed", "red, naming its test".to_owned())
             }
             Outcome::Red => (
@@ -603,9 +603,23 @@ const NOT_REACHED: [&str; 9] = [
 /// Whether a red run reached its test: the output names it, and no harness
 /// error says the file never ran.
 pub fn reached(tail: &str, test: &str) -> bool {
-    !test.trim().is_empty()
-        && tail.contains(test)
+    let test = spoken(test);
+    !test.is_empty()
+        && spoken(tail).contains(&test)
         && !NOT_REACHED.iter().any(|said| tail.contains(said))
+}
+
+/// A test's name as runners print it, its parts joined by one space: jest
+/// joins a describe and its test with ` › `, vitest with ` > `, pytest and
+/// cargo with `::`. A name the attacker gave as `describe test` and a runner
+/// printed as `describe › test` are the same test.
+fn spoken(text: &str) -> String {
+    text.replace('›', " ")
+        .replace(" > ", " ")
+        .replace("::", " ")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// The exploit tests the attack confirmed, each wanted green from then on,
@@ -1447,7 +1461,7 @@ fn side(
     }
     let ran = sandbox::run(found, &tree, command, (path, test), limits);
     match ran.outcome {
-        Outcome::Red if reached(&ran.tail, test) => ("red", "red, naming its test".to_owned()),
+        Outcome::Red if ran.reached => ("red", "red, naming its test".to_owned()),
         Outcome::Green => ("green", "green".to_owned()),
         Outcome::Red => ("error", "it failed before its assertion".to_owned()),
         Outcome::TimedOut => ("error", "it ran past its time".to_owned()),

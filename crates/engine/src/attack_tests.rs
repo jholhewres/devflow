@@ -59,6 +59,62 @@ fn two_hypotheses_never_share_a_folder_of_exploits() {
     );
 }
 
+/// What jest prints when an exploit fails on its own assertion.
+const JEST_RED: &str = "\
+FAIL tests/security/session.exploit.test.ts
+  forged sessions
+    \u{2715} accepts a cookie signed with any key (12 ms)
+
+  \u{25cf} forged sessions \u{203a} accepts a cookie signed with any key
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: false
+    Received: true
+
+      at Object.<anonymous> (tests/security/session.exploit.test.ts:9:26)
+
+Test Suites: 1 failed, 1 total
+Tests:       1 failed, 1 total
+";
+
+/// What vitest prints for the same.
+const VITEST_RED: &str = "\
+ FAIL  tests/security/session.exploit.test.ts > forged sessions > accepts a cookie signed with any key
+AssertionError: expected true to be false
+ \u{276f} tests/security/session.exploit.test.ts:9:26
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+";
+
+#[test]
+fn a_red_run_names_its_test_however_the_runner_joins_describe_and_test() {
+    for named in [
+        "forged sessions accepts a cookie signed with any key",
+        "forged sessions \u{203a} accepts a cookie signed with any key",
+        "forged sessions > accepts a cookie signed with any key",
+        "accepts a cookie signed with any key",
+    ] {
+        assert!(reached(JEST_RED, named), "jest: {named}");
+        assert!(reached(VITEST_RED, named), "vitest: {named}");
+    }
+    assert!(reached(
+        "test exploits::forged_cookie_is_accepted ... FAILED",
+        "exploits forged_cookie_is_accepted"
+    ));
+    assert!(!reached(
+        JEST_RED,
+        "forged sessions refuses an expired cookie"
+    ));
+    // A harness error is never the hole, whatever names the test.
+    let broken = JEST_RED.replace("expect(received)", "Cannot find module './session'");
+    assert!(!reached(
+        &broken,
+        "forged sessions accepts a cookie signed with any key"
+    ));
+}
+
 #[test]
 fn a_red_run_confirms_only_when_it_reached_its_test() {
     let test = "a forged cookie is refused";

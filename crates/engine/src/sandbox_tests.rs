@@ -335,3 +335,21 @@ fn a_tree_of_a_detached_review_tree_gets_the_main_checkouts_dependencies() {
     drop(tree);
     crate::git::remove_detached(&root, &review);
 }
+
+#[test]
+fn a_test_named_before_the_end_of_a_long_red_run_is_still_reached() {
+    let name = "forged sessions \u{203a} accepts a cookie signed with any key";
+    let said = format!(
+        "FAIL tests/session.exploit.test.ts\n  \u{25cf} {name}\n\n    Expected: false\n{}\nTests: 2 failed, 2 total\n",
+        "      at Object.<anonymous> (tests/session.exploit.test.ts:9:26)\n".repeat(100)
+    );
+    let (tail, reached) = judged(
+        &said,
+        "forged sessions accepts a cookie signed with any key",
+    );
+    assert!(
+        !tail.contains("accepts a cookie"),
+        "the end alone does not name it"
+    );
+    assert!(reached);
+}
