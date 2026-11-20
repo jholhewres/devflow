@@ -102,6 +102,9 @@ pub fn handle(line: &str, server: &Server) -> Option<String> {
             server
                 .person
                 .initialized(params.get("capabilities").unwrap_or(&Value::Null));
+            server
+                .person
+                .introduced(params.get("clientInfo").unwrap_or(&Value::Null));
             json!({
             "protocolVersion": protocol(params.get("protocolVersion").and_then(Value::as_str)),
             "capabilities": { "tools": {}, "prompts": {}, "resources": {} },

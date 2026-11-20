@@ -70,6 +70,9 @@ struct Kept {
     /// there, which are not asked again.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     answered: BTreeMap<String, Vec<String>>,
+    /// The offers the person said no to on this machine, not made again.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    declined: BTreeSet<String>,
 }
 
 /// The person's decisions, in one file.
@@ -119,6 +122,21 @@ impl Consent {
         let text = serde_json::to_string_pretty(kept).unwrap_or_default();
         devflow_engine::fsguard::replace(folder, FILE, text.as_bytes())
             .map_err(|err| format!("{}: {err}", self.file.display()))
+    }
+
+    /// Whether the person said no to `offer` on this machine.
+    pub fn declined(&self, offer: &str) -> bool {
+        self.kept().declined.contains(offer)
+    }
+
+    /// Keeps the person's no to `offer`: it is not made again.
+    pub fn decline(&self, offer: &str) -> Result<(), String> {
+        let mut kept = self.kept();
+        if kept.declined.insert(offer.to_owned()) {
+            self.keep(&kept)
+        } else {
+            Ok(())
+        }
     }
 
     /// Whether the person made `ask` in the project at `root`.

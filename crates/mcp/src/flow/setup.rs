@@ -52,7 +52,13 @@ pub fn next_step(state: &State, switched_on: bool, active: bool) -> String {
 
 pub fn status(server: &Server, _: Value) -> Result<Value, String> {
     let project = server.project();
-    Ok(status_of(&project, server))
+    let mut said = status_of(&project, server);
+    // Whether devflow's server reaches every Claude Code session, with the
+    // offer to make it so; a tool's arguments never answer it.
+    if let Some(claude) = crate::reach::offered(server, &crate::reach::Claude::here()) {
+        said["claude_code"] = claude;
+    }
+    Ok(said)
 }
 
 pub fn status_of(project: &Project, server: &Server) -> Value {

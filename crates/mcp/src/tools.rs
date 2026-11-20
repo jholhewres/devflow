@@ -9,7 +9,7 @@ use crate::flow::{
 use crate::server::Server;
 
 /// What the agent reads at the handshake.
-pub const INSTRUCTIONS: &str = "devflow: an engineering flow (briefing → context → plan → execution → review → completion) in which work is done only when its evidence says so: checks green after the last change, each acceptance criterion proven by a test or a proof file, a review that blocks nothing. Call `status` first. Each stage has its skill (`skill` with devflow-<stage>): follow it. Work items live in the project's devflow folder (`items`, `item`, `start`, `finish`); `gate` decides whether one may be called done.";
+pub const INSTRUCTIONS: &str = "devflow: an engineering flow (briefing → context → plan → execution → review → attack, when due → completion) in which work is done only when its evidence says so: checks green after the last change, each acceptance criterion proven by a test or a proof file, a review that blocks nothing. Call `status` first. Each stage has its skill (`skill` with devflow-<stage>): follow it. Work items live in the project's devflow folder (`items`, `item`, `start`, `finish`); `gate` decides whether one may be called done.";
 
 pub struct Tool {
     pub name: &'static str,

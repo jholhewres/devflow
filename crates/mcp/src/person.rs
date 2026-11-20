@@ -62,6 +62,10 @@ pub struct Person {
     random: bool,
     /// When the person last said no, in this session.
     said_no: Mutex<Option<Instant>>,
+    /// Who the client said it is, in its `initialize`.
+    client: Mutex<Option<String>>,
+    /// An offer was made in this session.
+    offered: AtomicBool,
 }
 
 struct Line {
@@ -80,6 +84,8 @@ impl Person {
             next: AtomicU64::new(1),
             random: true,
             said_no: Mutex::new(None),
+            client: Mutex::new(None),
+            offered: AtomicBool::new(false),
         }
     }
 
@@ -135,6 +141,27 @@ impl Person {
             _ => false,
         };
         self.can_ask.store(form, Ordering::SeqCst);
+    }
+
+    /// Who the client is, from the `clientInfo` of its `initialize`.
+    pub fn introduced(&self, client_info: &Value) {
+        let name = client_info
+            .get("name")
+            .and_then(Value::as_str)
+            .map(str::to_owned);
+        if let Ok(mut client) = self.client.lock() {
+            *client = name;
+        }
+    }
+
+    /// The client's name, as it gave it.
+    pub fn client(&self) -> Option<String> {
+        self.client.lock().ok()?.clone()
+    }
+
+    /// True the first time only: an offer is made once in a session.
+    pub fn offer_once(&self) -> bool {
+        !self.offered.swap(true, Ordering::SeqCst)
     }
 
     /// The next message from the client, waiting at most `wait`; `None`
@@ -295,7 +322,7 @@ fn replied(message: &Value) -> Answer {
 #[cfg(test)]
 impl Person {
     /// Counted ids, for a test that feeds the client's replies ahead.
-    fn counted(self) -> Person {
+    pub(crate) fn counted(self) -> Person {
         Person {
             random: false,
             ..self
