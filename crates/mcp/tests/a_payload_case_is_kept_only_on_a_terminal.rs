@@ -18,10 +18,32 @@ fn devflow(root: &Path, args: &[&str]) -> Output {
         .unwrap()
 }
 
+fn git(root: &Path, args: &[&str]) {
+    let done = Command::new("git")
+        .args([
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@t.test",
+            "-c",
+            "commit.gpgsign=false",
+        ])
+        .args(args)
+        .current_dir(root)
+        .output()
+        .unwrap();
+    assert!(
+        done.status.success(),
+        "{}",
+        String::from_utf8_lossy(&done.stderr)
+    );
+}
+
 #[test]
 fn a_proposed_case_is_not_kept_without_a_terminal_and_a_table_is_printed() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
+    git(root, &["init", "-q"]);
     let run = root.join(".devflow/runs/card_1/20261119T120000Z");
     std::fs::create_dir_all(&run).unwrap();
     std::fs::write(
@@ -45,6 +67,13 @@ fn a_proposed_case_is_not_kept_without_a_terminal_and_a_table_is_printed() {
 
     let missing = devflow(root, &["payloads", "add", "card_1", "c9"]);
     assert!(String::from_utf8_lossy(&missing.stderr).contains("proposes no case `c9`"));
+    // The same report, once the repository carries it, proposes nothing.
+    git(root, &["add", "-f", ".devflow/runs"]);
+    git(root, &["commit", "-qm", "planted"]);
+    let planted = devflow(root, &["payloads", "add", "card_1", "c1"]);
+    let said = String::from_utf8_lossy(&planted.stderr);
+    assert!(said.contains("part of the repository"), "{said}");
+    assert!(!String::from_utf8_lossy(&planted.stdout).contains("input:"));
 
     let table = devflow(root, &["payloads", "table", "ssrf", "--runner", "pytest"]);
     assert!(table.status.success());

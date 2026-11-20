@@ -368,8 +368,9 @@ pub fn read_answer(said: &str) -> Result<Value, String> {
         .chars()
         .take(MOST_THREAT_MODEL as usize)
         .collect();
+    let (cases, dropped) = crate::payloads::proposed_of(&answer);
     Ok(json!({ "hypotheses": kept, "threat_model": threat_model,
-               "cases": crate::payloads::proposed_of(&answer) }))
+               "cases": cases, "dropped_cases": dropped }))
 }
 
 fn hypothesis(one: &Value, at: usize) -> Result<Value, String> {
@@ -964,6 +965,7 @@ pub fn attacked(given: &Given) -> Result<Done, String> {
     });
     let mut proposed = String::new();
     let mut cases: Vec<Value> = Vec::new();
+    let mut dropped_cases: Vec<Value> = Vec::new();
     let mut hypotheses = Vec::new();
     match answered {
         Ok(said) => {
@@ -976,6 +978,10 @@ pub fn attacked(given: &Given) -> Result<Done, String> {
                 Ok(answer) => {
                     hypotheses = answer["hypotheses"].as_array().cloned().unwrap_or_default();
                     cases = answer["cases"].as_array().cloned().unwrap_or_default();
+                    dropped_cases = answer["dropped_cases"]
+                        .as_array()
+                        .cloned()
+                        .unwrap_or_default();
                     proposed = answer["threat_model"]
                         .as_str()
                         .unwrap_or_default()
@@ -1036,6 +1042,7 @@ pub fn attacked(given: &Given) -> Result<Done, String> {
         "refuted_before": refuted,
         "regression": given.config.stages.attack.regression,
         "proposed_cases": cases,
+        "dropped_cases": dropped_cases,
         "threat_model": threat,
         "hypotheses": hypotheses,
         "budget": {

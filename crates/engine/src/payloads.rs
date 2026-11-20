@@ -406,6 +406,18 @@ pub fn neutral(text: &str) -> Result<(), String> {
         if bare_address(token) == Some(false) {
             return Err(format!("`{token}` is an address someone may own"));
         }
+        // `127.0.0.1:6379`, `localhost:6379`: an inside address on a port
+        // that may listen.
+        let parts: Vec<&str> = token.split(':').collect();
+        for pair in parts.windows(2) {
+            let port = pair[1];
+            let numbered = !port.is_empty() && port.chars().all(|ch| ch.is_ascii_digit());
+            if numbered && port != "1" && inside_address(pair[0]) == Some(true) {
+                return Err(format!(
+                    "`{token}` names a port that may listen: use port 1"
+                ));
+            }
+        }
     }
     let words =
         text.split(|ch: char| !(ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '@')));
@@ -555,19 +567,69 @@ pub fn regression_section(root: &Path, classes: &[String]) -> Result<String, Str
     Ok(out)
 }
 
-/// The cases an attacker's answer proposes, each checked as a kept one is
-/// and numbered `c1`, `c2`; one that is not neutral is left out.
-pub fn proposed_of(answer: &Value) -> Vec<Value> {
+/// The schemes a URL parser reads a host after, with slashes or without.
+const SPECIAL: [&str; 6] = ["http", "https", "ws", "wss", "ftp", "file"];
+
+/// Whether `text` holds no host syntax at all: no URL, no `@`, no `::`, no
+/// `name:port`, no dotted, long or hex number. The rule for a case an
+/// attacker proposes, which a parser could otherwise read a host from in a
+/// spelling no check foresees; the shipped cases and a person's own file are
+/// held to [`neutral`] instead.
+pub fn host_free(text: &str) -> Result<(), String> {
+    let lower: String = text
+        .chars()
+        .filter(|ch| !matches!(ch, '\t' | '\n' | '\r'))
+        .collect::<String>()
+        .to_ascii_lowercase();
+    if lower.contains('@') {
+        return Err("it names someone at a host (`@`)".to_owned());
+    }
+    if lower.contains("::") {
+        return Err("it holds an IPv6 address (`::`)".to_owned());
+    }
+    for (colon, _) in lower.match_indices(':') {
+        let start = lower[..colon]
+            .rfind(|ch: char| !(ch.is_ascii_alphanumeric() || matches!(ch, '+' | '.' | '-')))
+            .map_or(0, |at| at + 1);
+        let before = &lower[start..colon];
+        let after = &lower[colon + 1..];
+        if SPECIAL.contains(&before) || (!before.is_empty() && after.starts_with(['/', '\\'])) {
+            return Err(format!("it holds a URL (`{before}:`)"));
+        }
+        if !before.is_empty() && after.starts_with(|ch: char| ch.is_ascii_digit()) {
+            return Err(format!("it names a port (`{before}:`)"));
+        }
+    }
+    for token in lower.split(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '.')) {
+        let number = |part: &str| {
+            part.starts_with(|ch: char| ch.is_ascii_digit())
+                && part.chars().all(|ch| ch.is_ascii_hexdigit() || ch == 'x')
+        };
+        let parts: Vec<&str> = token.split('.').filter(|part| !part.is_empty()).collect();
+        if token.contains('.') && parts.len() >= 2 && parts.iter().all(|part| number(part)) {
+            return Err(format!("it holds a dotted number (`{token}`)"));
+        }
+        let digits = token.chars().all(|ch| ch.is_ascii_digit());
+        if (digits && token.len() >= 8) || (token.starts_with("0x") && token.len() >= 8) {
+            return Err(format!(
+                "it holds a number an address may be read from (`{token}`)"
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// The cases an attacker's answer proposes, numbered `c1`, `c2`, and the
+/// ones left out with why: each is held to [`checked`] and [`host_free`].
+pub fn proposed_of(answer: &Value) -> (Vec<Value>, Vec<Value>) {
     let mut kept = Vec::new();
+    let mut dropped = Vec::new();
     for one in answer["cases"].as_array().into_iter().flatten() {
-        if kept.len() == MOST_PROPOSED {
+        if kept.len() + dropped.len() == MOST_PROPOSED {
             break;
         }
         let text = |key: &str| one[key].as_str().unwrap_or_default().to_owned();
         let class = text("class");
-        if shipped(&class).is_err() {
-            continue;
-        }
         let case = Case {
             id: format!("c{}", kept.len() + 1),
             input: text("input"),
@@ -575,13 +637,23 @@ pub fn proposed_of(answer: &Value) -> Vec<Value> {
             then: None,
             want: text("want"),
         };
-        if checked(&case).is_ok() {
-            let why: String = text("why").chars().take(400).collect();
-            kept.push(json!({ "id": case.id, "class": class, "input": case.input,
-                              "want": case.want, "why": why }));
+        let held = shipped(&class)
+            .and_then(|_| checked(&case))
+            .and_then(|()| host_free(&case.input));
+        match held {
+            Ok(()) => {
+                let why: String = text("why")
+                    .chars()
+                    .filter(|ch| !ch.is_control())
+                    .take(400)
+                    .collect();
+                kept.push(json!({ "id": case.id, "class": class, "input": case.input,
+                                  "want": case.want, "why": why }));
+            }
+            Err(reason) => dropped.push(json!({ "class": class, "reason": reason })),
         }
     }
-    kept
+    (kept, dropped)
 }
 
 /// Keeps a proposed case in the project's own cases of its class, under an
@@ -620,6 +692,7 @@ pub fn keep(root: &Path, proposed: &Value) -> Result<String, String> {
         want: proposed["want"].as_str().unwrap_or_default().to_owned(),
     };
     checked(&case)?;
+    host_free(&case.input)?;
     cases.push(case);
     let relative = kept_path(root, class);
     let text = serde_json::to_string_pretty(&cases).unwrap_or_default() + "\n";

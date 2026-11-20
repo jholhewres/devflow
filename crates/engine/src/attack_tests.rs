@@ -187,6 +187,7 @@ fn an_answer_proposes_only_neutral_cases_of_a_known_class() {
     let cases = read["cases"].as_array().expect("cases");
     assert_eq!(cases.len(), 1, "{cases:?}");
     assert_eq!(cases[0]["class"], "traversal");
+    assert_eq!(read["dropped_cases"][0]["class"], "ssrf", "{read}");
 }
 
 #[test]

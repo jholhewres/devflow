@@ -433,6 +433,22 @@ fn payloads(root: &std::path::Path, action: Payloads) -> ExitCode {
             else {
                 return failed(format!("{item} has no attack report to take a case from"));
             };
+            // A report the repository carries never proposes a case.
+            let relative = at
+                .strip_prefix(&project.root)
+                .ok()
+                .map(|rest| rest.display().to_string());
+            if let Some(relative) = relative {
+                match devflow_engine::git::tracked(&project.root, &relative) {
+                    Ok(false) => {}
+                    Ok(true) => {
+                        return failed(format!(
+                            "{relative} is part of the repository: a report it carries proposes nothing"
+                        ))
+                    }
+                    Err(why) => return failed(format!("{relative}: {why}")),
+                }
+            }
             println!("from: {}", at.display());
             let Some(proposed) = report["proposed_cases"]
                 .as_array()
@@ -448,7 +464,7 @@ fn payloads(root: &std::path::Path, action: Payloads) -> ExitCode {
                 "class: {class}\ninput: {}\nwant: {}\nwhy: {}",
                 serde_json::to_string(&proposed["input"]).unwrap_or_default(),
                 proposed["want"].as_str().unwrap_or_default(),
-                proposed["why"].as_str().unwrap_or_default()
+                serde_json::to_string(&proposed["why"]).unwrap_or_default()
             );
             let question = format!("Keep it in {}?", payloads::kept_path(&project.root, class));
             match cli::confirmed(&question) {

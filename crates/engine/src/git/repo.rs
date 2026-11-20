@@ -165,6 +165,12 @@ pub fn dirty(root: &Path) -> Result<Vec<String>, GitError> {
     Ok(paths)
 }
 
+/// Whether git tracks `relative`: a file the repository carries.
+pub fn tracked(root: &Path, relative: &str) -> Result<bool, GitError> {
+    let raw = run(root, &["ls-files", "-z", "--", relative])?;
+    Ok(raw.split('\0').any(|path| !path.is_empty()))
+}
+
 /// The untracked files git does not ignore.
 pub fn untracked(root: &Path) -> Result<Vec<String>, GitError> {
     let raw = run(root, &["ls-files", "--others", "--exclude-standard", "-z"])?;

@@ -1030,7 +1030,8 @@ fn a_regression_class_goes_to_every_attack_and_a_proposed_case_waits_for_a_perso
     let claude = fake_claude(
         &bin,
         &json!({ "version": 1, "hypotheses": [], "cases": [
-            { "class": "ssrf", "input": "http://[::]:1/", "want": "rejected", "why": "the guard reads only dotted IPv4" },
+            { "class": "traversal", "input": "..;/..;/..;/etc/hostname", "want": "rejected", "why": "a ;-split path" },
+            { "class": "ssrf", "input": "http:127.0.0.1:6379/", "want": "rejected", "why": "no slashes" },
         ] }),
     );
     let reach =
@@ -1074,9 +1075,16 @@ fn a_regression_class_goes_to_every_attack_and_a_proposed_case_waits_for_a_perso
     assert_eq!(done.report["regression"], json!(["ssrf", "redos"]));
     let proposed = &done.report["proposed_cases"];
     assert_eq!(proposed[0]["id"], "c1", "{proposed}");
-    assert_eq!(proposed[0]["input"], "http://[::]:1/");
+    assert_eq!(proposed[0]["input"], "..;/..;/..;/etc/hostname");
+    let dropped = &done.report["dropped_cases"][0];
     assert!(
-        devflow_engine::payloads::kept(&checkout, "ssrf")
+        dropped["reason"]
+            .as_str()
+            .is_some_and(|why| why.contains("port")),
+        "{dropped}"
+    );
+    assert!(
+        devflow_engine::payloads::kept(&checkout, "traversal")
             .expect("kept")
             .is_empty(),
         "an attack keeps nothing itself"
