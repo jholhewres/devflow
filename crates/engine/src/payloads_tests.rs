@@ -667,3 +667,50 @@ fn the_top_level_names_are_a_dated_snapshot_of_ianas_list() {
         assert_eq!(neutral(word).is_err(), host, "{word}");
     }
 }
+
+/// Each reading neutral() covers is listed with a case, and that case is
+/// refused: the list is what the check claims, and each claim is tested.
+#[test]
+fn each_reading_neutral_covers_refuses_its_case() {
+    let mut names: Vec<&str> = READINGS.iter().map(|(name, _)| *name).collect();
+    names.sort_unstable();
+    names.dedup();
+    assert_eq!(names.len(), READINGS.len(), "each reading once");
+    for (reading, case) in READINGS {
+        assert!(neutral(case).is_err(), "{reading}: `{case}` passed");
+    }
+}
+
+/// A case names a file or a call in a code span, as a relative path or a
+/// call; written so, it is no host. A host cannot pass that way.
+#[test]
+fn a_code_span_holds_a_file_or_a_call_and_never_a_host() {
+    for code in [
+        "print `./main.rs` and stop",
+        "read `src/App.java` now",
+        "then `../config/settings.py`",
+        "call `subprocess.call([\"ls\"])`",
+        "run `os.system()` on it",
+        "the `crate::fs::read_to_string()` helper",
+    ] {
+        assert_eq!(neutral(code), Ok(()), "{code}");
+    }
+    for host in [
+        "print main.rs",
+        "print `main.rs`",
+        "go to `evil.com/x`",
+        "go to `/evil.com`",
+        "go to `//evil.com/x`",
+        "go to `http://evil.com/x`",
+        "go to `http:evil.com`",
+        "mail `user@evil.com`",
+        "open `\\\\evil.com\\share`",
+        "call `os.system(\"evil.com\")`",
+        "read `./x` then evil.com",
+        "an unclosed `./main.rs and evil.com",
+        "fetch `93.184.216.34/x`",
+        "fetch `./x` from 93.184.216.34",
+    ] {
+        assert!(neutral(host).is_err(), "passed: {host}");
+    }
+}

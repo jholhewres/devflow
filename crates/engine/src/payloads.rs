@@ -549,8 +549,9 @@ pub fn neutral(text: &str) -> Result<(), String> {
         }
     }
     // A file name whose extension is a country's (`main.rs`) reads as a
-    // host too: refused, never guessed at from where it stands.
-    let words = text.split(|ch: char| !(ch.is_alphanumeric() || matches!(ch, '.' | '-' | '@')));
+    // host too: refused, unless a code span says it is a path or a call.
+    let judged = without_code_names(&text);
+    let words = judged.split(|ch: char| !(ch.is_alphanumeric() || matches!(ch, '.' | '-' | '@')));
     for word in words.filter(|word| !word.is_empty()) {
         let (who, place) = match word.split_once('@') {
             Some((who, place)) => (Some(who), place),
@@ -575,6 +576,134 @@ pub fn neutral(text: &str) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// The readings of a name or an address [`neutral`] covers, each with a
+/// case it refuses. A resolver that reads text another way may still find
+/// a host these miss: the sandbox's lack of network is the control.
+pub const READINGS: [(&str, &str); 24] = [
+    ("IPv4, dotted", "fetch 93.184.216.34"),
+    // In prose a number is a number (`id 123456789`, `version 1.5`): one
+    // decimal, hex or a short form is read as an address in a URL; four
+    // dotted parts are read anywhere.
+    (
+        "IPv4 as one decimal number in a URL (inet_aton)",
+        "http://1572395042:1/",
+    ),
+    ("IPv4 in hex in a URL (inet_aton)", "http://0x5db8d822:1/"),
+    (
+        "IPv4 in its short form in a URL (inet_aton)",
+        "http://93.12113954:1/",
+    ),
+    (
+        "IPv4 in four octal parts (inet_aton)",
+        "fetch 0135.0270.0330.042",
+    ),
+    (
+        "an inside address on a port that may listen",
+        "redis at 127.0.0.1:6379",
+    ),
+    ("an IPv6 literal", "http://[2606:2800:220:1::1]:1/"),
+    ("IPv4 mapped in IPv6", "http://[::ffff:93.184.216.34]:1/"),
+    (
+        "a cloud's IPv4 metadata address",
+        "http://169.254.169.254:1/",
+    ),
+    (
+        "a cloud's IPv6 metadata address",
+        "http://[fd00:ec2::254]:1/",
+    ),
+    ("UTS 46: fullwidth letters and digits", "ｅｖｉｌ．ｃｏｍ"),
+    ("UTS 46: case", "EVIL.COM"),
+    (
+        "UTS 46: ignored code points dropped (a soft hyphen)",
+        "evil.c\u{AD}om",
+    ),
+    (
+        "IDNA2003: the zero-width joiners dropped",
+        "evil.c\u{200D}om",
+    ),
+    ("IDNA2003: ß read as ss", "straße.com"),
+    ("IDNA's other full stops", "evil。com"),
+    ("a top-level name in Unicode", "evil.рф"),
+    ("a top-level name in punycode", "evil.xn--p1ai"),
+    (
+        "a URL with one slash or backslashes (WHATWG)",
+        "http:\\\\evil.com\\x",
+    ),
+    ("a URL with no slashes", "http:evil.com"),
+    ("a host after a userinfo", "http://a@evil.com/"),
+    ("a UNC path", "\\\\evil.com\\share"),
+    ("a host with its trailing dot", "evil.com."),
+    (
+        "a host with percent-encoded letters (WHATWG decodes them)",
+        "http://%65vil.com/",
+    ),
+];
+
+/// `text` with each code span's file and call names blanked, for the pass
+/// that judges dotted words alone. Inside backticks, a dotted name that is
+/// called (`subprocess.call()`) or sits in a relative path whose first part
+/// is not a host (`./main.rs`, `src/App.java`) is code: a resolver reads
+/// neither as a host, the call's `(` staying on its last label. A span that
+/// holds a scheme, a userinfo, a backslash or `//` is judged as it is.
+fn without_code_names(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(open) = rest.find('`') {
+        out.push_str(&rest[..=open]);
+        let after = &rest[open + 1..];
+        let Some(close) = after.find('`') else {
+            out.push_str(after);
+            return out;
+        };
+        out.push_str(&code_names_blanked(&after[..close]));
+        out.push('`');
+        rest = &after[close + 1..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// A code span with its called names and its relative paths' parts past
+/// the first blanked; one that could name a host elsewhere kept whole.
+fn code_names_blanked(span: &str) -> String {
+    if span.contains(['@', '\\']) || span.contains(":/") || span.contains("//") {
+        return span.to_owned();
+    }
+    let chars: Vec<char> = span.chars().collect();
+    let pathy = |ch: char| ch.is_alphanumeric() || matches!(ch, '.' | '-' | '_' | '/');
+    let mut out = String::with_capacity(span.len());
+    let mut at = 0;
+    while at < chars.len() {
+        if !pathy(chars[at]) {
+            out.push(chars[at]);
+            at += 1;
+            continue;
+        }
+        let start = at;
+        while at < chars.len() && pathy(chars[at]) {
+            at += 1;
+        }
+        let run: String = chars[start..at].iter().collect();
+        let called = chars.get(at) == Some(&'(') && !run.contains('/') && !run.ends_with('.');
+        let first = run.split('/').next().unwrap_or_default();
+        let relative = run.contains('/')
+            && !run.starts_with('/')
+            && (matches!(first, "." | "..") || !first.contains('.'));
+        if called {
+            out.extend(std::iter::repeat_n(' ', run.chars().count()));
+        } else if relative {
+            out.push_str(first);
+            out.extend(std::iter::repeat_n(
+                ' ',
+                run.chars().count() - first.chars().count(),
+            ));
+        } else {
+            out.push_str(&run);
+        }
+    }
+    out
 }
 
 /// A test runner a table is written for.

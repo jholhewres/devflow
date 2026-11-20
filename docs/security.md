@@ -384,15 +384,24 @@ person. A real place is any two-letter country's, any top-level name IANA
 delegates (in Unicode too), or a name networks use inside (`internal`,
 `local`, `corp`…). A dotted word that ends in one is refused wherever it
 stands, a file's or a call's name included (`main.rs`, `App.java`,
-`subprocess.call`): a case says them otherwise. The
+`subprocess.call`), unless a code span says it is code: in backticks, a
+relative path whose first part is not a host (`./main.rs`, `src/App.java`)
+or a call (`subprocess.call()`). A span that holds a scheme, a userinfo, a
+backslash or `//` is judged as any text. The
 IANA names are a dated snapshot, `flow/payloads/tlds-alpha-by-domain.txt`;
 to refresh it, download <https://data.iana.org/TLD/tlds-alpha-by-domain.txt>
 over it and update the version and size the payloads test pins.
 
-This check is best effort. It reads a name as UTS 46 does, plus IDNA2003's
-own readings (zero-width joiners dropped, `ß` as `ss`), so a look-alike
-spelling of a host or an address is caught; a resolver that reads text
-some other way may still find a host in it. What keeps a case from reaching
+This check is best effort. The readings it covers are listed, each with a
+case it refuses (`payloads::READINGS`): IPv4 as `inet_aton` reads it (four
+dotted parts anywhere; one decimal, hex or a short form in a URL, since in
+prose a number is a number), IPv6 and IPv4 mapped in it, a cloud's metadata
+addresses, UTS 46 (fullwidth, case, ignored code points), IDNA2003's own
+readings (zero-width joiners dropped, `ß` as `ss`), IDNA's other full
+stops, a top-level name in Unicode or punycode, a URL's slashes as WHATWG
+reads them (one, backslashes, none), a userinfo, a UNC path, a trailing
+dot and percent-encoded letters. A resolver that reads text some other way
+may still find a host in it. What keeps a case from reaching
 one is the sandbox it runs in, which has no network. `devflow payloads table <class> --runner
 jest|vitest|go|pytest` prints a test table with a `check` function you fill
 in for the code under test. `stages.attack.regression: [ssrf, redos]` gives
