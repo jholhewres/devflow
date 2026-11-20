@@ -786,7 +786,7 @@ pub(crate) fn put(folder: &Path, file: &str, text: &str) -> Result<(), String> {
     std::fs::write(&at, text).map_err(|err| format!("{}: {err}", at.display()))
 }
 
-fn pretty(value: &Value) -> String {
+pub(crate) fn pretty(value: &Value) -> String {
     serde_json::to_string_pretty(value).unwrap_or_default() + "\n"
 }
 
@@ -1329,6 +1329,7 @@ pub fn attacked(given: &Given) -> Result<Done, String> {
         "item": given.card.id,
         "base": given.git.base,
         "head": given.git.head,
+        "symbols": crate::attack_report::symbols_in(&(given.redact)(given.git.diff)),
         "mode": if given.retro { "retro" } else { "item" },
         "run": stamp,
         "run_on": models::attack_run(given.config).word(),

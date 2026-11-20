@@ -1219,7 +1219,7 @@ fn a_scanner_finding_is_called_reachable_or_not_and_the_reachable_stand_apart() 
         attack::summary(&done)["scanner"],
         json!({ "reachable": 1, "rest": 1 })
     );
-    let markdown = devflow_engine::attack_report::markdown(&done.report, &[]);
+    let markdown = devflow_engine::attack_report::markdown(&done.report, &Default::default());
     let reachable = markdown
         .find("## Scanner findings untrusted input reaches")
         .expect("its own section");
@@ -1230,7 +1230,7 @@ fn a_scanner_finding_is_called_reachable_or_not_and_the_reachable_stand_apart() 
         .find("Fix: upgrade example-parser to 2.1.0")
         .expect("the fix");
     assert!(reachable < fix && fix < rest, "{markdown}");
-    let json = devflow_engine::attack_report::json_of(&done.report, &[]);
+    let json = devflow_engine::attack_report::json_of(&done.report, &Default::default());
     assert_eq!(json["scanner"]["reachable"][0]["package"], "example-parser");
     assert_eq!(json["scanner"]["rest"][0]["rule"], "GO-2099-0002");
 }
@@ -1518,7 +1518,7 @@ fn an_attack_on_a_flow_reads_both_sides_and_names_each_sides_fix() {
         .collect();
     assert_eq!(repos, ["api", "worker"], "each side, and only the flow's");
     assert_eq!(done.report["flow"]["name"], "jobs");
-    let markdown = devflow_engine::attack_report::markdown(&done.report, &[]);
+    let markdown = devflow_engine::attack_report::markdown(&done.report, &Default::default());
     assert!(
         markdown.contains("## Fixes on each side of the flow"),
         "{markdown}"

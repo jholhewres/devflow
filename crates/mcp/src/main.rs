@@ -248,15 +248,11 @@ fn reporting(root: &std::path::Path, item: &str, run: &str, format: &str) -> Exi
         eprintln!("devflow attack: {why}");
         return ExitCode::FAILURE;
     }
-    let payloads = attack_report::payloads(folder, &report);
-    let said = match format {
-        Format::Markdown => attack_report::markdown(&report, &payloads),
-        Format::Json => serde_json::to_string_pretty(&attack_report::json_of(&report, &payloads))
-            .unwrap_or_default(),
-        Format::Sarif => serde_json::to_string_pretty(&attack_report::sarif(&report, &payloads))
-            .unwrap_or_default(),
+    let Ok(said) = std::fs::read_to_string(folder.join(format.file())) else {
+        eprintln!("devflow attack: {} does not read", format.file());
+        return ExitCode::FAILURE;
     };
-    println!("{said}");
+    print!("{said}");
     ExitCode::SUCCESS
 }
 
