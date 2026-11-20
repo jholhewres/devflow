@@ -191,12 +191,25 @@ pub const TLDS: &str = include_str!("../../../flow/payloads/tlds-alpha-by-domain
 
 /// Names a network uses inside without IANA delegating them: a word ending
 /// in one may name a host inside someone's network.
-const INSIDE: [&str; 6] = ["internal", "local", "corp", "lan", "home", "intranet"];
+const INSIDE: [&str; 9] = [
+    "internal",
+    "local",
+    "corp",
+    "lan",
+    "home",
+    "intranet",
+    "mail",
+    "private",
+    "localdomain",
+];
 
 /// Whether `label`, a last label, names a real place or an inside one: any
-/// two-letter country's, delegated or not yet, IANA's, or an inside name.
+/// two-letter country's, delegated or not yet, any written in Unicode (as
+/// every IDN one IANA delegates is), IANA's, or an inside name. A file's or
+/// a call's name ending in one is refused too: never guessed at.
 fn top_level(label: &str) -> bool {
-    (label.len() == 2 && label.chars().all(|ch| ch.is_ascii_alphabetic()))
+    !label.is_ascii()
+        || (label.len() == 2 && label.chars().all(|ch| ch.is_ascii_alphabetic()))
         || INSIDE.contains(&label)
         || TLDS
             .lines()
@@ -455,7 +468,8 @@ fn bare_address(token: &str) -> Option<bool> {
 /// loopback or private on port 1, or a name that resolves nowhere; a bare
 /// address leads inside; no name or e-mail address ends in a real place.
 pub fn neutral(text: &str) -> Result<(), String> {
-    let text = without_declared_namespaces(text);
+    // IDNA's other full stops are dots too.
+    let text = without_declared_namespaces(text).replace(['\u{3002}', '\u{FF0E}', '\u{FF61}'], ".");
     for (host, port, who) in urls(&text) {
         url_host(&host, port.as_deref())?;
         if let Some(who) = who.filter(|who| who.contains('.')) {
@@ -506,8 +520,7 @@ pub fn neutral(text: &str) -> Result<(), String> {
     }
     // A file name whose extension is a country's (`main.rs`) reads as a
     // host too: refused, never guessed at from where it stands.
-    let words =
-        text.split(|ch: char| !(ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '@')));
+    let words = text.split(|ch: char| !(ch.is_alphanumeric() || matches!(ch, '.' | '-' | '@')));
     for word in words.filter(|word| !word.is_empty()) {
         let (who, place) = match word.split_once('@') {
             Some((who, place)) => (Some(who), place),

@@ -270,7 +270,10 @@ and what safe code does with it. A URL's host is loopback or private on port
 1, or a name that resolves nowhere; a bare address leads inside; no name or
 e-mail address ends in a real place, and no case names a real project or
 person. A real place is any two-letter country's, any top-level name IANA
-delegates, or a name networks use inside (`internal`, `local`, `corp`…). The
+delegates (in Unicode too), or a name networks use inside (`internal`,
+`local`, `corp`…). A dotted word that ends in one is refused wherever it
+stands, a file's or a call's name included (`main.rs`, `App.java`,
+`subprocess.call`): a case says them otherwise. The
 IANA names are a dated snapshot, `flow/payloads/tlds-alpha-by-domain.txt`;
 to refresh it, download <https://data.iana.org/TLD/tlds-alpha-by-domain.txt>
 over it and update the version and size the payloads test pins. `devflow payloads table <class> --runner

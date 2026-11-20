@@ -616,6 +616,10 @@ fn a_country_label_is_a_host_anywhere_and_a_namespace_only_where_declared() {
         "\\\\evil.club\\share",
         "\\\\?\\UNC\\evil.zip\\x",
         "db.internal",
+        "\\\\evil.mail\\share",
+        "\\\\evil.рф\\share",
+        "evil。com",
+        "evil．com",
         "<xi:include href=\"http://www.w3.org/2001/XInclude\"/>",
         "fetch http://www.w3.org/2001/XInclude",
     ] {
@@ -643,6 +647,10 @@ fn the_top_level_names_are_a_dated_snapshot_of_ianas_list() {
         ("os.system", false),
         ("x.dtd", false),
         ("settings.yml", false),
+        // Refused on purpose: a call's or a file's name ending in a
+        // top-level name reads as a host, never guessed at.
+        ("subprocess.call", true),
+        ("App.java", true),
     ] {
         assert_eq!(neutral(word).is_err(), host, "{word}");
     }
