@@ -266,7 +266,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
         with:
           path: .devflow/runs
           key: devflow-runs-${{ github.run_id }}
@@ -282,6 +282,12 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           RANGE: ${{ inputs.range }}
         run: ~/.local/bin/devflow attack --range "$RANGE"
+      # Saved whatever the attack's exit code, so a failing run's spend counts.
+      - uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: .devflow/runs
+          key: devflow-runs-${{ github.run_id }}
       - uses: github/codeql-action/upload-sarif@v3
         if: always()
         with: { sarif_file: devflow-attack.sarif }

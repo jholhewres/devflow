@@ -705,15 +705,9 @@ impl Config {
     /// version 2's list.
     pub fn to_json(&self) -> serde_json::Value {
         let mut json = serde_json::to_value(self).unwrap_or_default();
-        // Said once, where it is in force; at its default (off), unsaid, so
-        // its older name `review.attack` may say it.
+        // Said once, where it is in force.
         if let Some(review) = json["review"].as_object_mut() {
             review.remove(ATTACK);
-        }
-        if self.stages.attack == Attack::default() {
-            if let Some(stages) = json["stages"].as_object_mut() {
-                stages.remove(ATTACK);
-            }
         }
         if self.review.scale.is_none() && self.review.scale_off {
             json["review"]["scale"] = serde_json::Value::Bool(false);
@@ -721,11 +715,9 @@ impl Config {
         if self.version == V1 {
             return json;
         }
-        let unsaid = self.stages.attack == Attack::default();
         json["stages"] = serde_json::Value::Array(
             self.flow
                 .iter()
-                .filter(|step| !(unsaid && step.builtin() == Some(ATTACK)))
                 .map(|step| crate::flow::step_json(self, step))
                 .collect(),
         );
@@ -1080,7 +1072,10 @@ fn read(dialect: &crate::Dialect, root: &Node, from_file: bool) -> Result<Config
     };
     let mut stages = stages;
     if let Some(said) = &review.attack {
-        if attack_said && stages.attack != *said {
+        // A change's JSON names every stage, the attack at its default
+        // included: there only a file's own words count as said.
+        let said_apart = attack_said && (from_file || stages.attack != Attack::default());
+        if said_apart && stages.attack != *said {
             return Err(Invalid::at(
                 None,
                 "review.attack",

@@ -372,8 +372,12 @@ fn ranging(
             folder.join(attack::REPORT).display()
         ));
     };
-    if let Some(why) = attack::failed(&report) {
-        return could_not(format!("no attacker answered: {why}"));
+    if attack::failed(&report).is_some() {
+        // Their reasons are theirs: the log names where they are.
+        return could_not(format!(
+            "no attacker answered: why is in {}",
+            folder.join(attack::REPORT).display()
+        ));
     }
     let known = attack_report::Known::of(&report);
     let written = [

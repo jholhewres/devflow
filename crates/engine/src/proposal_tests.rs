@@ -401,3 +401,25 @@ fn a_check_is_named_by_its_name_in_a_path() {
     .expect("a check by its name");
     assert_eq!(changed.config.stages.execution.checks[0].run, "cargo test");
 }
+
+/// A file that names no attack stage takes `stages.attack.run` as any
+/// field, in either version; its older name still sets it too.
+#[test]
+fn an_unnamed_attack_stage_is_set_by_its_run() {
+    for text in ["version: 2\nenabled: true\n", "version: 1\nenabled: true\n"] {
+        let state = valid(text);
+        let set = set(&state, "stages.attack.run", &Value::from("per-item")).expect(text);
+        assert_eq!(
+            set.config.stages.attack.run,
+            crate::config::AttackRun::PerItem,
+            "{text}"
+        );
+        assert!(set.config.stages_on().contains(&"attack"), "{}", set.yaml);
+    }
+    let off = valid("version: 2\nenabled: true\nstages:\n  - uses: builtin/attack\n    run: off\n");
+    let on = set(&off, "stages.attack.run", &Value::from("release")).expect("from off");
+    assert_eq!(
+        on.config.stages.attack.run,
+        crate::config::AttackRun::Release
+    );
+}
