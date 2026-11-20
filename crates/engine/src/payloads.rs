@@ -422,9 +422,15 @@ fn urls(text: &str) -> Vec<(String, Option<String>, Option<String>)> {
             .iter()
             .any(|one| scheme.eq_ignore_ascii_case(one));
         let slashed = after.starts_with(['/', '\\']);
-        // With no slash, a host starts right after the colon; `http::Request`
-        // is a path in code, not a URL.
-        let hosted = after.starts_with(|ch: char| ch.is_alphanumeric() || matches!(ch, '[' | '%'));
+        // With no slash, WHATWG reads the authority right after the colon: a
+        // host that starts there, or a userinfo then `@` and a host
+        // (`http::x@host`). `http::Request::new()` holds neither.
+        let authority = after
+            .split(|ch: char| ch.is_whitespace() || matches!(ch, '/' | '\\' | '?' | '#'))
+            .next()
+            .unwrap_or_default();
+        let hosted = after.starts_with(|ch: char| ch.is_alphanumeric() || matches!(ch, '[' | '%'))
+            || authority.contains('@');
         if !slashed && (!special || !hosted) {
             continue;
         }

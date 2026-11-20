@@ -768,6 +768,13 @@ fn a_code_path_named_like_a_scheme_is_no_url() {
     ] {
         assert_eq!(neutral(code), Ok(()), "{code}");
     }
-    assert!(neutral("http:1572395042:1/").is_err());
-    assert!(neutral("HTTPS:[::ffff:93.184.216.34]/").is_err());
+    for url in [
+        "http:1572395042:1/",
+        "HTTPS:[::ffff:93.184.216.34]/",
+        "http:@1572395042",
+        "http::x@1572395042/",
+        "http:a@2852039166",
+    ] {
+        assert!(neutral(url).is_err(), "passed: {url}");
+    }
 }
