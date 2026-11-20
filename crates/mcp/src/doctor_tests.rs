@@ -51,3 +51,35 @@ fn a_set_up_project_says_whether_it_is_on_and_its_runs_are_ignored() {
         .iter()
         .any(|one| one.ok && one.what.contains("kept out of git")));
 }
+
+/// devpit's `enabled: true` is its own switch: devflow's, kept on this
+/// machine, is said apart, with the question and the one command that
+/// switch it on.
+#[test]
+fn the_files_switch_and_devflows_own_are_told_apart() {
+    let home = tempfile::tempdir().unwrap();
+    let root = tempfile::tempdir().unwrap();
+    let folder: PathBuf = root.path().join(".devpit/devflow");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(folder.join("devflow.yaml"), "version: 2\nenabled: true\n").unwrap();
+    let consent = Consent::at(&home.path().join("devflow"));
+    let said = findings(root.path(), &machine(home.path()), &consent, "/bin/devflow");
+    let off = said
+        .iter()
+        .find(|one| !one.ok && one.what.contains("devflow is not on here"))
+        .expect("said off");
+    for part in [
+        "enabled: true",
+        "on this machine",
+        "asks you",
+        "`devflow setup --attack`",
+    ] {
+        assert!(off.what.contains(part), "{part}: {}", off.what);
+    }
+    std::fs::write(folder.join("devflow.yaml"), "version: 2\nenabled: false\n").unwrap();
+    consent.remember(root.path(), Ask::Enable, true).unwrap();
+    let said = findings(root.path(), &machine(home.path()), &consent, "/bin/devflow");
+    assert!(said
+        .iter()
+        .any(|one| !one.ok && one.what.contains("says `enabled: false`")));
+}

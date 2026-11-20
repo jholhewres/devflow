@@ -137,11 +137,24 @@ fn project(root: &Path, consent: &Consent) -> Vec<Said> {
             if layout.dir == devflow_engine::folder::LEGACY {
                 said.push(ok("the project is on devpit's layout, read where it is"));
             }
+            let how = format!(
+                "an MCP client that can ask (elicitation) asks you when its `attack` tool needs \
+                 it; else `{}` in a terminal sets the attack up too, or `devflow config set \
+                 enabled true`",
+                crate::ready::COMMAND
+            );
             match (config.enabled, consent.made(&project.root, Ask::Enable)) {
                 (true, true) => said.push(ok("devflow is on here")),
-                _ => said.push(bad(
-                    "devflow is not on here: `devflow config set enabled true`",
-                )),
+                (true, false) => said.push(bad(format!(
+                    "devflow is not on here: {} says `enabled: true` (devpit's switch, or the \
+                     file's), but devflow's own switch for this project is kept on this machine, \
+                     and it is off: {how}",
+                    layout.file
+                ))),
+                (false, _) => said.push(bad(format!(
+                    "devflow is not on here: {} says `enabled: false`: {how}",
+                    layout.file
+                ))),
             }
             let path = std::env::var_os("PATH").unwrap_or_default();
             for check in config.stages.execution.every_check() {
