@@ -416,7 +416,12 @@ fn urls(text: &str) -> Vec<(String, Option<String>, Option<String>)> {
             continue;
         }
         let after = &text[colon + 1..];
-        if !after.starts_with(['/', '\\']) {
+        // A special scheme's host may follow with no slash at all, as
+        // WHATWG reads `http:host`; any other scheme names one after `//`.
+        let special = ["http", "https", "ws", "wss", "ftp"]
+            .iter()
+            .any(|one| scheme.eq_ignore_ascii_case(one));
+        if !after.starts_with(['/', '\\']) && !special {
             continue;
         }
         let start = if scheme.eq_ignore_ascii_case("file") {
@@ -581,11 +586,15 @@ pub fn neutral(text: &str) -> Result<(), String> {
 /// The readings of a name or an address [`neutral`] covers, each with a
 /// case it refuses. A resolver that reads text another way may still find
 /// a host these miss: the sandbox's lack of network is the control.
-pub const READINGS: [(&str, &str); 24] = [
-    ("IPv4, dotted", "fetch 93.184.216.34"),
+pub const READINGS: [(&str, &str); 23] = [
     // In prose a number is a number (`id 123456789`, `version 1.5`): one
     // decimal, hex or a short form is read as an address in a URL; four
     // dotted parts are read anywhere.
+    ("IPv4, dotted", "fetch 93.184.216.34"),
+    (
+        "IPv4 in four octal parts (inet_aton)",
+        "fetch 0135.0270.0330.042",
+    ),
     (
         "IPv4 as one decimal number in a URL (inet_aton)",
         "http://1572395042:1/",
@@ -594,10 +603,6 @@ pub const READINGS: [(&str, &str); 24] = [
     (
         "IPv4 in its short form in a URL (inet_aton)",
         "http://93.12113954:1/",
-    ),
-    (
-        "IPv4 in four octal parts (inet_aton)",
-        "fetch 0135.0270.0330.042",
     ),
     (
         "an inside address on a port that may listen",
@@ -613,8 +618,10 @@ pub const READINGS: [(&str, &str); 24] = [
         "a cloud's IPv6 metadata address",
         "http://[fd00:ec2::254]:1/",
     ),
-    ("UTS 46: fullwidth letters and digits", "ｅｖｉｌ．ｃｏｍ"),
-    ("UTS 46: case", "EVIL.COM"),
+    (
+        "UTS 46: fullwidth digits and full stops",
+        "fetch ９３．１８４．２１６．３４",
+    ),
     (
         "UTS 46: ignored code points dropped (a soft hyphen)",
         "evil.c\u{AD}om",
@@ -623,22 +630,28 @@ pub const READINGS: [(&str, &str); 24] = [
         "IDNA2003: the zero-width joiners dropped",
         "evil.c\u{200D}om",
     ),
-    ("IDNA2003: ß read as ss", "straße.com"),
+    ("IDNA2003: ß read as ss", "evil.ß"),
     ("IDNA's other full stops", "evil。com"),
     ("a top-level name in Unicode", "evil.рф"),
     ("a top-level name in punycode", "evil.xn--p1ai"),
     (
-        "a URL with one slash or backslashes (WHATWG)",
-        "http:\\\\evil.com\\x",
+        "a URL's slashes written as backslashes (WHATWG)",
+        "http:\\\\1572395042\\x",
     ),
-    ("a URL with no slashes", "http:evil.com"),
-    ("a host after a userinfo", "http://a@evil.com/"),
-    ("a UNC path", "\\\\evil.com\\share"),
-    ("a host with its trailing dot", "evil.com."),
     (
-        "a host with percent-encoded letters (WHATWG decodes them)",
-        "http://%65vil.com/",
+        "a URL with no slashes (WHATWG, special schemes)",
+        "http:1572395042:1/",
     ),
+    (
+        "a real host named as a URL's userinfo",
+        "http://evil.com@127.0.0.1:1/",
+    ),
+    (
+        "a URL's host in any spelling, percent-encoded included",
+        "http://%39%33.184.216.34/",
+    ),
+    ("a host with its trailing dot", "evil.com."),
+    ("a top-level name in any case", "EVIL.COM"),
 ];
 
 /// `text` with each code span's file and call names blanked, for the pass

@@ -714,3 +714,44 @@ fn a_code_span_holds_a_file_or_a_call_and_never_a_host() {
         assert!(neutral(host).is_err(), "passed: {host}");
     }
 }
+
+/// Each reading's case is refused by that reading: read plainly, as the
+/// pass over dotted ASCII words alone reads it, it would pass. The readings
+/// that are that pass (the top-level names, in punycode or any case, and a
+/// trailing dot) and a dotted address are its own.
+#[test]
+fn each_readings_case_needs_its_reading() {
+    let words_alone = |case: &str| {
+        case.split(|ch: char| !(ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '@')))
+            .any(|word| {
+                let (who, place) = match word.split_once('@') {
+                    Some((who, place)) => (who, place),
+                    None => ("", word),
+                };
+                let place = place.trim_end_matches('.');
+                if !place.contains('.') || reserved_name(place) || nowhere(place) {
+                    return false;
+                }
+                if !who.is_empty() && inside_address(place) != Some(true) {
+                    return true;
+                }
+                let last = place.rsplit('.').next().unwrap_or_default();
+                top_level(&last.to_ascii_lowercase())
+            })
+    };
+    for (reading, case) in READINGS {
+        let its_own = [
+            "IPv4, dotted",
+            "a top-level name in punycode",
+            "a top-level name in any case",
+            "a host with its trailing dot",
+        ];
+        if its_own.contains(&reading) {
+            continue;
+        }
+        assert!(
+            !words_alone(case),
+            "{reading}: `{case}` is refused by its plain words alone"
+        );
+    }
+}

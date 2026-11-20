@@ -396,11 +396,13 @@ This check is best effort. The readings it covers are listed, each with a
 case it refuses (`payloads::READINGS`): IPv4 as `inet_aton` reads it (four
 dotted parts anywhere; one decimal, hex or a short form in a URL, since in
 prose a number is a number), IPv6 and IPv4 mapped in it, a cloud's metadata
-addresses, UTS 46 (fullwidth, case, ignored code points), IDNA2003's own
-readings (zero-width joiners dropped, `ß` as `ss`), IDNA's other full
-stops, a top-level name in Unicode or punycode, a URL's slashes as WHATWG
-reads them (one, backslashes, none), a userinfo, a UNC path, a trailing
-dot and percent-encoded letters. A resolver that reads text some other way
+addresses, UTS 46 (fullwidth digits and full stops, ignored code points),
+IDNA2003's own readings (zero-width joiners dropped, `ß` as `ss`), IDNA's
+other full stops, a top-level name in Unicode, punycode or any case, a
+URL's slashes as WHATWG reads them (backslashes, or none after `http:` and
+the other special schemes), a real host as a URL's userinfo, a URL's host
+in any spelling (percent-encoded too) and a trailing dot. Each case is one
+only its reading refuses. A resolver that reads text some other way
 may still find a host in it. What keeps a case from reaching
 one is the sandbox it runs in, which has no network. `devflow payloads table <class> --runner
 jest|vitest|go|pytest` prints a test table with a `check` function you fill
