@@ -6,6 +6,11 @@ devflow looks at a change's security twice, in different ways:
 - **The attack** is a stage of its own after review: it tries to exploit
   the change and keeps only what an exploit test proved.
 
+Before either, a plan item that crosses a trust boundary names its abuse
+cases, each an acceptance criterion a test proves. devflow does not sandbox
+the agent's own shell: [SECURITY.md](../SECURITY.md) says what it touches and
+what its sandbox enforces.
+
 This page describes them as they work in 0.6, limits included.
 
 ## The security reviewer
