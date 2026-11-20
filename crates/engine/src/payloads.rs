@@ -259,6 +259,28 @@ fn without_declared_namespaces(text: &str) -> String {
     kept
 }
 
+/// `text` as a resolver would read a name in it: each character UTS 46
+/// maps to ASCII written as that (`８` as `8`, `ｃ` as `c`, IDNA's other
+/// full stops as `.`), each it ignores dropped (a soft hyphen), and every
+/// other kept as it is, so an address or a name spelled in look-alikes is
+/// judged as the one it resolves to.
+fn folded(text: &str) -> String {
+    let text = text.replace(['\u{3002}', '\u{FF0E}', '\u{FF61}'], ".");
+    let mut said = String::with_capacity(text.len());
+    let mut one = [0u8; 4];
+    for ch in text.chars() {
+        if ch.is_ascii() {
+            said.push(ch);
+            continue;
+        }
+        match idna::domain_to_ascii(ch.encode_utf8(&mut one)) {
+            Ok(ascii) if !ascii.starts_with("xn--") => said.push_str(&ascii),
+            _ => said.push(ch),
+        }
+    }
+    said
+}
+
 /// Names that are no one's: RFC 2606 and 6761.
 fn reserved_name(host: &str) -> bool {
     let host = host.trim_end_matches('.').to_ascii_lowercase();
@@ -472,8 +494,7 @@ fn bare_address(token: &str) -> Option<bool> {
 /// loopback or private on port 1, or a name that resolves nowhere; a bare
 /// address leads inside; no name or e-mail address ends in a real place.
 pub fn neutral(text: &str) -> Result<(), String> {
-    // IDNA's other full stops are dots too.
-    let text = without_declared_namespaces(text).replace(['\u{3002}', '\u{FF0E}', '\u{FF61}'], ".");
+    let text = without_declared_namespaces(&folded(text));
     for (host, port, who) in urls(&text) {
         url_host(&host, port.as_deref())?;
         if let Some(who) = who.filter(|who| who.contains('.')) {
