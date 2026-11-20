@@ -142,11 +142,15 @@ fn plan_json_rows(config: &Config) -> Vec<serde_json::Value> {
         .unwrap_or_default()
 }
 
-/// The default preset is the one docs/measurements/2026-11-presets.md
-/// recommends from its numbers.
+/// The preset devflow falls back to is the one the measurements recommend
+/// writing, read from the doc's own words.
 #[test]
-fn the_default_preset_is_the_one_the_measurements_recommend() {
-    assert_eq!(preset(&Config::default()), Models::Economy);
+fn the_fallback_preset_is_the_one_the_measurements_recommend() {
     let measured = include_str!("../../../docs/measurements/2026-11-presets.md");
-    assert!(measured.contains("**Economy stays the default.**"));
+    let said = measured
+        .split("write `models: ")
+        .nth(1)
+        .and_then(|rest| rest.split('`').next())
+        .expect("the doc recommends a preset");
+    assert_eq!(said, preset(&Config::default()).word());
 }

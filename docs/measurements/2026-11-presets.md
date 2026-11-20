@@ -3,9 +3,11 @@
 The same change was reviewed and attacked once under each models preset, and
 nothing else differed. The change was devflow's own: the scanner findings
 the attack calls reachable or not (`31a50af..f991228`, 734 changed lines,
-12 files). Each run used the branch's devflow in a throwaway clone, with one
-headless `devflow-all` reviewer on Claude Code, the analysis reading, and an
-attack on the range. The readers ran headless and read-only. Every number
+13 files). Each run used the branch's devflow in a throwaway clone. Its
+devflow.yaml said `models: economy` or `models: quality`, one headless
+`devflow-all` reviewer on Claude Code (`review.reviewers`), `scale: true`,
+`block_on: [critical, high]` and an attack stage, and nothing else. Each preset
+turns on the analysis reading. The readers ran headless and read-only. Every number
 below comes from the runs' own records (`review.json`, `attack.json`); none
 is estimated.
 
@@ -22,8 +24,9 @@ is estimated.
 | Attack | economy | opus (large) | 467 s | US$ 1.81 | 919,607 | 48,882 | 3 tried, 2 refuted, 0 confirmed |
 | Attack | quality | opus (large) | 390 s | US$ 1.39 | 728,009 | 41,440 | 4 tried, 5 refuted, 0 confirmed |
 
-The two readers of a review run side by side, so its time is the slower one.
-Input tokens count cache reads and writes. The attack runs on the large tier
+The two readers of a review run side by side, so its time is the wall clock,
+the slower reader's. A review's findings are the readers' merged: one both
+found counts once. Input tokens count cache reads and writes. The attack runs on the large tier
 under both presets, so its rows differ only by the model's own variance.
 
 | | economy | quality |
@@ -46,7 +49,10 @@ neither attack confirmed an exploit.
 
 ## Recommendation
 
-**Economy stays the default.** On this change it gave the same verdict and
+**Economy stays the recommended preset: write `models: economy`.** A
+devflow.yaml that names no preset keeps reviewing as it did before presets,
+with no analysis reading, which is not what was measured here. On this change
+economy gave the same verdict and
 the same gate, found the change's worst problem, and its review cost 28%
 less (US$ 1.89 against US$ 2.62) in the same time. The analysis reading runs
 on the large model under both presets, and it finds most of what economy's
