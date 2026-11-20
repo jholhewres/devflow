@@ -477,7 +477,7 @@ fn proven(given: &Given, stamp: &str, hypotheses: &mut [Value]) {
         );
     };
     let path = std::env::var_os("PATH").unwrap_or_default();
-    let choice = attack.sandbox.unwrap_or(crate::config::SandboxChoice::Auto);
+    let choice = sandbox_for(attack.sandbox, given.stack.is_some());
     let mut found = match sandbox::found(choice, attack.image.as_deref(), &path) {
         Ok(found) => found,
         Err(why) => return left(hypotheses, &why),
@@ -563,6 +563,9 @@ fn proven(given: &Given, stamp: &str, hypotheses: &mut [Value]) {
                 "result": result, "by": "sandbox",
                 "evidence": format!("{} at {head}: {why}", found.kind.word()),
             });
+            if given.stack.is_some() {
+                one["verified"]["stack"] = json!(true);
+            }
         }
     }
 }
@@ -634,7 +637,8 @@ pub fn unproven(hypothesis: &Value) -> Option<String> {
         );
     }
     let (base, at) = side("base");
-    if base != "red" {
+    // A stack's exploit is proven at HEAD only: the stack runs HEAD's code.
+    if base != "red" && proof["stack"] != true {
         return Some(format!(
             "its exploit is {base} at its base {at}, not red: it does not show the hole"
         ));
@@ -927,6 +931,20 @@ pub fn consolidated(found: Vec<(String, Vec<Value>)>) -> Vec<Value> {
         one["id"] = json!(format!("h{}", at + 1));
     }
     kept
+}
+
+/// The sandbox an attack's exploits run in: with a stack, docker unless one
+/// was named, since only docker joins the stack's network.
+fn sandbox_for(
+    said: Option<crate::config::SandboxChoice>,
+    stack: bool,
+) -> crate::config::SandboxChoice {
+    use crate::config::SandboxChoice;
+    match said {
+        None | Some(SandboxChoice::Auto) if stack => SandboxChoice::Docker,
+        Some(choice) => choice,
+        None => SandboxChoice::Auto,
+    }
 }
 
 /// The most scanner findings an attack is given.
@@ -1399,16 +1417,17 @@ pub fn prove(given: &Proving) -> Result<Value, String> {
         .filter(|test| !test.trim().is_empty())
         .ok_or("proving needs stages.attack.test, the command that runs one exploit")?;
     let path = std::env::var_os("PATH").unwrap_or_default();
-    let choice = attack.sandbox.unwrap_or(crate::config::SandboxChoice::Auto);
-    let mut found = sandbox::found(choice, attack.image.as_deref(), &path)
+    let choice = sandbox_for(attack.sandbox, given.stack.is_some());
+    let found = sandbox::found(choice, attack.image.as_deref(), &path)
         .map_err(|why| format!("proving needs a sandbox: {why}"))?;
     // An exploit confirmed against the stack is proven against it too.
+    let mut stacked = found.clone();
     if let Some(stack) = given.stack {
         if found.kind != sandbox::Kind::Docker {
             return Err("a stack is reached only from the docker sandbox".to_owned());
         }
-        found.network = Some(stack.network.clone());
-        found.env = crate::security::environment(&stack.targets);
+        stacked.network = Some(stack.network.clone());
+        stacked.env = crate::security::environment(&stack.targets);
     }
     let base = report["head"].as_str().unwrap_or_default().to_owned();
     let stamp = crate::runs::stamp(given.at);
@@ -1442,9 +1461,16 @@ pub fn prove(given: &Proving) -> Result<Value, String> {
             .unwrap_or_default()
             .to_owned();
         let exploit = (exploit_at.as_str(), test.as_str(), code.as_str());
+        let on_stack = one["verified"]["stack"] == true;
+        if on_stack && given.stack.is_none() {
+            return Err(format!(
+                "{id} was confirmed against the stack: prove it with the stack in force"
+            ));
+        }
+        let found = if on_stack { &stacked } else { &found };
         let run = |commit: &str, label: &str| {
             side(
-                &found,
+                found,
                 given.root,
                 &trees.join(format!("{id}-{label}")),
                 commit,
@@ -1453,12 +1479,21 @@ pub fn prove(given: &Proving) -> Result<Value, String> {
                 limits,
             )
         };
-        let (at_base, why_base) = run(&base, "base");
+        // A stack runs the checkout as it is now: its base side would meet
+        // HEAD's code, so a stack's exploit is proven at HEAD only.
+        let (at_base, why_base) = if on_stack {
+            (
+                "skipped",
+                "the stack runs the checkout as it is now: proven at HEAD only".to_owned(),
+            )
+        } else {
+            run(&base, "base")
+        };
         let (at_head, why_head) = run(given.head, "head");
         one["proof"] = json!({
             "base": { "commit": base, "result": at_base, "reason": why_base },
             "head": { "commit": given.head, "result": at_head, "reason": why_head },
-            "ran_at": stamp, "by": found.kind.word(),
+            "ran_at": stamp, "by": found.kind.word(), "stack": on_stack,
         });
         if at_base == "green" {
             let short: String = base.chars().take(12).collect();

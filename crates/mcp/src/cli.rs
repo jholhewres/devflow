@@ -163,9 +163,14 @@ fn setting(root: &Path, path: &str, value: &Value, consent: &Consent) -> Result<
             Kind::Field => true,
             Kind::Switch(ask) => consent.made(&project.root, ask),
             Kind::Targets => new.is_empty() && unconfirmed(&kept, &targets).is_empty(),
-            Kind::Stack => consent
-                .stack_in_force(&project.root, layered.config.security.stack.as_deref())
-                .is_some(),
+            Kind::Stack => {
+                let named = layered.config.security.stack.as_deref();
+                let now = named.and_then(|file| stack_resolved(&project.root, file).ok());
+                matches!(
+                    (consent.confirmed_stack(&project.root), named, now),
+                    (Some((file, digest)), Some(named), Some((_, now))) if file == named && digest == now
+                )
+            }
         };
     if already {
         return Ok(format!("{path} is already {after}"));
@@ -194,13 +199,18 @@ fn setting(root: &Path, path: &str, value: &Value, consent: &Consent) -> Result<
         }
         Kind::Stack => {
             let stack = layered.config.security.stack.clone().unwrap_or_default();
-            match crate::consent::digest_of(&project.root, &stack) {
-                Some(digest) => println!("  compose file: {stack} (sha256 {digest})"),
-                None => return Err(format!("{stack} is not a file of the project")),
+            let (config, digest) = stack_resolved(&project.root, &stack)?;
+            println!("  compose file: {stack}, as compose resolves it (sha256 {digest})");
+            for (name, service) in config["services"].as_object().into_iter().flatten() {
+                println!(
+                    "    service {name}: {}",
+                    service["image"].as_str().unwrap_or("?")
+                );
             }
             "devflow's attack will start this compose stack on an internal network, with no \
              published port and no way out, and send exploits to its services. It is this \
-             project's own stack. Allow it, on this machine? A change to the file asks again."
+             project's own stack. Allow it, on this machine? Any change to what it resolves to \
+             asks again."
         }
         _ => "Write it?",
     };
@@ -218,7 +228,9 @@ fn setting(root: &Path, path: &str, value: &Value, consent: &Consent) -> Result<
             consent.confirm_targets(&project.root, &targets, &pins)?;
         }
         Kind::Stack => {
-            consent.confirm_stack(&project.root, layered.config.security.stack.as_deref())?;
+            let stack = layered.config.security.stack.clone().unwrap_or_default();
+            let (_, digest) = stack_resolved(&project.root, &stack)?;
+            consent.confirm_stack(&project.root, Some((&stack, &digest)))?;
         }
         Kind::Field => {}
     }
@@ -232,6 +244,12 @@ fn setting(root: &Path, path: &str, value: &Value, consent: &Consent) -> Result<
         "Written. devflow never commits: {} is yours to commit.",
         layout.file
     ))
+}
+
+/// The stack `file` as compose resolves it, and its digest.
+fn stack_resolved(root: &Path, file: &str) -> Result<(Value, String), String> {
+    let docker = crate::register::on_path("docker").ok_or("security.stack needs docker")?;
+    devflow_engine::stack::resolved(&docker, root, file)
 }
 
 /// The targets in `after` not among those `confirmed`, by origin.

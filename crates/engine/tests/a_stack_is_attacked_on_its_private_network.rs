@@ -134,7 +134,7 @@ fn a_stack_that_would_leave_its_network_never_starts() {
     )
     .err()
     .expect("refused");
-    assert!(refused.contains("publishes a port"), "{refused}");
+    assert!(refused.contains("`ports`"), "{refused}");
     assert!(gone("devflow-stack-t3", "devflow-stack-t3-net"));
 }
 
@@ -255,8 +255,8 @@ fn an_exploit_that_wants_a_target_runs_against_the_stack() {
     .expect("attacked");
     let one = &done.report["hypotheses"][0];
     assert_eq!(one["status"], "confirmed", "{one:#}");
-    // Its proof runs against the stack too: red at the commit it was
-    // confirmed on, never a green that only lacked the network.
+    // Its proof runs against the stack too, at HEAD only: the stack runs
+    // the checkout as it is now, so its base side is said skipped.
     let proved = devflow_engine::attack::prove(&devflow_engine::attack::Proving {
         root: &root,
         folder: std::path::Path::new(&done.folder),
@@ -269,6 +269,29 @@ fn an_exploit_that_wants_a_target_runs_against_the_stack() {
     .expect("proved");
     drop(up);
     let proof = &proved["hypotheses"][0]["proof"];
-    assert_eq!(proof["base"]["result"], "red", "{proof:#}");
+    assert_eq!(proof["stack"], true, "{proof:#}");
+    assert_eq!(proof["base"]["result"], "skipped", "{proof:#}");
+    assert_eq!(
+        proof["head"]["result"], "red",
+        "unfixed, it still reaches the store: {proof:#}"
+    );
+    assert!(devflow_engine::attack::unproven(&proved["hypotheses"][0])
+        .is_some_and(|why| why.contains("still open")));
     assert!(gone("devflow-stack-t4", "devflow-stack-t4-net"));
+}
+
+/// What the person confirms is the stack as compose resolves it: a change
+/// to a file it pulls in changes it, not only a change to the compose file.
+#[test]
+fn a_change_to_what_the_stack_pulls_in_changes_what_was_confirmed() {
+    let Some(image) = image() else { return };
+    let dir = project(&format!(
+        "services:\n  store:\n    image: {image}\n    environment:\n      - MODE=${{MODE}}\n"
+    ));
+    std::fs::write(dir.path().join(".env"), "MODE=one\n").expect("env");
+    let (_, first) = stack::resolved(&docker(), dir.path(), "compose.yaml").expect("resolved");
+    std::fs::write(dir.path().join(".env"), "MODE=two\n").expect("env");
+    let (config, second) =
+        stack::resolved(&docker(), dir.path(), "compose.yaml").expect("resolved");
+    assert_ne!(first, second, "{config}");
 }

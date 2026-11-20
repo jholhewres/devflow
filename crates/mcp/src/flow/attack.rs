@@ -171,29 +171,63 @@ fn verified_of(params: &Value) -> Result<Vec<Value>, String> {
     }
 }
 
-/// The stack the person confirmed, started for this attack and taken down
-/// when dropped; `None` when none is in force, never started then.
+/// The stack in force: the one devflow.yaml names, confirmed by the person,
+/// and still what compose resolved when they did. Said why when it is not.
+fn stack_in_force(
+    server: &Server,
+    project: &Project,
+    config: &Config,
+) -> Result<Option<(String, std::path::PathBuf)>, String> {
+    let root = project.root.as_path();
+    let Some(named) = config.security.stack.as_deref() else {
+        return Ok(None);
+    };
+    let again = "the person confirms it with `devflow config set security.stack` in a terminal";
+    let Some((file, digest)) = server.consent.confirmed_stack(root) else {
+        return Err(format!("security.stack is not confirmed: {again}"));
+    };
+    if file != named {
+        return Err(format!(
+            "security.stack names another file than the one confirmed: {again}"
+        ));
+    }
+    use devflow_engine::config::SandboxChoice;
+    if matches!(
+        config.stages.attack.sandbox,
+        Some(SandboxChoice::Bwrap | SandboxChoice::Off)
+    ) {
+        return Err(
+            "security.stack needs the docker sandbox: stages.attack.sandbox is docker or auto"
+                .to_owned(),
+        );
+    }
+    let docker = crate::register::on_path("docker").ok_or("security.stack needs docker")?;
+    let (_, now) = devflow_engine::stack::resolved(&docker, root, &file)?;
+    if now != digest {
+        return Err(format!("the stack changed since it was confirmed: {again}"));
+    }
+    Ok(Some((file, docker)))
+}
+
+/// The stack in force, started for this attack and taken down when dropped;
+/// one named but not in force is never started, and why is said.
 fn started_stack(
     server: &Server,
     project: &Project,
     config: &Config,
-) -> Result<Option<devflow_engine::stack::Up>, String> {
-    let root = project.root.as_path();
-    let Some(file) = server
-        .consent
-        .stack_in_force(root, config.security.stack.as_deref())
-    else {
-        return Ok(None);
-    };
-    let docker = crate::register::on_path("docker").ok_or("security.stack needs docker")?;
-    devflow_engine::stack::up(
-        &docker,
-        root,
-        &file,
-        &project.cache().join("stacks"),
-        &devflow_engine::runs::stamp(SystemTime::now()),
-    )
-    .map(Some)
+) -> Result<(Option<devflow_engine::stack::Up>, Option<String>), String> {
+    match stack_in_force(server, project, config) {
+        Ok(Some((file, docker))) => devflow_engine::stack::up(
+            &docker,
+            &project.root,
+            &file,
+            &project.cache().join("stacks"),
+            &devflow_engine::runs::stamp(SystemTime::now()),
+        )
+        .map(|up| (Some(up), None)),
+        Ok(None) => Ok((None, None)),
+        Err(why) => Ok((None, Some(why))),
+    }
 }
 
 /// The attack on an item, or the session's runs kept on one of its reports.
@@ -224,7 +258,7 @@ pub fn on_item(
         let folder = at.parent().ok_or("a run has a folder")?.to_path_buf();
         let root = project.root.as_path();
         let head = devflow_engine::git::head_of(root).map_err(|err| err.to_string())?;
-        let stack = started_stack(server, project, config)?;
+        let (stack, _) = started_stack(server, project, config)?;
         let report = attack::prove(&attack::Proving {
             root,
             folder: &folder,
@@ -305,9 +339,7 @@ pub fn on_item(
         None => None,
     };
     // One named but not in force is said, never started.
-    let named = config.security.stack.as_deref();
-    let in_force = server.consent.stack_in_force(root, named);
-    let stack = started_stack(server, project, config)?;
+    let (stack, not_in_force) = started_stack(server, project, config)?;
     let teams = project.teams();
     let personal = project::personal_reviewers();
     let redacting = |text: &str| redact(text);
@@ -348,8 +380,8 @@ pub fn on_item(
     signed(project, &item.id, &attack::comment(&done));
     let folder = std::path::PathBuf::from(&done.folder);
     let mut answer = with_files(&folder, &done.report, attack::summary(&done));
-    if named.is_some() && in_force.is_none() {
-        answer["stack"] = json!("security.stack is not in force: the person confirms it, or its changed compose file, with `devflow config set security.stack` in a terminal");
+    if let Some(why) = not_in_force {
+        answer["stack"] = json!(why);
     }
     Ok(answer)
 }

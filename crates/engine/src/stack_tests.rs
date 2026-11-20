@@ -40,28 +40,67 @@ fn what_would_leave_the_private_network_is_refused_before_anything_starts() {
     for (service, why) in [
         (
             json!({ "image": "x", "network_mode": "host" }),
-            "network_mode",
+            "`network_mode`",
         ),
         (
             json!({ "image": "x", "ports": [{ "target": 80, "published": "8080" }] }),
-            "publishes a port",
+            "`ports`",
         ),
-        (json!({ "image": "x", "privileged": true }), "privileged"),
+        (json!({ "image": "x", "privileged": true }), "`privileged`"),
         (
             json!({ "image": "x", "cap_add": ["NET_ADMIN"] }),
-            "adds capabilities",
+            "`cap_add`",
         ),
-        (json!({ "image": "x", "pid": "host" }), "pid or ipc"),
+        (json!({ "image": "x", "pid": "host" }), "`pid`"),
+        (
+            json!({ "image": "x", "devices": ["/dev/sda"] }),
+            "`devices`",
+        ),
+        (
+            json!({ "image": "x", "build": { "context": ".", "network": "host" } }),
+            "`build`",
+        ),
+        (json!({ "build": { "context": "." } }), "`build`"),
+        (json!({ "image": "x", "secrets": ["key"] }), "`secrets`"),
+        (
+            json!({ "image": "x", "networks": { "out": {} } }),
+            "joins network `out`",
+        ),
         (
             json!({ "image": "x", "volumes": [{ "type": "bind", "source": "/var/run/docker.sock", "target": "/s" }] }),
             "outside the project",
+        ),
+        (
+            json!({ "image": "x", "volumes": [{ "type": "npipe", "source": "x", "target": "/s" }] }),
+            "mounts a npipe",
         ),
     ] {
         let refused = checked(&config(service), dir.path()).expect_err(why);
         assert!(refused.contains(why), "{why}: {refused}");
     }
-    let mut open = config(json!({ "image": "x" }));
-    open["networks"]["outside"] = json!({ "name": "o" });
-    let refused = checked(&open, dir.path()).expect_err("not internal");
-    assert!(refused.contains("not internal"), "{refused}");
+    for (key, network) in [
+        ("outside", json!({ "name": "o", "internal": true })),
+        (
+            "default",
+            json!({ "name": "o", "internal": true, "external": true }),
+        ),
+        ("default", json!({ "name": "o" })),
+    ] {
+        let mut open = config(json!({ "image": "x" }));
+        open["networks"][key] = network;
+        let refused = checked(&open, dir.path()).expect_err("not devflow's");
+        assert!(refused.contains("not devflow's internal one"), "{refused}");
+    }
+    let mut kept_by_docker = config(json!({ "image": "x" }));
+    kept_by_docker["volumes"] =
+        json!({ "data": { "driver_opts": { "type": "none", "o": "bind", "device": "/etc" } } });
+    assert!(
+        checked(&kept_by_docker, dir.path()).is_err(),
+        "a volume backed by a host folder"
+    );
+    let mut top = config(json!({ "image": "x" }));
+    top["secrets"] = json!({ "key": { "file": "/etc/hostname" } });
+    assert!(checked(&top, dir.path())
+        .expect_err("secrets")
+        .contains("`secrets`"));
 }
