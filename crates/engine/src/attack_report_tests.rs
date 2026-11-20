@@ -301,3 +301,55 @@ fn a_draft_is_never_written_through_a_linked_drafts_folder() {
     );
     assert!(!dir.path().join("h1.md").exists(), "no draft outside");
 }
+
+/// A release range fails CI on a confirmed exploit in block_on: JUnit fails
+/// its case, one below block_on passes, and one no sandbox ran is skipped.
+#[test]
+fn a_release_range_fails_on_a_confirmed_exploit_in_block_on() {
+    use crate::config::Severity;
+    let mut report = report();
+    report["hypotheses"][1]["status"] = json!("tried");
+    report["hypotheses"][1]["ran"] =
+        json!({ "result": "not_run", "reason": "bwrap is not installed: the session runs it" });
+    let block_on = [Severity::Critical, Severity::High];
+    let held = held(&report, &block_on);
+    assert_eq!(held.len(), 1);
+    assert_eq!(held[0]["id"], "h1");
+    assert!(held_none_below(&report));
+    assert_eq!(
+        not_run(&report),
+        [(
+            "h2".to_owned(),
+            "bwrap is not installed: the session runs it".to_owned()
+        )]
+    );
+    let said = junit(&report, &block_on);
+    assert!(
+        said.contains("tests=\"2\" failures=\"1\" skipped=\"1\""),
+        "{said}"
+    );
+    assert!(
+        said.contains("name=\"h1 ssrf at src/fetch.ts:45 (high)\"><failure type=\"confirmed\""),
+        "{said}"
+    );
+    assert!(said.contains("<skipped message="), "{said}");
+    for leak in LEAKS {
+        assert!(!said.contains(leak), "{leak} in: {said}");
+    }
+    // Below block_on, a confirmed exploit is said and passes.
+    let lenient = junit(&report, &[Severity::Critical]);
+    assert!(lenient.contains("failures=\"0\""), "{lenient}");
+}
+
+fn held_none_below(report: &Value) -> bool {
+    held(report, &[crate::config::Severity::Critical]).is_empty()
+}
+
+#[test]
+fn junit_holds_a_path_with_markup_as_text() {
+    let mut report = report();
+    report["in_repo"] = json!(["src/a&b'c.ts"]);
+    report["hypotheses"][0]["file"] = json!("src/a&b'c.ts");
+    let said = junit(&report, &[crate::config::Severity::High]);
+    assert!(said.contains("src/a&amp;b&apos;c.ts"), "{said}");
+}

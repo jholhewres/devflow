@@ -225,8 +225,94 @@ own words.
 
 ## In CI
 
-Pending: how a release range is attacked in CI, and failing on a confirmed
-exploit, is described once that lands.
+`devflow attack --range A..B` attacks a release range headless, as a
+pipeline runs it, with the stage's settings and budget:
+
+- It writes `devflow-attack.sarif` and `devflow-attack.junit.xml` in the
+  current folder (`--sarif FILE`, `--junit FILE` to name them), each held
+  to what devflow sets, as the report is. Its run, and each exploit, stay in
+  the project's vault, outside the checkout.
+- It exits 0 when nothing confirmed is in `review.block_on`, 1 when a
+  confirmed exploit is, and 2 when the attack could not run: devflow off in
+  the project, the month's budget spent, no attacker answering.
+- A hypothesis no sandbox ran proves nothing either way. Each is warned of
+  on stderr (and as a `::warning` on GitHub Actions) and is a skipped case
+  in the JUnit, never a quiet pass. Set `stages.attack.test` and a sandbox
+  the runner has: GitHub's hosted runners have docker, so `sandbox: docker`
+  with an `image`.
+- No security target or stack is in force there: both are confirmed on the
+  person's terminal, so exploits run with no network at all.
+- `run_usd` caps each run. `month_usd` counts what the project's ledger,
+  `.devflow/runs/attack-ledger.jsonl`, says this month: a runner that starts
+  from a fresh checkout each time keeps it only when the pipeline caches
+  that folder.
+- devflow runs only where the person switched it on. A pipeline has no
+  terminal for `devflow config set enabled true`, so the job writes that
+  decision for its own checkout, as it is given its secrets.
+
+GitHub Actions, on a release tag:
+
+```yaml
+name: attack
+on:
+  push:
+    tags: ["v*"]
+jobs:
+  attack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/cache@v4
+        with:
+          path: .devflow/runs
+          key: devflow-runs-${{ github.run_id }}
+          restore-keys: devflow-runs-
+      - name: devflow and the attacker's CLI
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/jholhewres/devflow/main/install.sh | sh
+          npm install -g @anthropic-ai/claude-code
+          mkdir -p ~/.config/devflow
+          printf '{"enabled":["%s"]}' "$PWD" > ~/.config/devflow/consent.json
+      - name: attack the release
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          previous=$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^")
+          ~/.local/bin/devflow attack --range "$previous..$GITHUB_SHA"
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with: { sarif_file: devflow-attack.sarif }
+```
+
+Jenkins:
+
+```groovy
+pipeline {
+  agent { label 'docker' }
+  environment { ANTHROPIC_API_KEY = credentials('anthropic-api-key') }
+  stages {
+    stage('Attack the release') {
+      steps {
+        sh '''
+          curl -fsSL https://raw.githubusercontent.com/jholhewres/devflow/main/install.sh | sh
+          npm install -g @anthropic-ai/claude-code
+          mkdir -p ~/.config/devflow
+          printf '{"enabled":["%s"]}' "$PWD" > ~/.config/devflow/consent.json
+          previous=$(git describe --tags --abbrev=0 HEAD^)
+          ~/.local/bin/devflow attack --range "$previous..HEAD"
+        '''
+      }
+    }
+  }
+  post {
+    always {
+      junit allowEmptyResults: true, testResults: 'devflow-attack.junit.xml'
+      archiveArtifacts artifacts: 'devflow-attack.*', allowEmptyArchive: true
+    }
+  }
+}
+```
 
 ## A flow across repositories
 

@@ -705,6 +705,107 @@ pub fn drafts(report: &Value, known: &Known) -> Vec<Value> {
         .collect()
 }
 
+/// The confirmed hypotheses whose severity is in `block_on`, as [`shown`]:
+/// what fails a CI run.
+pub fn held(report: &Value, block_on: &[crate::config::Severity]) -> Vec<Value> {
+    hypotheses(report, &Known::of(report))
+        .into_iter()
+        .filter(|one| one["status"] == "confirmed")
+        .filter(|one| {
+            crate::findings::severity_of(text(one, "severity"))
+                .is_some_and(|severity| block_on.contains(&severity))
+        })
+        .collect()
+}
+
+/// The hypotheses tried that no sandbox ran, each with its id and why:
+/// they prove nothing either way.
+pub fn not_run(report: &Value) -> Vec<(String, String)> {
+    report["hypotheses"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|one| one["status"] == "tried" && one["ran"]["result"] == "not_run")
+        .map(|one| {
+            let id = id_of(&one["id"]).as_str().unwrap_or(LEFT_OUT).to_owned();
+            let why: String = text(&one["ran"], "reason")
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+                .chars()
+                .take(200)
+                .collect();
+            (id, why)
+        })
+        .collect()
+}
+
+/// Text as XML holds it, in an attribute or between tags.
+fn xml(text: &str) -> String {
+    text.chars()
+        .filter(|ch| !ch.is_control() || matches!(ch, '\n' | '\t'))
+        .map(|ch| match ch {
+            '&' => "&amp;".to_owned(),
+            '<' => "&lt;".to_owned(),
+            '>' => "&gt;".to_owned(),
+            '"' => "&quot;".to_owned(),
+            '\'' => "&apos;".to_owned(),
+            other => other.to_string(),
+        })
+        .collect()
+}
+
+/// The attack as JUnit, a test case per hypothesis: a confirmed one in
+/// `block_on` fails, one no sandbox ran is skipped, the rest pass. Each
+/// says only what devflow sets.
+pub fn junit(report: &Value, block_on: &[crate::config::Severity]) -> String {
+    let known = Known::of(report);
+    let failing: Vec<Value> = held(report, block_on);
+    let skipped: Vec<String> = not_run(report).into_iter().map(|(id, _)| id).collect();
+    let mut cases = String::new();
+    let shown = hypotheses(report, &known);
+    for one in &shown {
+        let id = cell(&one["id"]);
+        let name = format!(
+            "{id} {} at {}:{} ({})",
+            text(one, "class"),
+            cell(&one["file"]),
+            one["line"],
+            cell(&one["severity"])
+        );
+        let body = if failing.iter().any(|held| held == one) {
+            format!(
+                "<failure type=\"confirmed\" message=\"{}\">{}\n{}</failure>",
+                xml(&format!(
+                    "{}: confirmed by an exploit test, {} is in block_on",
+                    text(one, "class"),
+                    cell(&one["severity"])
+                )),
+                xml(&proof_said(one)),
+                xml(text(one, "impact"))
+            )
+        } else if one["status"] == "tried" && skipped.contains(&id) {
+            "<skipped message=\"no sandbox ran its exploit: it proves nothing either way\"/>"
+                .to_owned()
+        } else {
+            String::new()
+        };
+        cases.push_str(&format!(
+            "    <testcase classname=\"devflow-attack.{}\" name=\"{}\">{body}</testcase>\n",
+            xml(text(one, "class")),
+            xml(&name)
+        ));
+    }
+    let suite = format!("devflow-attack {}", text(report, "item"));
+    format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<testsuites name=\"devflow-attack\" tests=\"{n}\" failures=\"{f}\" skipped=\"{s}\">\n  <testsuite name=\"{name}\" tests=\"{n}\" failures=\"{f}\" skipped=\"{s}\">\n{cases}  </testsuite>\n</testsuites>\n",
+        n = shown.len(),
+        f = failing.len(),
+        s = skipped.len(),
+        name = xml(&suite),
+    )
+}
+
 /// The report written in its run as markdown, JSON and SARIF, and its
 /// drafts under [`DRAFTS`]; the files' names, relative to the run.
 pub fn written(folder: &Path, report: &Value) -> Result<Vec<String>, String> {

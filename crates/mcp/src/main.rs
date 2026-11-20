@@ -96,7 +96,8 @@ enum Command {
     Attack {
         /// The work item's id; or `promote`, then the item or range and the
         /// hypothesis whose exploit is copied into the repository.
-        item: String,
+        #[arg(required_unless_present = "range")]
+        item: Option<String>,
         /// With `promote`: the item or range, then the hypothesis.
         #[arg(num_args = 0..=2)]
         promote: Vec<String>,
@@ -120,6 +121,27 @@ enum Command {
         /// The report's format: md, json or sarif.
         #[arg(long, default_value = "md", requires = "report")]
         format: String,
+        /// Attack a release range, `A..B`, headless for CI: SARIF and JUnit
+        /// are written, and the exit code is 1 when a confirmed exploit is
+        /// in review.block_on, 2 when the attack could not run.
+        #[arg(long, value_name = "A..B", conflicts_with_all = ["item", "base", "prove", "report", "flow", "run"])]
+        range: Option<String>,
+        /// With `--range`: where the SARIF goes.
+        #[arg(
+            long,
+            value_name = "FILE",
+            default_value = "devflow-attack.sarif",
+            requires = "range"
+        )]
+        sarif: PathBuf,
+        /// With `--range`: where the JUnit goes.
+        #[arg(
+            long,
+            value_name = "FILE",
+            default_value = "devflow-attack.junit.xml",
+            requires = "range"
+        )]
+        junit: PathBuf,
     },
     /// The reviewer personas as this project reads them.
     Persona {
@@ -306,6 +328,104 @@ fn promoting(
     }
 }
 
+/// A release range's two ends: `A..B` or `A...B`.
+fn range_ends(range: &str) -> Option<(&str, &str)> {
+    let (base, head) = range.split_once("...").or_else(|| range.split_once(".."))?;
+    (!base.is_empty() && !head.is_empty() && !head.contains("..")).then_some((base, head))
+}
+
+/// `devflow attack --range A..B`: the range attacked headless, as CI runs
+/// it. Its report's SARIF and JUnit are written to `sarif` and `junit`;
+/// the exit code is 1 when a confirmed exploit is in review.block_on, 2
+/// when the attack could not run (a budget spent, no attacker answered),
+/// and each hypothesis no sandbox ran is warned of, never passed quietly.
+fn ranging(
+    root: &std::path::Path,
+    range: &str,
+    sarif: &std::path::Path,
+    junit: &std::path::Path,
+) -> ExitCode {
+    use devflow_engine::{attack, attack_report};
+    let could_not = |why: String| {
+        eprintln!("devflow attack: {why}");
+        ExitCode::from(2)
+    };
+    let Some((base, head)) = range_ends(range) else {
+        return could_not(format!("`{range}` is not a range: give it as A..B"));
+    };
+    let server = server::Server::new(root);
+    let project = project::Project::at(root);
+    let state = project.read();
+    let block_on = match flow::config_for(&project, &state, &server.consent, "attack") {
+        Ok(config) => config.review.block_on.clone(),
+        Err(why) => return could_not(why),
+    };
+    let asked = serde_json::json!({ "base": base, "head": head });
+    let said = match flow::attack::attack(&server, asked) {
+        Ok(said) => said,
+        Err(why) => return could_not(why),
+    };
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&said).unwrap_or_default()
+    );
+    let folder = std::path::PathBuf::from(said["vault"].as_str().unwrap_or_default());
+    let Some(report) = flow::json_at(&folder.join(attack::REPORT)) else {
+        return could_not(format!(
+            "{} does not read",
+            folder.join(attack::REPORT).display()
+        ));
+    };
+    if let Some(why) = attack::failed(&report) {
+        return could_not(format!("no attacker answered: {why}"));
+    }
+    let known = attack_report::Known::of(&report);
+    let written = [
+        (
+            sarif,
+            serde_json::to_string_pretty(&attack_report::sarif(&report, &known))
+                .unwrap_or_default()
+                + "\n",
+        ),
+        (junit, attack_report::junit(&report, &block_on)),
+    ];
+    for (at, text) in written {
+        if let Err(err) = std::fs::write(at, text) {
+            return could_not(format!("{}: {err}", at.display()));
+        }
+    }
+    let not_run = attack_report::not_run(&report);
+    let annotate = std::env::var("GITHUB_ACTIONS").is_ok_and(|on| on == "true");
+    for (id, why) in &not_run {
+        let said = format!(
+            "{id} was not run, so it proves nothing either way: {why}. Set stages.attack.test and a sandbox (bwrap or docker) the runner has."
+        );
+        eprintln!("warning: devflow attack: {said}");
+        if annotate {
+            println!("::warning title=devflow attack::{said}");
+        }
+    }
+    let held = attack_report::held(&report, &block_on);
+    for one in &held {
+        let said = format!(
+            "{} {} confirmed at {}:{}",
+            one["severity"].as_str().unwrap_or("?"),
+            one["class"].as_str().unwrap_or("other"),
+            one["file"].as_str().unwrap_or("<…>"),
+            one["line"]
+        );
+        eprintln!("devflow attack: {said}");
+        if annotate {
+            println!("::error title=devflow attack::{said}");
+        }
+    }
+    if held.is_empty() {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(1)
+    }
+}
+
 /// `devflow attack`: the attack tool's answer, printed as JSON.
 fn attacking(
     root: &std::path::Path,
@@ -359,7 +479,20 @@ fn main() -> ExitCode {
         Command::Status { attack: false } => status(&root),
         Command::Status { attack: true } => attack_status(&root),
         Command::Attack {
-            item, promote, run, ..
+            range: Some(range),
+            sarif,
+            junit,
+            ..
+        } => ranging(&root, &range, &sarif, &junit),
+        Command::Attack { item: None, .. } => {
+            eprintln!("devflow attack <item>, or --range A..B");
+            ExitCode::FAILURE
+        }
+        Command::Attack {
+            item: Some(item),
+            promote,
+            run,
+            ..
         } if item == "promote" => match promote.as_slice() {
             [subject, hypothesis] => promoting(&root, subject, hypothesis, run.as_deref()),
             _ => {
@@ -372,13 +505,13 @@ fn main() -> ExitCode {
             ExitCode::FAILURE
         }
         Command::Attack {
-            item,
+            item: Some(item),
             report: Some(run),
             format,
             ..
         } => reporting(&root, &item, &run, &format),
         Command::Attack {
-            item,
+            item: Some(item),
             base,
             prove,
             flow,

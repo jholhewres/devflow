@@ -128,7 +128,8 @@ nuvem, e nunca contorna a recusa de um modelo. Cada execução escreve seu
 relatório em markdown, JSON e SARIF, com um rascunho de issue por falha
 confirmada, e não publica nada disso. Um intervalo já em produção ganha um
 retro só de segurança, cujos exploits ficam num cofre fora do repositório.
-Rodar o ataque no CI está pendente. Itens do plano que cruzam uma fronteira
+`devflow attack --range A..B` ataca um intervalo de release no CI, escreve
+SARIF e JUnit e falha num exploit confirmado. Itens do plano que cruzam uma fronteira
 de confiança dizem seus casos de abuso, cada um um critério provado por
 teste.
 

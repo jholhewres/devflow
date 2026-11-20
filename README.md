@@ -125,7 +125,8 @@ a cloud's metadata, and it never works around a model's refusal. Each run
 writes its report as markdown, JSON and SARIF, with an issue draft per
 confirmed hole, and publishes none of it. A range already in production gets
 a security-only retro whose exploits stay in a vault outside the repository.
-Running the attack in CI is pending. Plan items that cross a trust boundary
+`devflow attack --range A..B` attacks a release range in CI, writes SARIF
+and JUnit, and fails on a confirmed exploit. Plan items that cross a trust boundary
 name their abuse cases, each a criterion proven by a test.
 
 devflow does not sandbox the agent's own shell. How each piece works, what
