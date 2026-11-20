@@ -4,7 +4,6 @@
 //! project is known. Newline-delimited JSON-RPC, which is what MCP's stdio
 //! transport is.
 
-use std::io::{BufRead, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -12,6 +11,7 @@ use devflow_engine::Proposal;
 use serde_json::{json, Value};
 
 use crate::consent::Consent;
+use crate::person::{Answer, Incoming, Person};
 use crate::project::Project;
 use crate::tools::{self, Tool};
 
@@ -19,23 +19,23 @@ use crate::tools::{self, Tool};
 /// it does not know gets the newest.
 pub const PROTOCOLS: [&str; 4] = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 
-/// A line longer than this is refused unread: a request is a few kilobytes.
-const MOST_LINE_BYTES: usize = 8 * 1024 * 1024;
-
-/// What a call needs to know: where it stands, the person's decisions, and
-/// the last setup this session showed them.
+/// What a call needs to know: where it stands, the person's decisions, the
+/// last setup this session showed them, and the line to ask them on.
 pub struct Server {
     pub cwd: PathBuf,
     pub consent: Consent,
     pub preview: Mutex<Option<Proposal>>,
+    pub person: Person,
 }
 
 impl Server {
+    /// A server that never asks the person: a host's call or a hook.
     pub fn new(cwd: &Path) -> Server {
         Server {
             cwd: cwd.to_path_buf(),
             consent: Consent::of_user(),
             preview: Mutex::new(None),
+            person: Person::none(),
         }
     }
 
@@ -43,54 +43,40 @@ impl Server {
     pub fn project(&self) -> Project {
         Project::at(&self.cwd)
     }
+
+    /// Asks the person `message`, a form of `schema`, through the client.
+    pub fn ask(&self, message: &str, schema: Value) -> Answer {
+        self.person.ask(self, message, schema)
+    }
 }
 
 /// Serves MCP on stdin/stdout until the client hangs up.
 pub fn serve(root: &Path) -> i32 {
-    let server = Server::new(root);
-    let mut stdin = std::io::stdin().lock();
-    let mut line = String::new();
+    let server = Server {
+        person: Person::on_stdio(),
+        ..Server::new(root)
+    };
     loop {
-        line.clear();
-        match (&mut stdin)
-            .take(MOST_LINE_BYTES as u64 + 1)
-            .read_line(&mut line)
-        {
-            Ok(0) | Err(_) => return 0,
-            Ok(read) if read > MOST_LINE_BYTES => {
-                send(&error(Value::Null, -32600, "that message is too long"));
-                // The rest of the line is dropped, not read as the next message.
-                if !skip_line(&mut stdin) {
-                    return 0;
-                }
-                continue;
+        match server.person.received(None) {
+            None => continue,
+            Some(Incoming::Closed) => return 0,
+            Some(Incoming::TooLong) => {
+                server
+                    .person
+                    .send(&error(Value::Null, -32600, "that message is too long"));
             }
-            Ok(_) => {}
-        }
-        if line.trim().is_empty() {
-            continue;
-        }
-        if let Some(answer) = handle(&line, &server) {
-            if !send(&answer) {
-                return 0;
+            Some(Incoming::Message(line)) => {
+                if line.trim().is_empty() {
+                    continue;
+                }
+                if let Some(answer) = handle(&line, &server) {
+                    if !server.person.send(&answer) {
+                        return 0;
+                    }
+                }
             }
         }
     }
-}
-
-fn skip_line(input: &mut impl BufRead) -> bool {
-    let mut sink = Vec::new();
-    input
-        .read_until(b'\n', &mut sink)
-        .is_ok_and(|read| read > 0)
-}
-
-/// One message out, whole.
-fn send(message: &str) -> bool {
-    let mut out = std::io::stdout().lock();
-    writeln!(out, "{message}")
-        .and_then(|()| out.flush())
-        .is_ok()
 }
 
 /// One JSON-RPC message in, at most one out.
@@ -102,16 +88,27 @@ pub fn handle(line: &str, server: &Server) -> Option<String> {
         .get("method")
         .and_then(Value::as_str)
         .unwrap_or_default();
-    // A notification has no id and gets no answer, whatever it says.
+    // A notification has no id and gets no answer, whatever it says; nor
+    // does a reply to a question no longer waited for.
     let id = message.get("id").cloned()?;
+    if message.get("method").is_none()
+        && (message.get("result").is_some() || message.get("error").is_some())
+    {
+        return None;
+    }
     let params = message.get("params").cloned().unwrap_or(Value::Null);
     let result = match method {
-        "initialize" => json!({
+        "initialize" => {
+            server
+                .person
+                .initialized(params.get("capabilities").unwrap_or(&Value::Null));
+            json!({
             "protocolVersion": protocol(params.get("protocolVersion").and_then(Value::as_str)),
             "capabilities": { "tools": {}, "prompts": {}, "resources": {} },
             "serverInfo": { "name": "devflow", "version": env!("CARGO_PKG_VERSION") },
             "instructions": tools::INSTRUCTIONS,
-        }),
+            })
+        }
         "ping" => json!({}),
         "tools/list" => json!({ "tools": tools::TOOLS.iter().map(listed).collect::<Vec<_>>() }),
         "tools/call" => call(&params, server),
@@ -183,7 +180,7 @@ fn said(text: &str, failed: bool) -> Value {
     json!({ "content": [{ "type": "text", "text": text }], "isError": failed })
 }
 
-fn error(id: Value, code: i64, message: &str) -> String {
+pub fn error(id: Value, code: i64, message: &str) -> String {
     json!({ "jsonrpc": "2.0", "id": id, "error": { "code": code, "message": message } }).to_string()
 }
 

@@ -15,6 +15,7 @@ mod flow;
 mod hook;
 mod host;
 mod jev_cli;
+mod person;
 mod project;
 mod register;
 mod server;

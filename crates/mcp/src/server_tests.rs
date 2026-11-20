@@ -7,6 +7,7 @@ fn server(root: &Path) -> Server {
         cwd: root.to_path_buf(),
         consent: Consent::at(&root.join(".consent")),
         preview: Mutex::new(None),
+        person: crate::person::Person::none(),
     }
 }
 
@@ -34,6 +35,15 @@ fn a_notification_gets_no_answer() {
     let dir = tempfile::tempdir().unwrap();
     let line = r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#;
     assert_eq!(handle(line, &server(dir.path())), None);
+}
+
+#[test]
+fn a_reply_that_comes_after_its_question_gets_no_answer() {
+    let dir = tempfile::tempdir().unwrap();
+    let late = r#"{"jsonrpc":"2.0","id":"devflow-ask-1","result":{"action":"accept"}}"#;
+    assert_eq!(handle(late, &server(dir.path())), None);
+    let failed = r#"{"jsonrpc":"2.0","id":"devflow-ask-2","error":{"code":-1,"message":"no"}}"#;
+    assert_eq!(handle(failed, &server(dir.path())), None);
 }
 
 #[test]

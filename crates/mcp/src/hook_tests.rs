@@ -8,6 +8,7 @@ fn server(root: &Path) -> Server {
         cwd: root.to_path_buf(),
         consent: Consent::at(&root.join(".consent")),
         preview: Mutex::new(None),
+        person: crate::person::Person::none(),
     }
 }
 

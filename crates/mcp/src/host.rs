@@ -186,6 +186,7 @@ fn initialize(params: &Value, root: &Path) -> Result<(Session, Value), Failed> {
         cwd: root,
         consent: Consent::of_user().switched_by_host(switch("enabled"), switch("enforce")),
         preview: Mutex::new(None),
+        person: crate::person::Person::none(),
     };
     let said = json!({
         "version": env!("CARGO_PKG_VERSION"),
