@@ -1336,6 +1336,9 @@ pub struct Proving<'a> {
     /// Where the throwaway worktrees go, out of the checkout.
     pub scratch: &'a Path,
     pub at: SystemTime,
+    /// The stack in force, started for the proof: its exploits are proven
+    /// against it, as they were confirmed.
+    pub stack: Option<&'a crate::stack::Up>,
 }
 
 /// One side of a proof: the exploit run at `commit` in a worktree of its
@@ -1396,8 +1399,16 @@ pub fn prove(given: &Proving) -> Result<Value, String> {
         .ok_or("proving needs stages.attack.test, the command that runs one exploit")?;
     let path = std::env::var_os("PATH").unwrap_or_default();
     let choice = attack.sandbox.unwrap_or(crate::config::SandboxChoice::Auto);
-    let found = sandbox::found(choice, attack.image.as_deref(), &path)
+    let mut found = sandbox::found(choice, attack.image.as_deref(), &path)
         .map_err(|why| format!("proving needs a sandbox: {why}"))?;
+    // An exploit confirmed against the stack is proven against it too.
+    if let Some(stack) = given.stack {
+        if found.kind != sandbox::Kind::Docker {
+            return Err("a stack is reached only from the docker sandbox".to_owned());
+        }
+        found.network = Some(stack.network.clone());
+        found.env = crate::security::environment(&stack.targets);
+    }
     let base = report["head"].as_str().unwrap_or_default().to_owned();
     let stamp = crate::runs::stamp(given.at);
     let limits = sandbox::Limits {

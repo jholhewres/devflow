@@ -644,6 +644,7 @@ fn proven_report(on_fixed: bool) -> (tempfile::TempDir, std::path::PathBuf, Valu
         head: &fixed,
         scratch: &scratch,
         at: SystemTime::UNIX_EPOCH + Duration::from_secs(1_792_000_000),
+        stack: None,
     })
     .expect("proved");
     (dir, scratch, proved)
@@ -715,6 +716,7 @@ fn a_proof_waits_for_the_fix_to_be_committed() {
         head: &fixed,
         scratch: &dir.path().join("trees"),
         at: SystemTime::now(),
+        stack: None,
     })
     .expect_err("dirty");
     assert!(refused.contains("commit the fix first"), "{refused}");

@@ -253,8 +253,22 @@ fn an_exploit_that_wants_a_target_runs_against_the_stack() {
         stack: Some(&up),
     })
     .expect("attacked");
-    drop(up);
     let one = &done.report["hypotheses"][0];
     assert_eq!(one["status"], "confirmed", "{one:#}");
+    // Its proof runs against the stack too: red at the commit it was
+    // confirmed on, never a green that only lacked the network.
+    let proved = devflow_engine::attack::prove(&devflow_engine::attack::Proving {
+        root: &root,
+        folder: std::path::Path::new(&done.folder),
+        config: &config,
+        head: &head,
+        scratch: &dir.path().join("trees"),
+        at: SystemTime::now(),
+        stack: Some(&up),
+    })
+    .expect("proved");
+    drop(up);
+    let proof = &proved["hypotheses"][0]["proof"];
+    assert_eq!(proof["base"]["result"], "red", "{proof:#}");
     assert!(gone("devflow-stack-t4", "devflow-stack-t4-net"));
 }

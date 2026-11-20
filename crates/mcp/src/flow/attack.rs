@@ -171,6 +171,31 @@ fn verified_of(params: &Value) -> Result<Vec<Value>, String> {
     }
 }
 
+/// The stack the person confirmed, started for this attack and taken down
+/// when dropped; `None` when none is in force, never started then.
+fn started_stack(
+    server: &Server,
+    project: &Project,
+    config: &Config,
+) -> Result<Option<devflow_engine::stack::Up>, String> {
+    let root = project.root.as_path();
+    let Some(file) = server
+        .consent
+        .stack_in_force(root, config.security.stack.as_deref())
+    else {
+        return Ok(None);
+    };
+    let docker = crate::register::on_path("docker").ok_or("security.stack needs docker")?;
+    devflow_engine::stack::up(
+        &docker,
+        root,
+        &file,
+        &project.cache().join("stacks"),
+        &devflow_engine::runs::stamp(SystemTime::now()),
+    )
+    .map(Some)
+}
+
 /// The attack on an item, or the session's runs kept on one of its reports.
 pub fn on_item(
     server: &Server,
@@ -199,6 +224,7 @@ pub fn on_item(
         let folder = at.parent().ok_or("a run has a folder")?.to_path_buf();
         let root = project.root.as_path();
         let head = devflow_engine::git::head_of(root).map_err(|err| err.to_string())?;
+        let stack = started_stack(server, project, config)?;
         let report = attack::prove(&attack::Proving {
             root,
             folder: &folder,
@@ -206,6 +232,7 @@ pub fn on_item(
             head: &head,
             scratch: &project.cache().join("trees"),
             at: SystemTime::now(),
+            stack: stack.as_ref(),
         })?;
         let done = attack::Done {
             folder: folder.display().to_string(),
@@ -277,23 +304,10 @@ pub fn on_item(
         }
         None => None,
     };
-    // The stack the person confirmed, started for this attack and taken
-    // down when it is dropped; one not in force is said, never started.
+    // One named but not in force is said, never started.
     let named = config.security.stack.as_deref();
     let in_force = server.consent.stack_in_force(root, named);
-    let stack = match &in_force {
-        Some(file) => {
-            let docker = crate::register::on_path("docker").ok_or("security.stack needs docker")?;
-            Some(devflow_engine::stack::up(
-                &docker,
-                root,
-                file,
-                &project.cache().join("stacks"),
-                &devflow_engine::runs::stamp(SystemTime::now()),
-            )?)
-        }
-        None => None,
-    };
+    let stack = started_stack(server, project, config)?;
     let teams = project.teams();
     let personal = project::personal_reviewers();
     let redacting = |text: &str| redact(text);
