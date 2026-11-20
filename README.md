@@ -37,7 +37,7 @@ updates: [docs/install.md](docs/install.md).
 
 | Tool | What it gets |
 |---|---|
-| Claude Code | plugin: MCP tools, `/devflow:<stage>` skills, `/devflow:status`, `/devflow:pr`, reviewer subagents, the gate's Stop hook |
+| Claude Code | plugin: MCP tools, `/devflow:<stage>` skills, `/devflow:status`, `/devflow:pr`, reviewer subagents, the gate's Stop hook; the MCP server also in the user config, so a session that loads another plugin named devflow keeps it ([why](docs/integrations.md#claude-code-and-another-plugin-named-devflow)) |
 | Codex | MCP tools (`codex mcp add devflow -- devflow mcp`) |
 | Gemini CLI | extension: MCP tools and `GEMINI.md` |
 | Cursor, OpenCode, VS Code | MCP tools |
