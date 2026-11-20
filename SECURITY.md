@@ -63,8 +63,9 @@ Worth knowing before you run it, and worth keeping in mind when reviewing:
   vulnerability.
 - It **runs exploit tests in a sandbox**, when `stages.attack.test` is set
   and bwrap or docker works here. What the sandbox enforces:
-  - each exploit runs in a throwaway worktree of HEAD, dropped after it ran;
-    the checkout is never written;
+  - each exploit runs in a throwaway worktree of the commit it is tried on
+    (HEAD, and its base for the proof), dropped after it ran; the checkout
+    is never written;
   - no network: bwrap gives it a network namespace of its own, docker runs
     it with none, or attached only to a confirmed stack's internal network;
   - a time limit, and caps on memory and CPU: in docker per container,

@@ -1572,12 +1572,12 @@ const LEAST_TRY: Duration = Duration::from_secs(60);
 const LEAST_TRY: Duration = Duration::from_secs(2);
 
 /// The first try's time: the deadline less what one more try needs (its
-/// pause, its least time, and a quarter of that to end the one that ran
-/// out), so it can be asked again; never under [`LEAST_TRY`], and the whole
-/// deadline when that is shorter.
+/// pause, its least time, and half that again to end the one that ran out
+/// on a busy machine), so it can be asked again; never under [`LEAST_TRY`],
+/// and the whole deadline when that is shorter.
 fn first_try(deadline: Duration) -> Duration {
     deadline
-        .saturating_sub(LEAST_TRY + LEAST_TRY / 4 + RETRY_PAUSES[0])
+        .saturating_sub(LEAST_TRY + LEAST_TRY / 2 + RETRY_PAUSES[0])
         .max(LEAST_TRY.min(deadline))
 }
 

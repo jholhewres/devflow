@@ -49,7 +49,8 @@ fn a_proposed_case_is_not_kept_without_a_terminal_and_a_table_is_printed() {
     std::fs::write(
         run.join("attack.json"),
         serde_json::json!({ "item": "card_1", "hypotheses": [], "proposed_cases": [
-            { "id": "c1", "class": "ssrf", "input": "http://[::]:1/", "want": "rejected", "why": "dotted IPv4 only" },
+            { "id": "c1", "class": "traversal", "input": "..%2f..%2fetc%2fhostname", "want": "rejected", "why": "encoded slashes" },
+            { "id": "c2", "class": "ssrf", "input": "http://[::]:1/", "want": "rejected", "why": "a URL" },
         ] })
         .to_string(),
     )
@@ -59,9 +60,18 @@ fn a_proposed_case_is_not_kept_without_a_terminal_and_a_table_is_printed() {
     assert!(!refused.status.success());
     let said = String::from_utf8_lossy(&refused.stderr);
     assert!(said.contains("on a terminal"), "{said}");
-    assert!(String::from_utf8_lossy(&refused.stdout).contains("input: \"http://[::]:1/\""));
     assert!(
-        !root.join(".devflow/payloads/ssrf.json").exists(),
+        String::from_utf8_lossy(&refused.stdout).contains("input: \"..%2f..%2fetc%2fhostname\"")
+    );
+    // A case that could not be kept is refused before anyone is asked.
+    let unkeepable = devflow(root, &["payloads", "add", "card_1", "c2"]);
+    let said = String::from_utf8_lossy(&unkeepable.stderr);
+    assert!(
+        said.contains("IPv6") && !said.contains("on a terminal"),
+        "{said}"
+    );
+    assert!(
+        !root.join(".devflow/payloads/traversal.json").exists(),
         "nothing kept"
     );
 

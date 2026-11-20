@@ -550,12 +550,15 @@ fn payloads(root: &std::path::Path, action: Payloads) -> ExitCode {
             if !payloads::names().contains(&class) {
                 return failed(format!("the case `{case}` is of no class devflow ships"));
             }
-            // Who wrote a prompt-injection case: `user` when it does not say.
-            if class == payloads::PROMPT_INJECTION {
+            // Refused before anyone is asked when it could not be kept.
+            let case_kept = match payloads::keepable(&project.root, &proposed) {
+                Ok((_, case_kept)) => case_kept,
+                Err(why) => return failed(why),
+            };
+            if let Some(from) = &case_kept.from {
                 println!(
                     "written by: {}",
-                    serde_json::to_string(proposed["from"].as_str().unwrap_or("user"))
-                        .unwrap_or_default()
+                    serde_json::to_string(from).unwrap_or_default()
                 );
             }
             println!(

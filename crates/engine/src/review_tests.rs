@@ -2457,7 +2457,7 @@ fn the_first_try_keeps_all_but_what_one_more_try_needs() {
     let long = Duration::from_secs(600);
     assert_eq!(
         first_try(long),
-        long - LEAST_TRY - LEAST_TRY / 4 - RETRY_PAUSES[0]
+        long - LEAST_TRY - LEAST_TRY / 2 - RETRY_PAUSES[0]
     );
     assert!(first_try(long) > long * 3 / 4);
     let short = LEAST_TRY / 2;

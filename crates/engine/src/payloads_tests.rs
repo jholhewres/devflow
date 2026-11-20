@@ -605,6 +605,11 @@ fn a_file_name_is_neutral_and_a_namespace_only_where_declared() {
         "main.rs",
         "fetch //evil.rs/x",
         "http:/evil.rs",
+        "x:/evil.rs",
+        "\\\\evil.rs\\share",
+        "/\\evil.rs",
+        "\\/evil.rs",
+        "/main.rs",
         "<xi:include href=\"http://www.w3.org/2001/XInclude\"/>",
         "fetch http://www.w3.org/2001/XInclude",
     ] {

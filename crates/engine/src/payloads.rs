@@ -515,10 +515,13 @@ pub fn neutral(text: &str) -> Result<(), String> {
         }
     }
     for (from, word) in words {
-        let before = &text[..from];
-        let in_path = (before.ends_with('/') || before.ends_with('\\'))
-            && !before.ends_with("//")
-            && !before.ends_with(":/");
+        // A path's last part: a separator right after a folder's name,
+        // never after another separator or a scheme's colon.
+        let mut back = text[..from].chars().rev();
+        let in_path = matches!(back.next(), Some('/' | '\\'))
+            && back
+                .next()
+                .is_some_and(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '_'));
         let (who, place) = match word.split_once('@') {
             Some((who, place)) => (Some(who), place),
             None => (None, word),
@@ -870,9 +873,22 @@ pub fn proposed_of(answer: &Value) -> (Vec<Value>, Vec<Value>) {
 /// id of its own; a person's yes on a terminal comes first, and is asked by
 /// whoever calls this.
 pub fn keep(root: &Path, proposed: &Value) -> Result<String, String> {
+    let (mut cases, case) = keepable(root, proposed)?;
+    let class = proposed["class"].as_str().unwrap_or_default();
+    cases.push(case);
+    let relative = kept_path(root, class);
+    let text = serde_json::to_string_pretty(&cases).unwrap_or_default() + "\n";
+    crate::attack::put(root, &relative, &text)?;
+    Ok(relative)
+}
+
+/// A proposed case as it would be kept, beside the project's own cases of
+/// its class; refused as [`keep`] would refuse it, so nobody is asked about
+/// a case that cannot be kept.
+pub fn keepable(root: &Path, proposed: &Value) -> Result<(Vec<Case>, Case), String> {
     let class = proposed["class"].as_str().unwrap_or_default();
     let shipped_cases = shipped(class)?.cases;
-    let mut cases = kept(root, class)?;
+    let cases = kept(root, class)?;
     let input = proposed["input"].as_str().unwrap_or_default().to_owned();
     if shipped_cases
         .iter()
@@ -904,11 +920,7 @@ pub fn keep(root: &Path, proposed: &Value) -> Result<String, String> {
     };
     checked_in(class, &case)?;
     host_free(&case.input)?;
-    cases.push(case);
-    let relative = kept_path(root, class);
-    let text = serde_json::to_string_pretty(&cases).unwrap_or_default() + "\n";
-    crate::attack::put(root, &relative, &text)?;
-    Ok(relative)
+    Ok((cases, case))
 }
 
 #[cfg(test)]
