@@ -141,6 +141,9 @@ pub fn starting(preset: Preset, detected: &Detected) -> Config {
     let mut config = Config::default();
     // Said in the file, so where the plan goes is there to change.
     config.stages.plan.publish = Some(config::Publish::Board);
+    // A new project attacks what a sensitive change touches; a file that
+    // names no attack stage stays off, as 0.5.x was.
+    config.stages.attack.run = config::AttackRun::Sensitive;
     if preset == Preset::Custom {
         return config;
     }

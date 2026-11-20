@@ -462,11 +462,12 @@ fn budget(node: &Node, path: &str) -> Result<Budget, Invalid> {
 }
 
 impl Default for Attack {
-    /// `sensitive`: the attack runs on a diff `review.scale` does not call
-    /// small.
+    /// `off`: a devflow.yaml that names no attack stage behaves as 0.5.x
+    /// did. `devflow setup` writes `sensitive` for a new project, and a
+    /// stage named with no `run` is `sensitive` ([`attack_in`]).
     fn default() -> Self {
         Attack {
-            run: AttackRun::Sensitive,
+            run: AttackRun::Off,
             model: None,
             test: None,
             sandbox: None,
@@ -704,9 +705,15 @@ impl Config {
     /// version 2's list.
     pub fn to_json(&self) -> serde_json::Value {
         let mut json = serde_json::to_value(self).unwrap_or_default();
-        // Said once, where it is in force.
+        // Said once, where it is in force; at its default (off), unsaid, so
+        // its older name `review.attack` may say it.
         if let Some(review) = json["review"].as_object_mut() {
             review.remove(ATTACK);
+        }
+        if self.stages.attack == Attack::default() {
+            if let Some(stages) = json["stages"].as_object_mut() {
+                stages.remove(ATTACK);
+            }
         }
         if self.review.scale.is_none() && self.review.scale_off {
             json["review"]["scale"] = serde_json::Value::Bool(false);
@@ -714,9 +721,11 @@ impl Config {
         if self.version == V1 {
             return json;
         }
+        let unsaid = self.stages.attack == Attack::default();
         json["stages"] = serde_json::Value::Array(
             self.flow
                 .iter()
+                .filter(|step| !(unsaid && step.builtin() == Some(ATTACK)))
                 .map(|step| crate::flow::step_json(self, step))
                 .collect(),
         );
@@ -1552,12 +1561,12 @@ fn names_attack(stages: &Node) -> bool {
 }
 
 /// The attack stage's own fields: `enabled` (`false` is `run: off`), `run`
-/// (`sensitive` when not said) and `model`.
+/// (`sensitive` when not said: the stage is named, so it runs) and `model`.
 pub(crate) fn attack_in(fields: &mut Fields) -> Result<Attack, Invalid> {
     let enabled = boolean(fields.get("enabled"), true)?;
     let run = match fields.get("run") {
         Some((node, path)) => word(node, &path, AttackRun::of, AttackRun::ALL, AttackRun::word)?,
-        None => Attack::default().run,
+        None => AttackRun::Sensitive,
     };
     let model = model(fields.get("model"))?;
     let test = match fields.get("test") {

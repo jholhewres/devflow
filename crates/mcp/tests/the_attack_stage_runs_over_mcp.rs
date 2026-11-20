@@ -52,7 +52,7 @@ fn an_item_on_a_sensitive_path_is_held_until_its_attack_ran_and_its_hole_is_shut
     std::fs::create_dir_all(root.join(".devflow")).unwrap();
     std::fs::write(
         root.join(".devflow/devflow.yaml"),
-        "version: 2\nenabled: true\nstages:\n  - uses: builtin/execution\n    checks:\n      - { name: unit, run: \"true\", report: none }\n  - uses: builtin/review\n    enabled: false\n  - uses: builtin/completion\n",
+        "version: 2\nenabled: true\nstages:\n  - uses: builtin/execution\n    checks:\n      - { name: unit, run: \"true\", report: none }\n  - uses: builtin/review\n    enabled: false\n  - uses: builtin/attack\n    run: sensitive\n  - uses: builtin/completion\n",
     )
     .unwrap();
     std::fs::write(root.join("README.md"), "# shop\n").unwrap();

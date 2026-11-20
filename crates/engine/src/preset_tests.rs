@@ -143,6 +143,10 @@ fn decisions_stay_off_without_a_key_or_with_the_project_opted_out() {
 fn custom_starts_from_the_defaults() {
     let mut defaults = Config::default();
     defaults.stages.plan.publish = Some(crate::config::Publish::Board);
+    // A new project attacks what a sensitive change touches; a file that
+    // names no attack stage is off.
+    assert_eq!(defaults.stages.attack.run, crate::config::AttackRun::Off);
+    defaults.stages.attack.run = crate::config::AttackRun::Sensitive;
     assert_eq!(starting(Preset::Custom, &detected()), defaults);
 }
 

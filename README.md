@@ -108,7 +108,7 @@ only one that fails there, `confirmed`, holds the work, until it is proven
 red at its base and green at HEAD.
 
 ```sh
-devflow config set stages.attack.run per-item   # sensitive (the default), per-item, release or off
+devflow config set stages.attack.run per-item   # sensitive, per-item, release or off
 devflow config set stages.attack.test 'sh scripts/run-exploit.sh'   # runs one exploit, given $DEVFLOW_EXPLOIT
 devflow config set stages.attack.budget '{"run_usd":5,"month_usd":50}'
 devflow config set security.targets '["http://localhost:8080"]'   # asks you to confirm each, on a terminal
@@ -116,9 +116,9 @@ devflow status --attack   # what the attacks cost and confirmed, and the mode th
 ```
 
 `review.attack` is the stage's older name and still reads. A devflow.yaml
-that names no attack stage has it on as `sensitive`: past a small diff, or on
-a sensitive path, the gate waits for it; `stages.attack.run off` is how 0.5.x
-behaved. An attack reaches only the project's own instances you confirmed
+that names no attack stage has it off, as 0.5.x did; `devflow setup` writes
+`sensitive` for a new project: past a small diff, or on a sensitive path, the
+gate waits for it. An attack reaches only the project's own instances you confirmed
 (loopback, `localhost`, `host.docker.internal`, docker service names) or a
 compose stack you confirmed, on an internal network; never a third party or
 a cloud's metadata, and it never works around a model's refusal. Each run

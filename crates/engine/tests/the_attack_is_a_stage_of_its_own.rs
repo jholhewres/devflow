@@ -22,10 +22,20 @@ fn the_attack_stage_reads_in_either_version_with_review_attack_as_its_older_name
         "version: 1\n",
         "version: 2\nstages:\n  - uses: builtin/review\n",
     ] {
+        // A file that names no attack stage runs none, as 0.5.x did.
         let config = parsed(silent);
-        assert_eq!(config.stages.attack.run, AttackRun::Sensitive, "{silent}");
-        assert!(config.stages_on().contains(&"attack"), "{silent}");
+        assert_eq!(config.stages.attack.run, AttackRun::Off, "{silent}");
+        assert!(!config.stages_on().contains(&"attack"), "{silent}");
     }
+    // Named with no `run`, it is sensitive.
+    let named = parsed(
+        "version: 2
+stages:
+  - uses: builtin/attack
+    model: large
+",
+    );
+    assert_eq!(named.stages.attack.run, AttackRun::Sensitive);
     let v1 = parsed("version: 1\nstages:\n  attack: { run: per-item, model: large }\n");
     assert_eq!(v1.stages.attack.run, AttackRun::PerItem);
     assert_eq!(
@@ -89,10 +99,12 @@ fn the_attack_is_due_by_its_run_and_the_review_reads_no_attack() {
     let due =
         |config: &Config, files: &[String], diff: &str| models::attack_on(config, files, diff);
     assert!(
-        due(&Config::default(), &sensitive, DIFF),
-        "sensitive unless said"
+        !due(&Config::default(), &sensitive, DIFF),
+        "off unless said"
     );
-    assert!(!due(&Config::default(), &small, readme));
+    let sensitive_run = with("sensitive");
+    assert!(due(&sensitive_run, &sensitive, DIFF), "sensitive when said");
+    assert!(!due(&sensitive_run, &small, readme));
     assert!(due(&with("per-item"), &small, readme));
     assert!(
         !due(&with("release"), &sensitive, DIFF),

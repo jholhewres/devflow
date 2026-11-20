@@ -735,13 +735,19 @@ pub fn not_run(report: &Value) -> Vec<(String, String)> {
             if one["status"] == "not_run" {
                 return (id, "the attack did not try it".to_owned());
             }
-            let why: String = text(&one["ran"], "reason")
-                .split_whitespace()
-                .collect::<Vec<_>>()
-                .join(" ")
-                .chars()
-                .take(200)
-                .collect();
+            // devflow's own words for why, never a reason that could carry
+            // the exploit's path or output.
+            let said = text(&one["ran"], "reason");
+            let why = if said.contains("stages.attack.test") {
+                "stages.attack.test is not set"
+            } else if said.contains("bwrap") || said.contains("docker") {
+                "no sandbox the runner has: bwrap with user namespaces, or docker with stages.attack.image"
+            } else if said.contains("stack") {
+                "a stack is reached only from the docker sandbox"
+            } else {
+                "its sandbox run did not finish"
+            }
+            .to_owned();
             (id, why)
         })
         .collect()

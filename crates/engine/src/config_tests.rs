@@ -217,9 +217,10 @@ fn the_stages_switched_on_keep_their_order() {
     let read =
         parse("version: 1\nstages:\n  context: { enabled: false }\n  review: { enabled: false }\n")
             .expect("valid");
+    // A file that names no attack stage runs none, as 0.5.x did.
     assert_eq!(
         read.stages_on(),
-        ["briefing", "plan", "execution", "attack", "completion"]
+        ["briefing", "plan", "execution", "completion"]
     );
 }
 

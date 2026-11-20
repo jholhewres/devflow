@@ -31,8 +31,9 @@ Worth knowing before you run it, and worth keeping in mind when reviewing:
   diff.
 - It **posts to a pull request** only after the person said yes to that exact
   draft.
-- With the attack stage on (`stages.attack.run`, `sensitive` unless said;
-  `review.attack` is its older name), an attacker **tries to exploit the
+- With the attack stage on (`stages.attack.run`: off when devflow.yaml names
+  no attack stage, `sensitive` when `devflow setup` wrote it; `review.attack`
+  is its older name), an attacker **tries to exploit the
   change**: it reads the checkout and writes exploit tests, which devflow
   runs in a sandbox (below) or the session runs, and they may send requests
   to the targets in force, `DEVFLOW_SECURITY_TARGETS`. A target is in force only when

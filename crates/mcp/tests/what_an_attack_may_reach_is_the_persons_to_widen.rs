@@ -66,7 +66,13 @@ fn what_an_attack_may_reach_is_the_persons_to_widen() {
         "{said}"
     );
     let yaml = root.join(".devflow/devflow.yaml");
-    assert!(!std::fs::read_to_string(&yaml).unwrap().contains("security"));
+    assert!(
+        !std::fs::read_to_string(&yaml)
+            .unwrap()
+            .lines()
+            .any(|line| line.starts_with("security:")),
+        "no security section written"
+    );
 
     // An agent's hand edit lists them; none is in force until confirmed.
     let text = std::fs::read_to_string(&yaml).unwrap();

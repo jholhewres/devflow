@@ -320,7 +320,8 @@ fn a_release_range_fails_on_a_confirmed_exploit_in_block_on() {
         not_run(&report),
         [(
             "h2".to_owned(),
-            "bwrap is not installed: the session runs it".to_owned()
+            "no sandbox the runner has: bwrap with user namespaces, or docker with stages.attack.image"
+                .to_owned()
         )]
     );
     let said = junit(&report, &block_on);
@@ -368,4 +369,21 @@ fn a_hypothesis_the_attack_did_not_try_is_skipped_and_warned_of() {
     let said = junit(&report, &[crate::config::Severity::High]);
     assert!(said.contains("skipped=\"1\""), "{said}");
     assert!(said.contains("the attack did not try it"), "{said}");
+}
+
+/// Why nothing ran is said in devflow's words: a reason that names the
+/// exploit's path or output never reaches the CI's log.
+#[test]
+fn why_a_hypothesis_was_not_run_is_said_in_devflows_words() {
+    let mut report = report();
+    report["hypotheses"][1]["status"] = json!("tried");
+    report["hypotheses"][1]["ran"] = json!({ "result": "not_run", "reason": "spawn failed: tests/10.0.0.5-admin.exploit.sh: no such file" });
+    assert_eq!(
+        not_run(&report),
+        [("h2".to_owned(), "its sandbox run did not finish".to_owned())]
+    );
+    report["hypotheses"][1]["ran"]["reason"] = json!(
+        "stages.attack.test is not set, the command that runs one exploit: the session runs it"
+    );
+    assert_eq!(not_run(&report)[0].1, "stages.attack.test is not set");
 }

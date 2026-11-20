@@ -365,6 +365,13 @@ HEAD. The details, and how to read the report: [security.md](security.md).
   `model`, `test`, `sandbox` (`auto`, `bwrap`, `docker`, `off`), `image`,
   `budget` (`run_usd`, `month_usd`), `regression`, `attackers` (four at
   most) and `concurrency`. `review.attack` still reads, as its older name.
+  A devflow.yaml that names no attack stage has it off, as 0.5.x did, so no
+  project starts paying for attacks on an update; `devflow setup` writes
+  `sensitive` for a new one, and a stage named with no `run` is
+  `sensitive`.
+- `devflow attack --range A..B` attacks a release range headless for CI: it
+  writes SARIF and JUnit, exits 1 on a confirmed exploit in `block_on` and 2
+  when it could not run, and warns of each hypothesis nothing ran.
 - The gate holds an item whose attack is due and has not run, an attack
   that failed, a per-item attack older than the last change, and a
   hypothesis the sandbox confirmed in `block_on` without its proof.
@@ -408,6 +415,9 @@ HEAD. The details, and how to read the report: [security.md](security.md).
   `verified`), `criteria::Unread` (`empty`) and `sarif::ToolFinding`
   (`package`, `fix`). `config::Report` has `npm-audit` and `govulncheck`
   words: a host that matches it exhaustively adds their arms.
+- `config::Attack::default()` is `run: off`, and `Config::to_json` leaves
+  an attack at its default out, as the file does; `preset::starting` sets
+  `sensitive`.
 - New modules: `attack`, `attack_report`, `attack_metrics`, `payloads`, `sandbox`,
   `stack`, `vault`, `workspace`. `Ask`, `runner::Context`,
   `evidence::{Ran, Evidence, Given}`, `review::Given` and `gate::Looked`

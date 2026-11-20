@@ -68,10 +68,10 @@ sandbox: one that fails there is `confirmed`, one that passes is `refuted`.
 
   | Value | Runs |
   |---|---|
-  | `sensitive` | the default: after a review whose diff `review.scale` does not call small (past `small_lines`, or touching a sensitive path) |
+  | `sensitive` | after a review whose diff `review.scale` does not call small (past `small_lines`, or touching a sensitive path); what `devflow setup` writes for a new project, and a stage named with no `run` |
   | `per-item` | after every review, and again after each change |
   | `release` | only when asked by name, once for a release |
-  | `off` | never |
+  | `off` | never; what a devflow.yaml that names no attack stage has, as 0.5.x did |
 
 - **Model:** `large` unless `stages.attack.model` says another tier or a
   model id, on the first reviewer's CLI. `stages.attack.attackers` declares
@@ -106,7 +106,7 @@ stages:
 
 ```sh
 devflow config set stages.attack.run per-item
-devflow config set stages.attack.run off   # as 0.5.x did when review.attack was unset
+devflow config set stages.attack.run off   # as a file that names no attack stage has it
 ```
 
 ### Targets: what an attack may reach

@@ -44,6 +44,12 @@ stages:
         report: none
   - uses: builtin/review
     enabled: true
+  - uses: builtin/attack
+    # The attack: devflow-security tries to exploit the change, and only a
+    # finding an exploit test confirmed holds the item. off, sensitive (a
+    # diff past small or on a sensitive path), per-item, or release (asked
+    # by name).
+    run: sensitive
   - uses: builtin/completion
     enabled: true
     gate: devflow-done

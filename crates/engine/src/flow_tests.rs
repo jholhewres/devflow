@@ -33,10 +33,10 @@ fn version_two_lists_own_stages_beside_the_built_in_ones() {
             "pr"
         ]
     );
-    // Left out of the list is off.
+    // Left out of the list is off, the attack included.
     assert_eq!(
         config.stages_on(),
-        ["context", "plan", "execution", "review", "attack"]
+        ["context", "plan", "execution", "review"]
     );
     assert!(!config.stages.briefing.enabled && !config.stages.completion.enabled);
     assert_eq!(config.publish(), Publish::Board);
@@ -58,7 +58,7 @@ fn version_one_is_still_read_and_stays_version_one() {
     let config = parse("version: 1\nstages:\n  plan:\n    approve: none\n").expect("v1 reads");
     assert_eq!(config.version, V1);
     assert_eq!(config.stages.plan.approve, Approve::Nobody);
-    assert_eq!(config.stages_on().len(), 7);
+    assert_eq!(config.stages_on().len(), 6, "every stage but the attack");
     assert!(render(&config).contains("  plan:\n    enabled: true\n    approve: none\n"));
     // A list, `extends` or `locked` in a version 1 file is a hand edit to fix.
     let list = parse("version: 1\nstages:\n  - uses: builtin/plan\n").expect_err("v1 has no list");

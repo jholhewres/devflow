@@ -110,7 +110,7 @@ e só um que falha ali, `confirmed`, segura o trabalho, até ser provado
 vermelho na base e verde no HEAD.
 
 ```sh
-devflow config set stages.attack.run per-item   # sensitive (o padrão), per-item, release ou off
+devflow config set stages.attack.run per-item   # sensitive, per-item, release ou off
 devflow config set stages.attack.test 'sh scripts/run-exploit.sh'   # roda um exploit, dado $DEVFLOW_EXPLOIT
 devflow config set stages.attack.budget '{"run_usd":5,"month_usd":50}'
 devflow config set security.targets '["http://localhost:8080"]'   # pede confirmação de cada alvo, no terminal
@@ -118,9 +118,9 @@ devflow status --attack   # quanto os ataques custaram e confirmaram, e o modo q
 ```
 
 `review.attack` é o nome antigo da etapa e continua valendo. Um devflow.yaml
-que não fala da etapa de ataque a tem ligada como `sensitive`: além de um
-diff pequeno, ou num caminho sensível, o gate espera por ela;
-`stages.attack.run off` é como a 0.5.x se comportava. Um ataque só alcança as
+que não fala da etapa de ataque a tem desligada, como na 0.5.x; o `devflow
+setup` escreve `sensitive` num projeto novo: além de um diff pequeno, ou num
+caminho sensível, o gate espera por ela. Um ataque só alcança as
 instâncias do próprio projeto que você confirmou (loopback, `localhost`,
 `host.docker.internal`, nomes de serviço do docker) ou uma stack compose que
 você confirmou, numa rede interna; nunca um terceiro nem os metadados da

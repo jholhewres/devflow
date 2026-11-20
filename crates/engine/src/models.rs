@@ -86,7 +86,8 @@ pub fn analysis_on(config: &Config) -> bool {
     }
 }
 
-/// When the attack runs as devflow.yaml says: `sensitive` unless it says.
+/// When the attack runs as devflow.yaml says: `off` when it names no
+/// attack stage, `sensitive` when it names one with no `run`.
 pub fn attack_run(config: &Config) -> AttackRun {
     config.stages.attack.run
 }
