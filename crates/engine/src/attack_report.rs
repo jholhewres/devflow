@@ -418,6 +418,11 @@ pub fn markdown(report: &Value, payloads: &[String]) -> String {
             "\nThe other {} scanner findings: not reached, or not said.\n",
             rest.len()
         ));
+        if let Some(left) = report["scanner_left_out"].as_u64().filter(|left| *left > 0) {
+            out.push_str(&format!(
+                "{left} more, the least severe, were past what one attack is given.\n"
+            ));
+        }
         for one in &rest {
             out.push_str(&format!(
                 "- {} {} `{}` at {}:{}\n",

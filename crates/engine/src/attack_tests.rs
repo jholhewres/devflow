@@ -266,3 +266,20 @@ fn a_report_inside_the_checkout_never_decides_what_is_refuted() {
         );
     }
 }
+
+#[test]
+fn the_worst_scanner_findings_go_first_and_none_is_lost_without_a_word() {
+    let mut findings: Vec<Value> = (0..MOST_SCANNER)
+        .map(|at| json!({ "tool": "semgrep", "rule": format!("r{at}"), "severity": "low", "file": "a.rs", "line": 1 }))
+        .collect();
+    findings.push(json!({ "tool": "npm audit", "rule": "GHSA-x", "severity": "critical", "file": "package-lock.json", "line": 1 }));
+    let evidence = json!({ "checks": [{ "findings": findings }] });
+    let given = scanner_findings(Some(&evidence));
+    assert_eq!(given.len(), MOST_SCANNER);
+    assert_eq!(
+        given[0]["rule"], "GHSA-x",
+        "the critical one is given first"
+    );
+    assert_eq!(given[0]["id"], "s1");
+    assert_eq!(scanner_left_out(Some(&evidence)), 1);
+}

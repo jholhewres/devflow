@@ -866,11 +866,26 @@ const MOST_SCANNER: usize = 30;
 /// govulncheck), numbered `s1`, `s2`, for the attacker to say whether
 /// untrusted input reaches each.
 pub fn scanner_findings(evidence: Option<&Value>) -> Vec<Value> {
-    evidence
+    let mut found: Vec<&Value> = evidence
         .and_then(|evidence| evidence["checks"].as_array())
         .into_iter()
         .flatten()
         .flat_map(|check| check["findings"].as_array().into_iter().flatten())
+        .collect();
+    // The worst first: past the ceiling, what is left out is the least.
+    found.sort_by_key(|one| {
+        crate::config::Severity::of(one["severity"].as_str().unwrap_or_default()).map_or(
+            usize::MAX,
+            |severity| {
+                crate::config::Severity::ALL
+                    .iter()
+                    .position(|one| *one == severity)
+                    .unwrap_or(usize::MAX)
+            },
+        )
+    });
+    found
+        .into_iter()
         .take(MOST_SCANNER)
         .enumerate()
         .map(|(at, found)| {
@@ -879,6 +894,18 @@ pub fn scanner_findings(evidence: Option<&Value>) -> Vec<Value> {
                     "severity": found["severity"], "message": found["message"], "fix": found["fix"] })
         })
         .collect()
+}
+
+/// How many scanner findings were past the ceiling, so none is lost
+/// without a word.
+fn scanner_left_out(evidence: Option<&Value>) -> usize {
+    evidence
+        .and_then(|evidence| evidence["checks"].as_array())
+        .into_iter()
+        .flatten()
+        .map(|check| check["findings"].as_array().map_or(0, Vec::len))
+        .sum::<usize>()
+        .saturating_sub(MOST_SCANNER)
 }
 
 /// The attacker's word on each scanner finding, held to its shape.
@@ -1118,6 +1145,7 @@ pub fn attacked(given: &Given) -> Result<Done, String> {
         "regression": given.config.stages.attack.regression,
         "proposed_cases": cases,
         "scanner": scanner_reached(&scanner, &scanner_said),
+        "scanner_left_out": scanner_left_out(given.evidence),
         "dropped_cases": dropped_cases,
         "threat_model": threat,
         "hypotheses": hypotheses,
