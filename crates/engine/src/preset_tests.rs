@@ -218,3 +218,22 @@ fn a_path_naming_two_items_is_refused_when_read_as_when_written() {
         Ok(&json!("gpt-5"))
     );
 }
+
+/// The README's model example names the reviewer the recommended setup
+/// writes, in both languages.
+#[test]
+fn the_readme_model_example_names_the_recommended_reviewer() {
+    for readme in [
+        include_str!("../../../README.md"),
+        include_str!("../../../README.pt-BR.md"),
+    ] {
+        let line = readme
+            .lines()
+            .find(|line| line.contains("config set review.reviewers.") && line.contains(".model"))
+            .expect("the model example");
+        assert!(
+            line.contains(&format!("review.reviewers.{}.model", SECURITY)),
+            "{line}"
+        );
+    }
+}
