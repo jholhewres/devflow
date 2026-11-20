@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/assets/devflow-flow.svg" alt="briefing, context, plan, execution, review, completion; done only when checks are green after the last change, every acceptance criterion is proven and the review has no blocking findings" width="100%">
+  <img src="docs/assets/devflow-flow-attack.svg" alt="briefing, context, plan, execution, review, attack when due (exploit tests in a sandbox with no network), completion; done only when checks are green after the last change, every acceptance criterion is proven, the review has no blocking findings and no confirmed exploit is open" width="100%">
 </p>
 
 Work is done when the evidence says so, not when the agent says so: checks

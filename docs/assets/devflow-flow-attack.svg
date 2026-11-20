@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 300" width="1000" height="300" role="img" aria-labelledby="t d">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1164 300" width="1164" height="300" role="img" aria-labelledby="t d">
   <title id="t">The devflow flow</title>
-  <desc id="d">Six stages and what each hands the next: briefing writes the brief, approved by the person; context gathers the glossary and decisions; plan makes work items with acceptance criteria, approved by the person; execution builds them test first and runs the checks as evidence; review gets findings from headless reviewers; completion is the gate. Done only when checks are green after the last change, every criterion is proven and the review blocks nothing.</desc>
+  <desc id="d">Seven stages and what each hands the next: briefing writes the brief, approved by the person; context gathers the glossary and decisions; plan makes work items with acceptance criteria, approved by the person; execution builds them test first and runs the checks as evidence; review gets findings from headless reviewers; attack, when due, has an attacker try to exploit the change, with exploit tests run in a sandbox with no network and a hypothesis confirmed only when its test is red at the base and green at HEAD; completion is the gate. Done only when checks are green after the last change, every criterion is proven, nothing blocks in review and no confirmed exploit is open.</desc>
   <style>
     :root { --fg: #1f1f1f; --muted: #6b6b6b; --line: #d6d2cb; --box: #ffffff; --panel: #f6f4f0; --accent: #ec6f33; --on-accent: #ffffff; }
     @media (prefers-color-scheme: dark) {
@@ -54,19 +54,26 @@
   <text class="num" x="686" y="58">05</text><text class="stage" x="686" y="80">review</text>
   <text class="line" x="686" y="108">headless reviewers,</text><text class="line" x="686" y="126">findings by severity</text>
   <path class="arrow" d="M822 92.0h10" marker-end="url(#a)"/>
-  <rect class="hot" x="836" y="36" width="148" height="112" rx="10"/>
-  <text class="num" x="850" y="58">06</text><text class="stage" x="850" y="80">completion</text>
-  <text class="line" x="850" y="108">gate: evidence after</text><text class="line" x="850" y="126">the last change</text>
-  <rect class="panel" x="16" y="180" width="968" height="96" rx="14"/>
+  <rect class="box" x="836" y="36" width="148" height="112" rx="10" stroke-dasharray="4 4"/>
+  <text class="yes" x="910" y="26" text-anchor="middle">when due</text>
+  <text class="num" x="850" y="58">06</text><text class="stage" x="850" y="80">attack</text>
+  <text class="line" x="850" y="108">exploit tests in a</text><text class="line" x="850" y="126">sandbox, no network</text>
+  <path class="arrow" d="M986 92.0h10" marker-end="url(#a)"/>
+  <rect class="hot" x="1000" y="36" width="148" height="112" rx="10"/>
+  <text class="num" x="1014" y="58">07</text><text class="stage" x="1014" y="80">completion</text>
+  <text class="line" x="1014" y="108">gate: evidence after</text><text class="line" x="1014" y="126">the last change</text>
+  <rect class="panel" x="16" y="180" width="1132" height="96" rx="14"/>
   <text class="muted" x="40" y="208">done only when the evidence proves it</text>
   <circle cx="50" cy="242" r="10" class="acc"/><path class="tick" d="M45 242l3.5 3.5 6.5-7"/>
   <text class="item" x="68" y="247">checks green after the last change</text>
   <circle cx="326" cy="242" r="10" class="acc"/><path class="tick" d="M321 242l3.5 3.5 6.5-7"/>
   <text class="item" x="344" y="247">every criterion proven</text>
-  <circle cx="546" cy="242" r="10" class="acc"/><path class="tick" d="M541 242l3.5 3.5 6.5-7"/>
-  <text class="item" x="564" y="247">nothing blocking in review</text>
-  <path class="acc" d="M910.0 148v32" stroke-dasharray="4 4"/>
-  <rect class="done" x="810" y="216" width="150" height="50" rx="25"/>
-  <path class="done-tick" d="M848 241l7 7 13-14"/>
-  <text class="done-text" x="878" y="247">done</text>
+  <circle cx="524" cy="242" r="10" class="acc"/><path class="tick" d="M519 242l3.5 3.5 6.5-7"/>
+  <text class="item" x="542" y="247">nothing blocking in review</text>
+  <circle cx="754" cy="242" r="10" class="acc"/><path class="tick" d="M749 242l3.5 3.5 6.5-7"/>
+  <text class="item" x="772" y="247">no confirmed exploit open</text>
+  <path class="acc" d="M1074.0 148v32" stroke-dasharray="4 4"/>
+  <rect class="done" x="982" y="216" width="150" height="50" rx="25"/>
+  <path class="done-tick" d="M1020 241l7 7 13-14"/>
+  <text class="done-text" x="1050" y="247">done</text>
 </svg>

@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/assets/devflow-flow.svg" alt="briefing, contexto, plano, execução, revisão, conclusão; pronto só quando as checagens passam depois da última mudança, todo critério de aceite está provado e a revisão não tem achados bloqueantes" width="100%">
+  <img src="docs/assets/devflow-flow-attack.svg" alt="briefing, contexto, plano, execução, revisão, ataque quando devido (testes de exploit num sandbox sem rede), conclusão; pronto só quando as checagens passam depois da última mudança, todo critério de aceite está provado, a revisão não tem achados bloqueantes e nenhum exploit confirmado está aberto" width="100%">
 </p>
 
 O trabalho está pronto quando a evidência diz, não quando o agente diz:
