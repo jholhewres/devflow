@@ -25,7 +25,9 @@ tool's answer says what comes next. Without the Stop hook the gate still holds
 
 1. `devflow setup` in the project (or ask the agent: it calls `status`, then
    `setup`, and writes only after your yes). Switching devflow on is yours:
-   `devflow config set enabled true`, on a terminal.
+   `devflow config set enabled true`, on a terminal, or your yes when the
+   `attack` tool asks you through a client with MCP elicitation, which sets
+   the attack up in the same question.
 2. Ask for the work: the agent briefs it (`brief`, an epic in
    `.devflow/work/`), gathers context, and plans it (`plan`) into items, each
    with its acceptance criteria — made after your yes.

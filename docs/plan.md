@@ -400,6 +400,19 @@ HEAD. The details, and how to read the report: [security.md](security.md).
   host and userinfo; in backticks a relative path (`./main.rs`) or a call
   (`subprocess.call()`) is code, not a host. The README's flow shows the
   attack stage.
+- 0.6.2: the `attack` tool asks the person one question through the client
+  (MCP `elicitation/create`) for what only they give: devflow switched on
+  (the recommended setup written where there is none, the attack stage on
+  for attacks asked by name), the exploit test command found from the
+  project's runner (`detect::exploit_test`), the sandbox, a budget, and
+  `security.targets` with what they resolve to. Their yes is applied in
+  place and the attack runs in the same call; their no writes nothing. Only
+  the client's reply to that question, or a terminal, consents; each yes is
+  kept in `consent.json` with how it came, when and what for. A client that
+  cannot ask gets one command, `devflow setup --attack`. A range's run
+  takes the session's `verified` and `prove`, recorded in the project's
+  ledger (`attack::verified_into`, `attack::prove_into`), never from the
+  checkout, and `doctor` tells devpit's `enabled` from devflow's own switch.
 
 **What a host sees change**
 
@@ -430,6 +443,14 @@ HEAD. The details, and how to read the report: [security.md](security.md).
   `stack`, `vault`, `workspace`. `Ask`, `runner::Context`,
   `evidence::{Ran, Evidence, Given}`, `review::Given` and `gate::Looked`
   are as they were.
+- 0.6.2 only adds to the engine: `detect::{ExploitTest, exploit_test}`,
+  `attack::verified_into`, `attack::prove_into` and `sandbox::image_named`.
+  `attack::verified`, `attack::prove` and `attack::Proving` are as they
+  were. `stages.attack.image` now reads only as a docker image's name
+  (letters, digits and `. _ / : @ -`): one that read as a flag of
+  `docker run` makes the file invalid. The question
+  lives in the MCP server (`ready`, `person`); a host keeps its own switches
+  and asks its own way.
 
 ## Release
 

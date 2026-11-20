@@ -114,6 +114,59 @@ devflow config set stages.attack.run per-item
 devflow config set stages.attack.run off   # as a file that names no attack stage has it
 ```
 
+### Asked once, by the attack itself
+
+No terminal command is needed to start attacking. When the agent calls the
+`attack` tool and something only the person gives is missing, devflow asks
+the person **one** question through the client (MCP's
+`elicitation/create`), with what it found already filled in:
+
+| Field | Starts at |
+|---|---|
+| Switch devflow on here | yes (also writes the recommended setup when there is no devflow.yaml, and `run: release` when the attack stage is off) |
+| Exploit test command | the project's runner: `npx jest "$DEVFLOW_EXPLOIT"`, `vitest run`, `cargo test --test`, `go test -run`, `pytest`, `phpunit`, `pest` |
+| Sandbox | `auto`, which says what it finds here (bwrap or docker) |
+| Docker image | the runner's (`node:22`, `rust:1`, `golang:1`, `python:3`, `php:8`), when docker is here |
+| Budget per attack / per month | US$ 5 / US$ 50 |
+| Allow these targets | no, with what each listed target resolves to |
+
+On a yes devflow edits devflow.yaml in place, keeping what devpit or the
+person wrote and their comments, switches itself on for the project on this
+machine, and runs the attack in the same call. A no, or a dismissed
+question, writes nothing and the attack does not run. Once answered, a
+field left empty is not asked again through the client; a new target list
+is.
+
+Only the person consents:
+
+- Only the client's reply to the question devflow sent counts. A tool's
+  arguments, an environment variable, the model's text and a reply devflow
+  never asked for are never read as a yes. Each question goes out under an
+  id no one can know before it is sent, so a reply written ahead answers
+  nothing.
+- A no stands for five minutes in the session: the agent cannot ask again
+  and again until the person gives in.
+- The answer travels on the client's line to devflow, as a terminal's yes
+  travels on its keyboard. An agent with an unrestricted shell could start
+  `devflow mcp` itself and answer its own question, as it could drive
+  `devflow config set` through a pseudo-terminal: devflow cannot tell a
+  person from a program that speaks for them. Keep such an agent's shell
+  sandboxed, or have the agent ask before it runs devflow by hand.
+- Each yes is kept in `consent.json` with how it came (`elicitation` or
+  `terminal`), when, and what it was asked for; `status` shows them.
+- Where the client cannot ask, the attack answers with one command for the
+  person, which does the same on a terminal with one yes (and a second for
+  targets):
+
+```sh
+devflow setup --attack                       # what was found, shown, one yes
+devflow setup --attack --test 'sh scripts/run-exploit.sh' --month-usd 20
+```
+
+devpit's `enabled: true` is devpit's own switch, written by the person's
+click in its app; devflow keeps its own switch for the project on this
+machine, and `devflow doctor` says which one is off.
+
 ### Targets: what an attack may reach
 
 By default an attack reaches nothing but the checkout: its own tests and a
@@ -127,10 +180,12 @@ devflow config set security.targets '["http://localhost:8080"]'
 - Only loopback, `localhost`, `host.docker.internal` and a docker service's
   one-label name are accepted. Every address a name resolves to must be this
   machine's or a private network's; a cloud's metadata address never is.
-- A target is in force only after the person confirmed it **on a terminal**
-  with `devflow config set security.targets`. The MCP `set` and `setup` tools
-  refuse any `security` path, and a devflow.yaml an agent edited is not the
-  person's yes.
+- A target is in force only after the person confirmed it: **on a
+  terminal** with `devflow config set security.targets` (or `devflow setup
+  --attack`), or by ticking it in the question the attack asks them through
+  the client, which shows the same addresses. The MCP `set` and `setup`
+  tools refuse any `security` path, and a devflow.yaml an agent edited is
+  not the person's yes.
 - The addresses a name resolves to when the person confirms it are kept with
   the yes (`consent.json`). A later answer of the resolver that leads
   anywhere else takes the target out of force, as does a name confirmed
