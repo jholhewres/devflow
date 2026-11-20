@@ -1346,7 +1346,6 @@ pub fn attacked(given: &Given) -> Result<Done, String> {
         "item": given.card.id,
         "base": given.git.base,
         "head": given.git.head,
-        "symbols": crate::attack_report::symbols_in(&(given.redact)(given.git.diff)),
         "mode": if given.retro { "retro" } else { "item" },
         "run": stamp,
         "run_on": models::attack_run(given.config).word(),

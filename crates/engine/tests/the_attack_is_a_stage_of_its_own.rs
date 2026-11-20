@@ -1518,15 +1518,20 @@ fn an_attack_on_a_flow_reads_both_sides_and_names_each_sides_fix() {
         .collect();
     assert_eq!(repos, ["api", "worker"], "each side, and only the flow's");
     assert_eq!(done.report["flow"]["name"], "jobs");
-    let markdown = devflow_engine::attack_report::markdown(&done.report, &Default::default());
+    assert_eq!(
+        done.report["in_repo"],
+        json!(["src/publish.ts"]),
+        "the paths devflow found in the checkout"
+    );
+    let known = devflow_engine::attack_report::Known::of(&done.report);
+    assert!(known.files.contains("src/publish.ts"));
+    let markdown = devflow_engine::attack_report::markdown(&done.report, &known);
     assert!(
         markdown.contains("## Fixes on each side of the flow"),
         "{markdown}"
     );
-    assert!(
-        markdown.contains(
-            "api: send the upload's id, never a path; worker: read only under the jobs folder"
-        ),
-        "{markdown}"
-    );
+    // The report names the repositories each fix touches; the fixes, the
+    // attack's own words, stay in attack.json.
+    assert!(markdown.contains("- h1: api, worker\n"), "{markdown}");
+    assert!(!markdown.contains("send the upload's id"), "{markdown}");
 }

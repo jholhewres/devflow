@@ -204,38 +204,22 @@ Each attack run writes its report beside `attack.json`: markdown
 --report <run> --format md|json|sarif` prints one. devflow publishes none of
 them: they are the host's to show and to send where the person says.
 
-What they carry is held to an allowlist, not filtered for what to take
-out:
+They are what a person shares, so they carry none of the attack's own
+words. Each holds only what devflow sets, each field in its own shape: the
+status, severity and class from their own words (a class devflow does not
+name is `other`), the id, the file as a repository path, the line, the run,
+the proof's commits and results, and who confirmed it (devflow's sandbox or
+the session). A field the attack wrote in any other shape shows as `<…>`.
+What a class of hole lets an attacker do, and what shuts it, is said in
+devflow's words for that class. A scanner finding keeps its tool's names
+and the tool's own fix in plain words; a flow's fixes name only the
+repositories they touch.
 
-- The fields devflow sets are shown only as devflow would set them: the
-  severity and status from their own words, the class and id as one plain
-  word, the file as a relative repository path, the line, the run, the
-  proof's commits and results, and who confirmed it (devflow's sandbox or
-  the session). A field that came in any other shape shows as `<…>`.
-- The model's prose (title, reason, impact, fix, the proof's reasons, a
-  scanner finding's path) keeps only plain words, numbers (`42`, `1.5`,
-  `2.1.0`), sentence punctuation, and the symbols the item's own diff names
-  (`fetch_url`): identifiers outside its strings and URLs, made of words as
-  code names things, never what a secret's name is set to. Every other
-  word is `<…>`: code, a URL, a path, a query, an escape, an address,
-  markup, a long run of letters and digits, a phone number.
-- A value is left out after its name: the word after `X-API-Key:`,
-  `password=` or `Bearer`, and the first word past "is", "was", "the" and
-  their like after a password's or a token's name (`password admin123`,
-  `the token is letmein`). Prose that only names one ("the session cookie
-  is set without HttpOnly") keeps its words, but a word right after
-  `password` that is not its value (`password reset`) is left out too.
-- Every string the exploits send is taken out, in any case, across lines
-  (a template literal, a triple-quoted string, a heredoc) and when only
-  four of its words in a row are quoted, so a payload never reaches a
-  draft.
-- A file devflow found in the checkout keeps its path as it is; any other
-  keeps it when it reads as a relative path in letters of any language.
-
-The cost: a title or a fix loses inline code, and a hole is named by its
-file, line and symbol. A secret written as a bare word of prose, with no
-name, syntax or shape around it, reads as prose: keep secrets out of the
-attack's reach in the first place.
+So no payload, secret, address or exploit code reaches a report or a
+draft, whatever shape the attack gave it. The attack's own account (its
+title, reasons, impact, fix and call paths) stays in the run's
+`attack.json`, for the person to read and to put into the issue in their
+own words.
 
 ## In CI
 

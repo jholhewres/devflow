@@ -369,8 +369,9 @@ HEAD. The details, and how to read the report: [security.md](security.md).
   that failed, a per-item attack older than the last change, and a
   hypothesis the sandbox confirmed in `block_on` without its proof.
 - Each run writes `attack.json` and its report as markdown, JSON and SARIF
-  2.1.0, with an issue draft per confirmed hypothesis, held to an allowlist
-  (`attack_report`). devflow publishes none of it.
+  2.1.0, with an issue draft per confirmed hypothesis. The report and the
+  drafts carry only what devflow sets and devflow's words for each class of
+  hole, never the attack's (`attack_report`). devflow publishes none of it.
 - A threat model and the security persona's overlay feed the attack; a
   hypothesis refuted before is not tried again while its control is
   unchanged. Scanner findings become hypotheses the attack calls reachable
