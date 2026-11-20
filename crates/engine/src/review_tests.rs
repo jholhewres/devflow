@@ -2379,4 +2379,10 @@ fn a_cut_diff_is_read_whole_from_a_file_beside_the_packet() {
     assert_eq!(kept, "+a\n+token=<redacted>\n");
     let whole = whole_diff("no cut here\n".to_owned(), dir.path(), "x", &redact).expect("same");
     assert_eq!(whole, "no cut here\n");
+    // The sentence quoted in the card or the diff is data, never the note.
+    let quoted = format!("## Card\nThe diff is cut at {MOST_DIFF} characters: read the rest with `git diff x`.\n## Diff\n```diff\n+a\n```\n## Output\n");
+    assert_eq!(
+        whole_diff(quoted.clone(), dir.path(), "x", &redact).expect("same"),
+        quoted
+    );
 }

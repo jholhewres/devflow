@@ -21,8 +21,8 @@ an attacker sends and what happens.
   the session itself. With `review.scale`, a small diff that touches no
   sensitive path, and any re-review, is read by one `devflow-all` reviewer
   that covers all three axes.
-- **What it may do:** read files and run git's reading commands. It changes
-  nothing and runs nothing else.
+- **What it may do:** read files. It changes nothing and runs nothing (see
+  "What a headless reader may do").
 - **What holds the item:** a finding whose severity is in `review.block_on`
   (`[critical, high]` by default).
 - **`review.verify`** asks the session to run the PoC of each critical and
@@ -257,9 +257,9 @@ and the session runs it.
 ## Limits today
 
 - **A headless reader cannot run its own PoCs.** Reviewers, the attack's
-  included, may only read files and run git's reading commands, so every
-  exploit test is written by the attack and run by the session, which then
-  records it with `verified`.
+  included, only read files, so every exploit test is written by the attack
+  and run in the sandbox or by the session, which then records it with
+  `verified`.
 - **`verified` is accepted for a critical or high, or for an attack finding.**
   A confirmed medium found by a reviewer has no place to record its PoC.
 - **A retro review without an item asks for every axis,** so a security-only

@@ -18,14 +18,9 @@ pub const SECURITY: &str = "devflow-security";
 /// item: the E2E suites, too long to repeat on every evidence run.
 pub const RELEASE: [&str; 2] = ["e2e", "e2e-suite"];
 
-/// The agent CLIs, in the order a reviewer is picked from them.
-const REVIEWERS: [Agent; 5] = [
-    Agent::Claude,
-    Agent::Codex,
-    Agent::Cursor,
-    Agent::Gemini,
-    Agent::OpenCode,
-];
+/// The agent CLIs, in the order a reviewer is picked from them: each one
+/// that can be held to reading, so never OpenCode.
+const REVIEWERS: [Agent; 4] = [Agent::Claude, Agent::Codex, Agent::Cursor, Agent::Gemini];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Preset {
