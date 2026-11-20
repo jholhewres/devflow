@@ -398,10 +398,6 @@ fn answered(target: &Target, found: &[IpAddr]) -> Result<(), String> {
 const AGAIN: &str = "the person confirms it again with `devflow config set security.targets` \
      in a terminal, which shows where it resolves now";
 
-/// Whether a confirmed name leads only where it led when the person
-/// confirmed it: this machine or a private network, and none but the
-/// addresses kept with their yes (`pinned`). A later answer of the resolver
-/// cannot move it; a pin never makes a public address one.
 /// Whether the name in `url` can be confirmed with what it resolves to
 /// here (`found`): never one that resolves to more than a confirmation
 /// keeps, which no yes would put in force.
@@ -419,6 +415,10 @@ pub fn pinnable(url: &str, found: &Pins) -> Result<(), String> {
     Ok(())
 }
 
+/// Whether a confirmed name leads only where it led when the person
+/// confirmed it: this machine or a private network, and none but the
+/// addresses kept with their yes (`pinned`). A later answer of the resolver
+/// cannot move it; a pin never makes a public address one.
 pub fn pinned_to(
     target: &Target,
     found: &[IpAddr],

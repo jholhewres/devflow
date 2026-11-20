@@ -286,8 +286,10 @@ pub fn resolved(docker: &Path, root: &Path, file: &str) -> Result<(Value, String
     resolving(docker, root, file).map(|(config, digest, _)| (config, digest))
 }
 
-/// [`resolved`], with the image ids its digest covers.
+/// Each service and the image id it runs on.
 type Pins = Vec<(String, String)>;
+
+/// [`resolved`], with the image ids its digest covers.
 fn resolving(docker: &Path, root: &Path, file: &str) -> Result<(Value, String, Pins), String> {
     use sha2::{Digest, Sha256};
     let at = crate::fsguard::resolve(root, file)

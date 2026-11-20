@@ -204,8 +204,10 @@ Each attack run writes its report beside `attack.json`: markdown
 --report <run> --format md|json|sarif` prints one. devflow publishes none of
 them: they are the host's to show and to send where the person says.
 
-What a report leaves out (secrets, tokens, contact details and the strings
-the exploits send) is being settled: this section is pending.
+Every text in them goes through a scrub first: secrets, tokens, e-mail
+addresses and phone numbers are taken out, and so is every string the
+exploits send, so a payload never reaches a draft. How the scrub tells a
+secret from the rest is still being settled: this part is pending.
 
 ## In CI
 
@@ -229,7 +231,8 @@ is needed.
 
 `stages.attack.attackers` declares up to four attackers, each an `agent` and
 a `model`, to cover each other's blind spots. They run one after another
-unless `stages.attack.concurrency` says how many at once. Their hypotheses
+unless `stages.attack.concurrency` says how many at once; each has the run's
+time limit, so one after another takes up to that many times as long. Their hypotheses
 are consolidated: the same file and class within a few lines, found by two
 attackers, are one, naming every attacker that found it; one attacker's own
 hypotheses stay apart. The run's budget is shared out among them. An

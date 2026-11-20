@@ -586,13 +586,13 @@ fn each_prompt_injection_case_has_words_an_escaping_builder_keeps() {
     assert!(why.contains("words a builder keeps"), "{why}");
 }
 
-/// A file name or a qualified column is not a host, and a namespace is set
-/// aside only where a document declares it.
+/// A file in a path is not a host, though a bare name with a file's
+/// extension is; a namespace is set aside only where a document declares it.
 #[test]
 fn a_file_name_is_neutral_and_a_namespace_only_where_declared() {
     for fine in [
-        "src/main.rs and app.py",
-        "SELECT users.id FROM users",
+        "src/main.rs and lib/app.py",
+        "C:\\work\\db.id",
         "<x xmlns:xi='http://www.w3.org/2001/XInclude'/>",
         "<x xmlns = \"http://www.w3.org/2001/XInclude\"/>",
     ] {
@@ -601,6 +601,10 @@ fn a_file_name_is_neutral_and_a_namespace_only_where_declared() {
     for named in [
         "www.evil.rs",
         "evil-corp.id",
+        "evilcorp.id",
+        "main.rs",
+        "fetch //evil.rs/x",
+        "http:/evil.rs",
         "<xi:include href=\"http://www.w3.org/2001/XInclude\"/>",
         "fetch http://www.w3.org/2001/XInclude",
     ] {

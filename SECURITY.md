@@ -64,19 +64,23 @@ Worth knowing before you run it, and worth keeping in mind when reviewing:
 - It **runs exploit tests in a sandbox**, when `stages.attack.test` is set
   and bwrap or docker works here. What the sandbox enforces:
   - each exploit runs in a throwaway worktree of HEAD, dropped after it ran;
-    the checkout is out of its reach;
+    the checkout is never written;
   - no network: bwrap gives it a network namespace of its own, docker runs
     it with none, or attached only to a confirmed stack's internal network;
   - a time limit, and caps on memory and CPU: in docker per container,
-    process count included; in bwrap per process;
+    process count included; in bwrap per process, through `prlimit`;
   - in bwrap, `/run` and your home folder are hidden, apart from the
     project's dependency folders and the toolchains on your `PATH`, shown
     back read-only.
 
   What it does not enforce:
   - it runs as your own user, not a separate one;
-  - bwrap caps no process count, and its memory and CPU caps hold per
-    process, not for the exploit as a whole;
+  - in bwrap, the rest of the filesystem stays readable: everything outside
+    your home folder, `/tmp` and `/run`, the checkout included when it is
+    not under your home;
+  - bwrap caps no process count, its memory and CPU caps hold per process,
+    not for the exploit as a whole, and without `prlimit` on this machine
+    there are none;
   - the toolchains shown back are your own, as installed;
   - the docker sandbox needs access to the docker daemon, which is as good
     as root on most machines;

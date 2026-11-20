@@ -198,7 +198,7 @@ const PUBLIC: [&str; 40] = [
 const NAMESPACES: [&str; 1] = ["http://www.w3.org/2001/XInclude"];
 
 /// A source or data file's two-letter extension, read as one before a
-/// country's: `main.rs`, `users.id`.
+/// country's only in a path: `src/main.rs`, never a bare `main.rs`.
 const FILE_LABELS: [&str; 14] = [
     "rs", "py", "go", "js", "ts", "sh", "md", "rb", "pl", "cs", "kt", "id", "db", "so",
 ];
@@ -500,9 +500,25 @@ pub fn neutral(text: &str) -> Result<(), String> {
             }
         }
     }
-    let words =
-        text.split(|ch: char| !(ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '@')));
-    for word in words.filter(|word| !word.is_empty()) {
+    // Each word with where it starts, so a file in a path is told from a host.
+    let mut words: Vec<(usize, &str)> = Vec::new();
+    let mut start = None;
+    for (at, ch) in text.char_indices().chain([(text.len(), ' ')]) {
+        let kept = ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '@');
+        match (kept, start) {
+            (true, None) => start = Some(at),
+            (false, Some(from)) => {
+                words.push((from, &text[from..at]));
+                start = None;
+            }
+            _ => {}
+        }
+    }
+    for (from, word) in words {
+        let before = &text[..from];
+        let in_path = (before.ends_with('/') || before.ends_with('\\'))
+            && !before.ends_with("//")
+            && !before.ends_with(":/");
         let (who, place) = match word.split_once('@') {
             Some((who, place)) => (Some(who), place),
             None => (None, word),
@@ -519,12 +535,8 @@ pub fn neutral(text: &str) -> Result<(), String> {
             .next()
             .unwrap_or_default()
             .to_ascii_lowercase();
-        let file = place.matches('.').count() == 1
-            && FILE_LABELS.contains(&last.as_str())
-            && place.split('.').next().is_some_and(|name| {
-                name.chars()
-                    .all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
-            });
+        let file =
+            in_path && place.matches('.').count() == 1 && FILE_LABELS.contains(&last.as_str());
         let country = !file && last.len() == 2 && last.chars().all(|ch| ch.is_ascii_alphabetic());
         if country || PUBLIC.contains(&last.as_str()) {
             return Err(format!("`{place}` names a real host"));
