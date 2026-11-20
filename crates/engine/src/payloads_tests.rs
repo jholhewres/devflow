@@ -755,3 +755,19 @@ fn each_readings_case_needs_its_reading() {
         );
     }
 }
+
+/// A path in code that starts with a special scheme's name (`http::Request`)
+/// is no URL with no slashes: it names no host.
+#[test]
+fn a_code_path_named_like_a_scheme_is_no_url() {
+    for code in [
+        "build it with http::Request::new()",
+        "use `http::Request::new()` here",
+        "the ftp:: module",
+        "say http: then stop",
+    ] {
+        assert_eq!(neutral(code), Ok(()), "{code}");
+    }
+    assert!(neutral("http:1572395042:1/").is_err());
+    assert!(neutral("HTTPS:[::ffff:93.184.216.34]/").is_err());
+}

@@ -421,7 +421,11 @@ fn urls(text: &str) -> Vec<(String, Option<String>, Option<String>)> {
         let special = ["http", "https", "ws", "wss", "ftp"]
             .iter()
             .any(|one| scheme.eq_ignore_ascii_case(one));
-        if !after.starts_with(['/', '\\']) && !special {
+        let slashed = after.starts_with(['/', '\\']);
+        // With no slash, a host starts right after the colon; `http::Request`
+        // is a path in code, not a URL.
+        let hosted = after.starts_with(|ch: char| ch.is_alphanumeric() || matches!(ch, '[' | '%'));
+        if !slashed && (!special || !hosted) {
             continue;
         }
         let start = if scheme.eq_ignore_ascii_case("file") {
