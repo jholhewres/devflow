@@ -81,7 +81,7 @@ impl Known {
 
 /// The classes a hole is named by: each with what an attacker gets and
 /// what shuts it, in devflow's words. Any other class is `other`.
-const CLASSES: [(&str, &str, &str); 12] = [
+const CLASSES: [(&str, &str, &str); 17] = [
     (
         "ssrf",
         "The server sends requests to a destination an attacker chooses: internal services, a cloud's metadata or any host it reaches.",
@@ -103,6 +103,26 @@ const CLASSES: [(&str, &str, &str); 12] = [
         "Take only the plain values a query expects from input, and refuse operators in them.",
     ),
     (
+        "command-injection",
+        "Input reaches a shell or a program's arguments as code: an attacker runs commands on the server.",
+        "Run the program with its arguments as a list, never through a shell, and check each against what it may be.",
+    ),
+    (
+        "xss",
+        "Input is written into a page as markup or script: an attacker runs script in another user's session.",
+        "Escape output for where it is written, and keep a content security policy that refuses inline script.",
+    ),
+    (
+        "csrf",
+        "A request another site makes with the user's session is taken as theirs: an attacker acts in their name.",
+        "Require a token or a same-site cookie that another site cannot send, on every request that changes state.",
+    ),
+    (
+        "open-redirect",
+        "A redirect goes to a destination input chooses: an attacker sends users to their own site under this one's name.",
+        "Redirect only to paths of this site, or to destinations on a list.",
+    ),
+    (
         "traversal",
         "A path from input leaves the folder it should stay in: an attacker reads or writes other files.",
         "Resolve the path, links included, and check it stays under its root before opening it.",
@@ -111,6 +131,11 @@ const CLASSES: [(&str, &str, &str); 12] = [
         "redos",
         "Input makes a pattern's matching take time that grows without bound: one request ties the service up.",
         "Bound the input's size, and use a pattern or an engine whose matching is linear.",
+    ),
+    (
+        "authn",
+        "Someone is taken for who they are not: an attacker signs in or keeps a session without the right proof.",
+        "Check every proof of identity on the server, its signature, expiry and revocation, on every path that trusts it.",
     ),
     (
         "authz",
@@ -139,14 +164,41 @@ const CLASSES: [(&str, &str, &str); 12] = [
     ),
     (
         "other",
-        "The attack confirmed this hole with an exploit test.",
+        "The attack confirmed this hole with an exploit test: what it lets an attacker do is in the run's attack.json.",
         "The attack's proposed fix is in the run's attack.json.",
     ),
 ];
 
+/// Other names a class is said by.
+const ALSO: [(&str, &str); 14] = [
+    ("path-traversal", "traversal"),
+    ("directory-traversal", "traversal"),
+    ("lfi", "traversal"),
+    ("sql-injection", "sqli"),
+    ("nosql-injection", "nosqli"),
+    ("command", "command-injection"),
+    ("rce", "command-injection"),
+    ("ssti", "injection"),
+    ("idor", "authz"),
+    ("access-control", "authz"),
+    ("authentication", "authn"),
+    ("redirect", "open-redirect"),
+    ("secret", "secrets"),
+    ("cross-site-scripting", "xss"),
+];
+
 /// A hypothesis' class as devflow names it.
 fn class_of(value: &Value) -> &'static str {
-    let said = value.as_str().unwrap_or_default().to_ascii_lowercase();
+    let said = value
+        .as_str()
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase()
+        .replace(['_', ' '], "-");
+    let said = ALSO
+        .iter()
+        .find(|(also, _)| *also == said)
+        .map_or(said.as_str(), |(_, class)| *class);
     CLASSES
         .iter()
         .map(|(name, _, _)| *name)
@@ -325,25 +377,24 @@ fn tool_name(value: &Value) -> Value {
     }
 }
 
-/// A repository path: relative, with no `..`, nothing that ends a cell or a
-/// code span, and no part shaped like a secret; one devflow found in the
-/// checkout in any characters a file is named with, any other in letters,
-/// digits and the marks paths use.
+/// A repository path, only one devflow found in the checkout when the
+/// attack ran: what the attack names that is not there is its own word,
+/// and may be anything. Found or not, it is relative, with no `..`, nothing
+/// that ends a cell or a code span, and no part shaped like a secret.
 fn repo_path(value: &Value, known: &Known) -> Value {
     let Some(file) = value.as_str() else {
         return Value::Null;
     };
     let inert = |ch: char| !(ch.is_control() || matches!(ch, '`' | '|' | '\\' | '<' | '>'));
-    let named = |ch: char| ch.is_alphanumeric() || "._-/[]()@+~,$".contains(ch);
-    let found = known.files.contains(file) && file.chars().all(inert);
-    let shaped = (1..=240).contains(&file.len())
+    let shown = known.files.contains(file)
+        && (1..=240).contains(&file.len())
         && !file.starts_with('/')
         && !file.contains("://")
-        && (found || file.chars().all(named))
+        && file.chars().all(inert)
         && file
             .split('/')
             .all(|part| !matches!(part, "" | "." | "..") && !secret_shaped(part));
-    if shaped {
+    if shown {
         json!(file)
     } else {
         Value::Null

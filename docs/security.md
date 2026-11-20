@@ -207,7 +207,8 @@ them: they are the host's to show and to send where the person says.
 They are what a person shares, so they carry none of the attack's own
 words. Each holds only what devflow sets, each field in its own shape: the
 status, severity and class from their own words (a class devflow does not
-name is `other`), the id, the file as a repository path, the line, the run,
+name is `other`), the id, the file when devflow found it in the checkout
+(what the attack names that is not there shows as `<…>`), the line, the run,
 the proof's commits and results, and who confirmed it (devflow's sandbox or
 the session). A field the attack wrote in any other shape shows as `<…>`.
 What a class of hole lets an attacker do, and what shuts it, is said in

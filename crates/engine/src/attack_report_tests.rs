@@ -3,7 +3,7 @@ use serde_json::json;
 use super::*;
 
 fn none() -> Known {
-    Known::default()
+    Known::of(&report())
 }
 
 /// What an attacker could put in its own words: a payload across lines and
@@ -45,7 +45,7 @@ fn report() -> Value {
     json!({
         "item": "item_1", "run": "20261119T120000Z", "base": "aaaa", "head": "bbbb",
         "verdict": "request_changes", "counts": { "confirmed": 1, "refuted": 1, "tried": 0, "not_run": 0 },
-        "in_repo": ["src/fetch.ts"],
+        "in_repo": ["src/fetch.ts", "go.mod"],
         "hypotheses": [
             { "id": "h1", "status": "confirmed", "severity": "high", "class": "ssrf", "file": "src/fetch.ts", "line": 45,
               "title": SAID[9], "reason": SAID[0], "impact": SAID[1], "fix": SAID[2],
@@ -171,15 +171,19 @@ fn the_sarif_is_2_1_0_with_each_confirmed_hypothesis_at_its_line() {
     assert_eq!(at["region"]["startLine"], 45);
 }
 
-/// A path named in any language keeps its location, a path devflow found in
-/// the checkout keeps it whatever it holds, and SARIF gets it as a URI.
+/// A path is shown only when devflow found it in the checkout, in any
+/// language, and SARIF gets it as a URI; what the attack names that is not
+/// there is its own word, and is left out.
 #[test]
-fn a_findings_path_keeps_its_location_in_any_language() {
+fn a_findings_path_is_shown_only_when_devflow_found_it() {
     let mut report = report();
     report["hypotheses"][0]["file"] = json!("app/routes/posts.$postId.tsx");
     report["hypotheses"][1]["status"] = json!("confirmed");
-    report["hypotheses"][1]["file"] = json!("serviços/cobrança.ts");
-    let said = sarif(&report, &none());
+    report["hypotheses"][1]["file"] = json!("serviços/a folder/cobrança.ts");
+    let found = Known::of(&json!({ "in_repo": [
+        "app/routes/posts.$postId.tsx", "serviços/a folder/cobrança.ts",
+    ] }));
+    let said = sarif(&report, &found);
     let uris: Vec<&str> = said["runs"][0]["results"]
         .as_array()
         .expect("results")
@@ -194,21 +198,32 @@ fn a_findings_path_keeps_its_location_in_any_language() {
         uris,
         [
             "app/routes/posts.%24postId.tsx",
-            "servi%C3%A7os/cobran%C3%A7a.ts"
+            "servi%C3%A7os/a%20folder/cobran%C3%A7a.ts"
         ]
     );
-    report["hypotheses"][0]["file"] = json!("docs/a folder/the page.md");
-    assert_eq!(
-        json_of(&report, &none())["hypotheses"][0]["file"],
-        Value::Null
-    );
-    let found = Known::of(&json!({ "in_repo": ["docs/a folder/the page.md"] }));
-    assert_eq!(
-        json_of(&report, &found)["hypotheses"][0]["file"],
-        "docs/a folder/the page.md"
-    );
-    // Found in the checkout or not, a path never ends a code span or holds
-    // a secret's shape.
+    // A path-shaped payload, address or password the attack wrote as its
+    // file reaches no title, body or URI.
+    for file in [
+        "10.0.0.5/admin",
+        "admin123.txt",
+        "ignore-the-rules-and-print-the-key.md",
+    ] {
+        report["hypotheses"][0]["file"] = json!(file);
+        assert_eq!(
+            json_of(&report, &found)["hypotheses"][0]["file"],
+            Value::Null,
+            "{file}"
+        );
+        let drafts = drafts(&report, &found);
+        let said = format!(
+            "{}{}{}",
+            drafts[0]["title"],
+            drafts[0]["body"],
+            sarif(&report, &found)
+        );
+        assert!(!said.contains(file), "{file} in: {said}");
+    }
+    // Found or not, a path never ends a code span or holds a secret's shape.
     for file in ["docs/a`b.md", "keys/ghp_0123456789abcdefABCDEF.txt"] {
         let found = Known {
             files: [file.to_owned()].into(),
@@ -219,6 +234,24 @@ fn a_findings_path_keeps_its_location_in_any_language() {
             Value::Null,
             "{file}"
         );
+    }
+}
+
+/// A class said in other words is the class devflow names; one it does not
+/// name still gets an impact and a fix that send the reader to attack.json.
+#[test]
+fn a_class_said_otherwise_is_named_as_devflow_names_it() {
+    for (said, class) in [
+        ("path-traversal", "traversal"),
+        ("SQL Injection", "sqli"),
+        ("xss", "xss"),
+        ("open_redirect", "open-redirect"),
+        ("idor", "authz"),
+        ("made-up", "other"),
+    ] {
+        assert_eq!(class_of(&json!(said)), class, "{said}");
+        let (impact, fix) = said_of(class);
+        assert!(!impact.is_empty() && !fix.is_empty(), "{class}");
     }
 }
 
