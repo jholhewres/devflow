@@ -151,6 +151,19 @@ pub fn parsed(project: &Path, text: &str) -> Result<Workspace, String> {
                 said.path, said.repo
             )
         })?;
+        // Hidden as it resolves, not only as it is spelled: a link to a
+        // `.env` is a `.env`.
+        let resolved_hidden = at.strip_prefix(repo).ok().is_none_or(|inside| {
+            inside
+                .components()
+                .any(|part| part.as_os_str().to_string_lossy().starts_with('.'))
+        });
+        if resolved_hidden {
+            return Err(format!(
+                "flow `{flow}`: {} is hidden, where a secret may be",
+                said.path
+            ));
+        }
         Ok(Side {
             repo: said.repo.clone(),
             path: said.path.clone(),
@@ -194,14 +207,18 @@ pub fn flowed(workspace: &Workspace, name: &str) -> Result<Flowed, String> {
     ] {
         let file =
             std::fs::File::open(&side.at).map_err(|err| format!("{}: {err}", side.at.display()))?;
-        let raw = crate::fsguard::read_within(file, MOST_SIDE)
-            .map_err(|err| format!("{}: {err}", side.at.display()))?
-            .unwrap_or_default();
+        let mut raw = Vec::new();
+        std::io::Read::read_to_end(&mut std::io::Read::take(file, MOST_SIDE + 1), &mut raw)
+            .map_err(|err| format!("{}: {err}", side.at.display()))?;
+        // Past the ceiling, its start, said cut: never an empty block.
+        let cut = raw.len() as u64 > MOST_SIDE;
+        raw.truncate(MOST_SIDE as usize);
         let text = String::from_utf8_lossy(&raw);
         section.push_str(&format!(
-            "\n### The {role}: {}/{}\n```\n{}\n```\n",
+            "\n### The {role}: {}/{}{}\n```\n{}\n```\n",
             side.repo,
             side.path,
+            if cut { " (its first 32 KiB)" } else { "" },
             text.trim_end()
         ));
     }
@@ -220,18 +237,21 @@ pub fn flowed(workspace: &Workspace, name: &str) -> Result<Flowed, String> {
 
 /// A hypothesis's `fixes`, each held to a repository of the flow.
 pub fn fixes_in(one: &Value, flowed: &Flowed) -> Vec<Value> {
-    one["fixes"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|fix| {
-            let repo = fix["repo"].as_str()?;
-            let said: String = fix["fix"].as_str()?.chars().take(400).collect();
-            (flowed.repos.iter().any(|one| one == repo) && !said.trim().is_empty())
-                .then(|| serde_json::json!({ "repo": repo, "fix": said }))
-        })
-        .take(flowed.repos.len())
-        .collect()
+    let mut kept: Vec<Value> = Vec::new();
+    for fix in one["fixes"].as_array().into_iter().flatten() {
+        let (Some(repo), Some(said)) = (fix["repo"].as_str(), fix["fix"].as_str()) else {
+            continue;
+        };
+        let said: String = said.chars().take(400).collect();
+        // One fix a side: a second for the same side never pushes another out.
+        if flowed.repos.iter().any(|one| one == repo)
+            && !said.trim().is_empty()
+            && !kept.iter().any(|had| had["repo"] == repo)
+        {
+            kept.push(serde_json::json!({ "repo": repo, "fix": said }));
+        }
+    }
+    kept
 }
 
 #[cfg(test)]

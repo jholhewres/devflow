@@ -133,3 +133,60 @@ fn a_path_out_of_the_workspace_or_its_repository_is_refused() {
         assert!(linked.is_err(), "no side through a link out");
     }
 }
+
+#[test]
+fn a_large_side_is_cut_and_said_so_and_each_side_keeps_its_fix() {
+    let (dir, project) = workspace();
+    std::fs::write(dir.path().join("api/src/publish.ts"), "x".repeat(40 * 1024)).expect("large");
+    let read = parsed(
+        &project,
+        &manifest(
+            json!({ "api": "api", "worker": "worker" }),
+            "src/publish.ts",
+        ),
+    )
+    .expect("read");
+    let flowed = flowed(&read, "jobs").expect("flowed");
+    assert!(flowed
+        .section
+        .contains("### The writer: api/src/publish.ts (its first 32 KiB)"));
+    assert!(
+        flowed.section.contains(&"x".repeat(1000)),
+        "its start, never an empty block"
+    );
+    let one = json!({ "fixes": [
+        { "repo": "api", "fix": "first" }, { "repo": "api", "fix": "second" }, { "repo": "worker", "fix": "theirs" },
+    ] });
+    let repos: Vec<String> = fixes_in(&one, &flowed)
+        .iter()
+        .map(|fix| {
+            format!(
+                "{}:{}",
+                fix["repo"].as_str().unwrap_or(""),
+                fix["fix"].as_str().unwrap_or("")
+            )
+        })
+        .collect();
+    assert_eq!(repos, ["api:first", "worker:theirs"]);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_link_inside_a_repository_to_a_hidden_file_is_refused() {
+    let (dir, project) = workspace();
+    std::fs::write(dir.path().join("api/.env"), "TOKEN=x").expect("env");
+    std::os::unix::fs::symlink(
+        dir.path().join("api/.env"),
+        dir.path().join("api/src/settings.ts"),
+    )
+    .expect("link");
+    let refused = parsed(
+        &project,
+        &manifest(
+            json!({ "api": "api", "worker": "worker" }),
+            "src/settings.ts",
+        ),
+    )
+    .expect_err("a .env by another name");
+    assert!(refused.contains("hidden"), "{refused}");
+}
