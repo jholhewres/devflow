@@ -41,7 +41,7 @@ const STALE: Duration = Duration::from_secs(600);
 const STAGED: &str = ".devflow-new-";
 /// In devflow's state folder: the lock one update holds, and the version the
 /// Claude Code plugin was last checked at.
-const LOCK: &str = "update.lock";
+pub const LOCK: &str = "update.lock";
 const PLUGIN_CHECKED: &str = "plugin-checked";
 
 /// Where releases are published: GitHub, or a local server in the tests.
@@ -483,31 +483,80 @@ pub fn swap(staged: &Path, bin: &Path) -> Result<(), String> {
 }
 
 /// Held while one start updates, so starts at the same moment do not all
-/// download; dropped, it is removed.
+/// download; dropped, it is removed. It holds its holder's pid.
+#[derive(Debug)]
 pub struct Lock(PathBuf);
 
+/// Why a lock was not taken.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Untaken {
+    /// Another update holds it.
+    Busy,
+    /// It could not be made, a full disk or a folder that cannot be written
+    /// to: why.
+    Failed(String),
+}
+
 impl Lock {
-    pub fn take(path: &Path) -> Option<Lock> {
-        fs::create_dir_all(path.parent()?).ok()?;
+    pub fn take(path: &Path) -> Result<Lock, Untaken> {
+        let failed = |err: std::io::Error| Untaken::Failed(format!("{}: {err}", path.display()));
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(failed)?;
+        }
         for _ in 0..2 {
             match OpenOptions::new().write(true).create_new(true).open(path) {
-                Ok(_) => return Some(Lock(path.to_path_buf())),
+                Ok(mut file) => {
+                    use std::io::Write;
+                    if let Err(err) = write!(file, "{}", std::process::id()) {
+                        let _ = fs::remove_file(path);
+                        return Err(failed(err));
+                    }
+                    return Ok(Lock(path.to_path_buf()));
+                }
                 Err(err) if err.kind() == ErrorKind::AlreadyExists => {
-                    let stale = fs::metadata(path)
-                        .and_then(|meta| meta.modified())
-                        .ok()
-                        .and_then(|at| at.elapsed().ok())
-                        .is_some_and(|age| age > STALE);
-                    if !stale {
-                        return None;
+                    if !left_behind(path) {
+                        return Err(Untaken::Busy);
                     }
                     let _ = fs::remove_file(path);
                 }
-                Err(_) => return None,
+                Err(err) => return Err(failed(err)),
             }
         }
-        None
+        Err(Untaken::Busy)
     }
+}
+
+/// Whether a lock is one no update holds any more: its holder's process is
+/// gone, it is older than [`STALE`], or it is dated in the future. One with
+/// no pid (an older devflow's, or one just made) is judged by its age.
+pub fn left_behind(path: &Path) -> bool {
+    let Ok(at) = fs::metadata(path).and_then(|meta| meta.modified()) else {
+        return true;
+    };
+    match at.elapsed() {
+        Err(_) => true,
+        Ok(age) if age > STALE => true,
+        Ok(_) => fs::read_to_string(path)
+            .ok()
+            .and_then(|text| text.trim().parse::<u32>().ok())
+            .is_some_and(|pid| !alive(pid)),
+    }
+}
+
+/// Whether a process of this user runs as `pid`.
+fn alive(pid: u32) -> bool {
+    if pid <= 1 {
+        return true;
+    }
+    if cfg!(target_os = "linux") {
+        return Path::new(&format!("/proc/{pid}")).exists();
+    }
+    Command::new("kill")
+        .args(["-0", &pid.to_string()])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
 }
 
 impl Drop for Lock {
@@ -595,7 +644,7 @@ pub fn background(source: &Source, here: &Here, machine: &Machine, state: &Path)
     if here.off || !here.released {
         return Vec::new();
     }
-    let Some(_held) = Lock::take(&state.join(LOCK)) else {
+    let Ok(_held) = Lock::take(&state.join(LOCK)) else {
         return Vec::new();
     };
     let mut said = Vec::new();
@@ -667,8 +716,9 @@ pub fn command(only_check: bool, json: bool) -> ExitCode {
     let state = devflow_engine::home::state_dir().unwrap_or_else(|| PathBuf::from(".devflow-home"));
     let held = Lock::take(&state.join(LOCK));
     let done = match held {
-        Some(_) => Here::now().and_then(|here| asked(&Source::github(), &here, only_check)),
-        None => Err("another devflow update is running".to_owned()),
+        Ok(_) => Here::now().and_then(|here| asked(&Source::github(), &here, only_check)),
+        Err(Untaken::Busy) => Err("another devflow update is running".to_owned()),
+        Err(Untaken::Failed(why)) => Err(format!("the update's lock could not be made: {why}")),
     };
     let plugin = match &done {
         Ok(Done::Current(version) | Done::Updated { to: version, .. }) if !only_check => {

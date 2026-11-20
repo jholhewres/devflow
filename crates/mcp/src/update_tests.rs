@@ -300,10 +300,14 @@ fn one_start_at_a_time_holds_the_lock() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("state/update.lock");
     let held = Lock::take(&path).unwrap();
-    assert!(Lock::take(&path).is_none());
+    assert_eq!(
+        fs::read_to_string(&path).unwrap(),
+        std::process::id().to_string()
+    );
+    assert_eq!(Lock::take(&path).err(), Some(Untaken::Busy));
     drop(held);
     assert!(!path.exists());
-    assert!(Lock::take(&path).is_some());
+    assert!(Lock::take(&path).is_ok());
 }
 
 #[test]
@@ -318,7 +322,62 @@ fn a_lock_a_dead_start_left_is_taken_over() {
         .unwrap()
         .set_modified(old)
         .unwrap();
-    assert!(Lock::take(&path).is_some());
+    assert!(Lock::take(&path).is_ok());
+}
+
+#[test]
+fn a_lock_whose_holder_is_gone_or_dated_ahead_is_taken_over_at_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("update.lock");
+    // A process that ran and ended: its pid holds nothing.
+    let mut ended = std::process::Command::new("true").spawn().unwrap();
+    let gone = ended.id();
+    ended.wait().unwrap();
+    fs::write(&path, gone.to_string()).unwrap();
+    assert!(left_behind(&path));
+    assert!(Lock::take(&path).is_ok());
+
+    let ahead = dir.path().join("ahead.lock");
+    fs::write(&ahead, "").unwrap();
+    fs::File::options()
+        .write(true)
+        .open(&ahead)
+        .unwrap()
+        .set_modified(SystemTime::now() + Duration::from_secs(3600))
+        .unwrap();
+    assert!(
+        Lock::take(&ahead).is_ok(),
+        "a clock set back never holds it forever"
+    );
+
+    // A live holder, or one with no pid that is young, still holds it.
+    let live = dir.path().join("live.lock");
+    fs::write(&live, std::process::id().to_string()).unwrap();
+    assert_eq!(Lock::take(&live).err(), Some(Untaken::Busy));
+    let young = dir.path().join("young.lock");
+    fs::write(&young, "").unwrap();
+    assert_eq!(Lock::take(&young).err(), Some(Untaken::Busy));
+}
+
+#[cfg(unix)]
+#[test]
+fn a_lock_that_cannot_be_made_says_why_never_that_another_update_runs() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let folder = dir.path().join("state");
+    fs::create_dir_all(&folder).unwrap();
+    fs::set_permissions(&folder, fs::Permissions::from_mode(0o500)).unwrap();
+    let path = folder.join("update.lock");
+    let taken = Lock::take(&path);
+    fs::set_permissions(&folder, fs::Permissions::from_mode(0o700)).unwrap();
+    if fs::write(folder.join("probe"), "").is_ok() && taken.is_ok() {
+        // Run as root: permissions do not stop it.
+        return;
+    }
+    match taken {
+        Err(Untaken::Failed(why)) => assert!(why.contains("update.lock"), "{why}"),
+        other => panic!("{other:?}"),
+    }
 }
 
 #[test]
