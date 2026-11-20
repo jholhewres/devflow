@@ -586,13 +586,13 @@ fn each_prompt_injection_case_has_words_an_escaping_builder_keeps() {
     assert!(why.contains("words a builder keeps"), "{why}");
 }
 
-/// A file in a path is not a host, though a bare name with a file's
-/// extension is; a namespace is set aside only where a document declares it.
+/// A name with a country's last label is a host wherever it stands, a
+/// file's name included: refused, never guessed at from a path around it.
+/// A namespace is set aside only where a document declares it.
 #[test]
-fn a_file_name_is_neutral_and_a_namespace_only_where_declared() {
+fn a_country_label_is_a_host_anywhere_and_a_namespace_only_where_declared() {
     for fine in [
-        "src/main.rs and lib/app.py",
-        "C:\\work\\db.id",
+        "src/main.txt and lib/app.json",
         "<x xmlns:xi='http://www.w3.org/2001/XInclude'/>",
         "<x xmlns = \"http://www.w3.org/2001/XInclude\"/>",
     ] {
@@ -610,6 +610,9 @@ fn a_file_name_is_neutral_and_a_namespace_only_where_declared() {
         "/\\evil.rs",
         "\\/evil.rs",
         "/main.rs",
+        "src/main.rs",
+        "C:\\work\\db.id",
+        "\\\\?\\UNC\\evil.rs\\share",
         "<xi:include href=\"http://www.w3.org/2001/XInclude\"/>",
         "fetch http://www.w3.org/2001/XInclude",
     ] {

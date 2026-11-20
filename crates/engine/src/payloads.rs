@@ -197,12 +197,6 @@ const PUBLIC: [&str; 40] = [
 /// The XML namespaces a document declares without fetching them.
 const NAMESPACES: [&str; 1] = ["http://www.w3.org/2001/XInclude"];
 
-/// A source or data file's two-letter extension, read as one before a
-/// country's only in a path: `src/main.rs`, never a bare `main.rs`.
-const FILE_LABELS: [&str; 14] = [
-    "rs", "py", "go", "js", "ts", "sh", "md", "rb", "pl", "cs", "kt", "id", "db", "so",
-];
-
 /// `text` without the namespaces it declares (`xmlns:xi="…"`): a namespace
 /// named anywhere else is a URL like any other.
 fn without_declared_namespaces(text: &str) -> String {
@@ -500,28 +494,11 @@ pub fn neutral(text: &str) -> Result<(), String> {
             }
         }
     }
-    // Each word with where it starts, so a file in a path is told from a host.
-    let mut words: Vec<(usize, &str)> = Vec::new();
-    let mut start = None;
-    for (at, ch) in text.char_indices().chain([(text.len(), ' ')]) {
-        let kept = ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '@');
-        match (kept, start) {
-            (true, None) => start = Some(at),
-            (false, Some(from)) => {
-                words.push((from, &text[from..at]));
-                start = None;
-            }
-            _ => {}
-        }
-    }
-    for (from, word) in words {
-        // A path's last part: a separator right after a folder's name,
-        // never after another separator or a scheme's colon.
-        let mut back = text[..from].chars().rev();
-        let in_path = matches!(back.next(), Some('/' | '\\'))
-            && back
-                .next()
-                .is_some_and(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '_'));
+    // A file name whose extension is a country's (`main.rs`) reads as a
+    // host too: refused, never guessed at from where it stands.
+    let words =
+        text.split(|ch: char| !(ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '@')));
+    for word in words.filter(|word| !word.is_empty()) {
         let (who, place) = match word.split_once('@') {
             Some((who, place)) => (Some(who), place),
             None => (None, word),
@@ -538,9 +515,7 @@ pub fn neutral(text: &str) -> Result<(), String> {
             .next()
             .unwrap_or_default()
             .to_ascii_lowercase();
-        let file =
-            in_path && place.matches('.').count() == 1 && FILE_LABELS.contains(&last.as_str());
-        let country = !file && last.len() == 2 && last.chars().all(|ch| ch.is_ascii_alphabetic());
+        let country = last.len() == 2 && last.chars().all(|ch| ch.is_ascii_alphabetic());
         if country || PUBLIC.contains(&last.as_str()) {
             return Err(format!("`{place}` names a real host"));
         }
