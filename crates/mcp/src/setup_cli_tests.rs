@@ -13,10 +13,7 @@ fn wizard() -> Wizard {
         no_jev: false,
         attack: true,
         test: Some("sh \"$DEVFLOW_EXPLOIT\"".to_owned()),
-        sandbox: None,
         image: None,
-        run_usd: None,
-        month_usd: Some(80.0),
     }
 }
 
@@ -57,8 +54,7 @@ fn the_attack_is_set_up_after_one_yes_on_a_terminal() {
         Some("sh \"$DEVFLOW_EXPLOIT\""),
         "the flag over what was found"
     );
-    assert_eq!(attack.budget.run_cents, Some(500), "the budget suggested");
-    assert_eq!(attack.budget.month_cents, Some(8000));
+    assert!(attack.budget.is_empty(), "no budget is written");
     assert!(consent.made(&project.root, Ask::Enable));
     let given = consent.given(&project.root);
     assert!(

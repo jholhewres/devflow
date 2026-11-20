@@ -35,26 +35,18 @@ pub struct Wizard {
     #[arg(long)]
     no_jev: bool,
     /// Only what the attack needs here, with one yes: devflow switched on,
-    /// the command that runs one exploit test, the sandbox and a budget,
-    /// each detected from the project; then the targets it may reach.
+    /// and the command that runs one exploit test, detected from the
+    /// project; then the targets it may reach.
     #[arg(long)]
     attack: bool,
     /// With --attack: the command that runs one exploit test, given its path
     /// as $DEVFLOW_EXPLOIT, instead of the one detected.
     #[arg(long, requires = "attack")]
     test: Option<String>,
-    /// With --attack: auto, bwrap, docker or off.
-    #[arg(long, requires = "attack")]
-    sandbox: Option<String>,
-    /// With --attack: the image a docker sandbox runs the test in.
+    /// With --attack: the image a docker sandbox runs the test in, instead
+    /// of the one suggested.
     #[arg(long, requires = "attack")]
     image: Option<String>,
-    /// With --attack: US$ one attack may spend.
-    #[arg(long, requires = "attack")]
-    run_usd: Option<f64>,
-    /// With --attack: US$ the month's attacks may spend.
-    #[arg(long, requires = "attack")]
-    month_usd: Option<f64>,
 }
 
 fn failed(why: &str) -> ExitCode {
@@ -108,28 +100,32 @@ fn attack(
     consent: &Consent,
     confirm: &dyn Fn(&str) -> Result<bool, String>,
 ) -> Result<(), String> {
-    use serde_json::{json, Value};
+    use serde_json::Value;
     let project = Project::at(root);
     let path = std::env::var_os("PATH").unwrap_or_default();
-    let wanted = crate::ready::wanted(&project, consent, &path, true)?;
+    let mut wanted = crate::ready::wanted(&project, consent, &path, true)?;
+    // A flag is the person's own answer, over what was found.
+    if let (Some(command), Some(_)) = (&how.test, &wanted.test) {
+        let image = wanted
+            .test
+            .clone()
+            .flatten()
+            .map_or("", |found| found.image);
+        wanted.test = Some(Some(devflow_engine::detect::ExploitTest {
+            command: command.clone(),
+            source: "--test".to_owned(),
+            image,
+        }));
+    }
+    if let (Some(image), Some(_)) = (&how.image, &wanted.image) {
+        wanted.image = Some(image.clone());
+    }
     if !wanted.needed() && !wanted.optional() {
         println!("The attack has what it needs here: nothing to ask.");
         return Ok(());
     }
     let (message, schema) = wanted.question(&project);
     let mut answer = crate::ready::defaults(&schema);
-    let given: [(&str, Option<Value>); 5] = [
-        ("test", how.test.clone().map(Value::from)),
-        ("sandbox", how.sandbox.clone().map(Value::from)),
-        ("image", how.image.clone().map(Value::from)),
-        ("run_usd", how.run_usd.map(|usd| json!(usd))),
-        ("month_usd", how.month_usd.map(|usd| json!(usd))),
-    ];
-    for (name, value) in given {
-        if let Some(value) = value {
-            answer.insert(name.to_owned(), value);
-        }
-    }
     let targets = answer.remove("targets");
     let mut shown = schema.clone();
     if let Some(fields) = shown["properties"].as_object_mut() {

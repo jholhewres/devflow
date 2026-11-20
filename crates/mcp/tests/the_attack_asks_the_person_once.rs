@@ -1,7 +1,8 @@
 //! The attack asks the person once, through the client (MCP's
-//! `elicitation/create`), for what only they give: devflow switched on, the
-//! command that runs one exploit, the sandbox and a budget. Their yes is
-//! applied and the attack runs in the same call, with no terminal command.
+//! `elicitation/create`), for what only they give: devflow switched on, and
+//! the command that runs one exploit where none was found. What devflow
+//! found is said in the question, never a budget. Their yes is applied and
+//! the attack runs in the same call, with no terminal command.
 //! Their no leaves everything as it was. Nothing else consents: not a
 //! tool's arguments, not the environment, not a reply the server never
 //! asked for.
@@ -46,9 +47,12 @@ fn fake_claude(bin: &Path, answer: &Value) {
 const EXPLOIT: &str =
     "grep -q 'check the key' src/auth/session.rs && exit 0; echo 'FAIL forged-cookie'; exit 1\n";
 
-/// A project nothing set up: a first commit, then the change attacked, which
-/// leaves a hole. Its base and head, and the fake attacker's folder.
-fn new_project() -> (
+/// A project nothing set up, testing with jest or with nothing devflow
+/// knows: a first commit, then the change attacked, which leaves a hole. Its
+/// base and head, and the fake attacker's folder.
+fn new_project(
+    jest: bool,
+) -> (
     tempfile::TempDir,
     tempfile::TempDir,
     PathBuf,
@@ -63,11 +67,12 @@ fn new_project() -> (
     git(&root, &["config", "user.email", "test@example.invalid"]);
     git(&root, &["config", "user.name", "Test"]);
     git(&root, &["config", "commit.gpgsign", "false"]);
-    std::fs::write(
-        root.join("package.json"),
-        "{ \"name\": \"shop\", \"devDependencies\": { \"jest\": \"29\" } }\n",
-    )
-    .unwrap();
+    let package = if jest {
+        "{ \"name\": \"shop\", \"devDependencies\": { \"jest\": \"29\" } }\n"
+    } else {
+        "{ \"name\": \"shop\" }\n"
+    };
+    std::fs::write(root.join("package.json"), package).unwrap();
     git(&root, &["add", "-A"]);
     git(&root, &["commit", "-q", "-m", "first"]);
     let base = git(&root, &["rev-parse", "HEAD"]);
@@ -119,27 +124,28 @@ fn sandbox_here() -> Result<(), String> {
 #[cfg(unix)]
 #[test]
 fn a_new_project_is_attacked_after_one_question_and_no_terminal_command() {
-    let (_repo, home, root, bin, base, head) = new_project();
+    // No runner devflow knows: the command is asked.
+    let (_repo, home, root, bin, base, head) = new_project(false);
     let mut mcp = Mcp::start_with(&root, home.path(), Some(&bin));
     mcp.ask("initialize", asking("2025-06-18"));
     let (result, questions) =
         mcp.call_asking("attack", json!({ "base": base, "head": head }), &mut |_| {
-            // The person edits the command found, and names an image when
-            // only docker is here.
+            // The person fills in the command, and an image when only
+            // docker is here.
             json!({ "action": "accept", "content": {
-                "switch_on": true, "test": "sh \"$DEVFLOW_EXPLOIT\"", "sandbox": "auto",
-                "image": image(), "run_usd": 5, "month_usd": 50 } })
+                "test": "sh \"$DEVFLOW_EXPLOIT\"", "image": image() } })
         });
     assert_eq!(questions.len(), 1, "one question");
-    let fields = &questions[0]["requestedSchema"]["properties"];
-    assert_eq!(fields["switch_on"]["default"], true);
-    assert_eq!(
-        fields["test"]["default"], "npx jest \"$DEVFLOW_EXPLOIT\"",
-        "detected from the project"
-    );
-    assert!(fields["sandbox"]["enum"].to_string().contains("docker"));
-    assert_eq!(fields["run_usd"]["default"], 5.0);
-    assert_eq!(fields["month_usd"]["default"], 50.0);
+    let fields = questions[0]["requestedSchema"]["properties"]
+        .as_object()
+        .unwrap();
+    assert!(fields["test"].get("default").is_none(), "nothing was found");
+    for name in fields.keys() {
+        assert!(["test", "image"].contains(&name.as_str()), "{name} asked");
+    }
+    let message = questions[0]["message"].as_str().unwrap();
+    assert!(message.contains("switches devflow on"), "{message}");
+    assert!(!message.contains("US$"), "{message}");
     assert_eq!(result["isError"], false, "{}", result["content"][0]["text"]);
     let attacked = &result["structuredContent"];
     assert_eq!(attacked["asked"]["switched_on"], true, "{attacked}");
@@ -147,6 +153,7 @@ fn a_new_project_is_attacked_after_one_question_and_no_terminal_command() {
     let yaml = std::fs::read_to_string(root.join(".devflow/devflow.yaml")).unwrap();
     assert!(yaml.contains("enabled: true"), "{yaml}");
     assert!(yaml.contains("$DEVFLOW_EXPLOIT"), "{yaml}");
+    assert!(!yaml.contains("budget"), "no budget is written: {yaml}");
     let consent: Value =
         serde_json::from_str(&std::fs::read_to_string(consent_file(home.path())).unwrap()).unwrap();
     let given = consent["given"].to_string();
@@ -194,13 +201,11 @@ fn a_new_project_is_attacked_after_one_question_and_no_terminal_command() {
 #[cfg(unix)]
 #[test]
 fn a_no_leaves_everything_as_it_was_and_says_why() {
-    let (_repo, home, root, bin, base, head) = new_project();
+    let (_repo, home, root, bin, base, head) = new_project(true);
     let range = json!({ "base": base, "head": head });
     let replies = [
         json!({ "action": "decline" }),
         json!({ "action": "cancel" }),
-        // Unticking the switch is a no too.
-        json!({ "action": "accept", "content": { "switch_on": false } }),
     ];
     for reply in replies {
         // A session of its own each: a no stands for a while in one.
@@ -208,6 +213,13 @@ fn a_no_leaves_everything_as_it_was_and_says_why() {
         mcp.ask("initialize", asking("2025-11-25"));
         let (result, questions) = mcp.call_asking("attack", range.clone(), &mut |_| reply.clone());
         assert_eq!(questions.len(), 1);
+        // jest found: said in the message, and nothing left to fill in.
+        let message = questions[0]["message"].as_str().unwrap();
+        assert!(
+            message.contains("`npx jest \"$DEVFLOW_EXPLOIT\"` (from package.json"),
+            "{message}"
+        );
+        assert_eq!(questions[0]["requestedSchema"]["properties"], json!({}));
         assert_eq!(result["isError"], true);
         let said = result["content"][0]["text"].as_str().unwrap();
         assert!(said.contains("nothing was written"), "{said}");
@@ -228,7 +240,7 @@ fn a_no_leaves_everything_as_it_was_and_says_why() {
 #[cfg(unix)]
 #[test]
 fn neither_arguments_nor_environment_nor_an_unasked_reply_switch_devflow_on() {
-    let (_repo, home, root, bin, base, head) = new_project();
+    let (_repo, home, root, bin, base, head) = new_project(true);
     let pretending = [
         ("DEVFLOW_CONSENT", "yes"),
         ("DEVFLOW_ENABLED", "true"),
@@ -300,7 +312,7 @@ fn neither_arguments_nor_environment_nor_an_unasked_reply_switch_devflow_on() {
 fn a_client_that_cannot_ask_names_one_command_and_it_is_enough() {
     use std::io::Write;
     use std::process::Stdio;
-    let (_repo, home, root, bin, base, head) = new_project();
+    let (_repo, home, root, bin, base, head) = new_project(true);
     let mut mcp = Mcp::start_with(&root, home.path(), Some(&bin));
     mcp.ask("initialize", json!({ "protocolVersion": "2025-06-18" }));
     let refused = mcp.refused("attack", json!({ "base": base, "head": head }));

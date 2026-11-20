@@ -1,15 +1,20 @@
 //! What an attack needs that only the person gives: devflow switched on in
 //! the project, the attack stage on, the command that runs one exploit test,
-//! the sandbox, a budget, and the targets it may reach. Asked as one
-//! question: through the client (MCP's `elicitation/create`), or, where the
-//! client cannot ask, by one command on a terminal. Either way the answer is
+//! and the targets it may reach. Asked as one question, as short as it can
+//! be: what devflow found (the command, the sandbox, a docker image) is said
+//! in its text, and a field is asked only for what has no safe default.
+//! Through the client (MCP's `elicitation/create`), or, where the client
+//! cannot ask, by one command on a terminal. Either way the answer is
 //! applied here: devflow.yaml edited in place, keeping what devpit or the
-//! person wrote, and each yes kept in consent.json with how it came.
+//! person wrote, and each yes kept in consent.json with how it came. A
+//! budget is never asked: the attack runs on the person's own CLI, most
+//! often a subscription, and `stages.attack.budget` is theirs to set.
 
 use std::ffi::OsStr;
+use std::path::Path;
 use std::time::SystemTime;
 
-use devflow_engine::config::{Config, SandboxChoice};
+use devflow_engine::config::{Budget, Config, SandboxChoice};
 use devflow_engine::detect::{self, ExploitTest};
 use devflow_engine::folder::State;
 use devflow_engine::preset::Preset;
@@ -26,12 +31,10 @@ use crate::server::Server;
 /// The one command that does it all on a terminal, for a client that cannot
 /// ask the person.
 pub const COMMAND: &str = "devflow setup --attack";
-/// What the budget starts at when the person is asked: US$ per attack, and
-/// per calendar month.
-pub const RUN_USD: f64 = 5.0;
-pub const MONTH_USD: f64 = 50.0;
-/// The most a budget says, in dollars, as devflow.yaml reads it.
-const MOST_USD: f64 = 100_000.0;
+/// What the attack's question of devflow 0.6.2 and 0.6.3 filled the budget
+/// in with, in cents: per attack, and per calendar month.
+const PREFILLED_RUN_CENTS: u64 = 500;
+const PREFILLED_MONTH_CENTS: u64 = 5_000;
 /// What the attack was asked for, as consent.json keeps it.
 const FOR: &str = "attack";
 
@@ -47,15 +50,16 @@ pub struct Wanted {
     pub file_off: bool,
     /// The attack stage is off: it is set to run when asked by name.
     pub stage: bool,
-    /// `stages.attack.test` is not set: the command detected, if any.
+    /// `stages.attack.test` is not set: the command detected, written on a
+    /// yes, or `None`, asked.
     pub test: Option<Option<ExploitTest>>,
-    /// `stages.attack.sandbox` is not set: what `auto` finds here.
+    /// Where the exploits run: the sandbox set, else what `auto` finds here,
+    /// `bwrap`, `docker`, or `nothing`. Said, never asked.
     pub sandbox: Option<String>,
     /// `stages.attack.image` is not set and docker is here: the image
-    /// suggested for the project's runner.
+    /// suggested for the project's runner, written on a yes, or empty when
+    /// there is none, asked only where docker is the sandbox.
     pub image: Option<String>,
-    pub run_usd: bool,
-    pub month_usd: bool,
     /// The targets devflow.yaml lists that the person has not confirmed and
     /// that a yes could put in force, each shown with what it resolves to.
     pub targets: Vec<String>,
@@ -76,12 +80,18 @@ impl Wanted {
 
     /// The attack runs without these, but runs better with them.
     pub fn optional(&self) -> bool {
-        self.test.is_some()
-            || self.sandbox.is_some()
-            || self.image.is_some()
-            || self.run_usd
-            || self.month_usd
-            || !self.targets.is_empty()
+        self.test.is_some() || self.image_part() || !self.targets.is_empty()
+    }
+
+    /// The image is part of the question: found, and written on a yes, or
+    /// asked.
+    fn image_part(&self) -> bool {
+        self.image.as_deref().is_some_and(|image| !image.is_empty()) || self.image_asked()
+    }
+
+    /// The image asked for: docker is the sandbox, and none is suggested.
+    fn image_asked(&self) -> bool {
+        self.image.as_deref() == Some("") && self.sandbox.as_deref() == Some("docker")
     }
 
     /// What is missing, in a few words.
@@ -98,9 +108,6 @@ impl Wanted {
         if self.test.is_some() {
             said.push("stages.attack.test is not set");
         }
-        if self.run_usd || self.month_usd {
-            said.push("the attack has no budget");
-        }
         if !self.targets.is_empty() {
             said.push("security.targets wait for the person's yes");
         }
@@ -113,108 +120,75 @@ impl Wanted {
     /// The parts of the question the attack runs without, by name: once
     /// answered, yes or no, they are not asked again through the client.
     pub fn parts(&self) -> Vec<String> {
-        let mut parts: Vec<String> = [
-            ("test", self.test.is_some()),
-            ("sandbox", self.sandbox.is_some()),
-            ("image", self.image.is_some()),
-            ("run_usd", self.run_usd),
-            ("month_usd", self.month_usd),
-        ]
-        .into_iter()
-        .filter(|(_, asked)| *asked)
-        .map(|(name, _)| name.to_owned())
-        .collect();
+        let mut parts: Vec<String> = [("test", self.test.is_some()), ("image", self.image_part())]
+            .into_iter()
+            .filter(|(_, asked)| *asked)
+            .map(|(name, _)| name.to_owned())
+            .collect();
         if !self.targets.is_empty() {
             parts.push(self.targets_part.clone());
         }
         parts
     }
 
-    /// The question, said once: its message and its form.
+    /// The question, said once: its message and its form. What devflow found
+    /// is said in the message and written on a yes; a field is asked only
+    /// for what has no safe default, so most often there is none, and the
+    /// question is its message, accepted or declined.
     pub fn question(&self, project: &Project) -> (String, Value) {
-        let mut said = vec![format!(
-            "devflow's attack on {} needs your answer.",
-            project.root.display()
-        )];
+        let mut doing: Vec<String> = Vec::new();
         if self.setup {
-            said.push(format!(
-                "There is no devflow.yaml here: accepting writes the recommended setup in {}/, \
-                 yours to commit.",
-                project.dir()
+            doing.push(format!(
+                "writes {} (yours to commit)",
+                project.layout().file
             ));
         }
         if self.switch {
-            said.push(
-                "devflow is off in this project on this machine: accepting switches it on."
-                    .to_owned(),
-            );
+            doing.push("switches devflow on here".to_owned());
         }
         if self.stage {
-            said.push(
-                "The attack stage is off: accepting sets it to run when asked by name \
-                 (run: release)."
-                    .to_owned(),
-            );
+            doing.push("turns the attack stage on, for attacks asked by name".to_owned());
         }
-        if self.optional() {
-            said.push(
-                "The fields go into devflow.yaml's stages.attack; one left empty stays unset."
-                    .to_owned(),
-            );
+        if let Some(Some(found)) = &self.test {
+            doing.push(format!(
+                "sets the exploit test to `{}` (from {})",
+                found.command, found.source
+            ));
         }
-        said.push("Nothing is committed. Declining leaves everything as it is.".to_owned());
+        if let Some(image) = self.image.as_deref().filter(|image| !image.is_empty()) {
+            doing.push(format!("sets the docker image to {image}"));
+        }
+        let name = project.root.file_name().map_or_else(
+            || project.root.display().to_string(),
+            |name| name.to_string_lossy().into_owned(),
+        );
+        let mut said = vec![if doing.is_empty() {
+            format!("devflow's attack on {name} needs your answer.")
+        } else {
+            format!("devflow's attack on {name}: accepting {}.", listed(&doing))
+        }];
+        match self.sandbox.as_deref() {
+            Some("nothing") => {
+                said.push("No sandbox here: the session runs each exploit.".to_owned())
+            }
+            Some(found) => said.push(format!("Exploits run in {found}, offline.")),
+            None => {}
+        }
+        said.push("Nothing is committed; declining changes nothing.".to_owned());
         let mut fields = Map::new();
-        if self.needed() {
+        if let Some(None) = &self.test {
             fields.insert(
-                "switch_on".to_owned(),
-                json!({ "type": "boolean", "title": "Switch devflow on here", "default": true,
-                    "description": "devflow's switch for this project, kept on this machine." }),
+                "test".to_owned(),
+                json!({ "type": "string", "title": "Exploit test command", "maxLength": 500,
+                    "description": "No test runner was found here. The command that runs one exploit test, given its path as $DEVFLOW_EXPLOIT and its name as $DEVFLOW_EXPLOIT_TEST. Empty: the session runs each exploit." }),
             );
         }
-        if let Some(found) = &self.test {
-            let mut field = json!({ "type": "string", "title": "Exploit test command", "maxLength": 500,
-                "description": "Runs one exploit test, given its path as $DEVFLOW_EXPLOIT and its name as $DEVFLOW_EXPLOIT_TEST. Empty: the session runs each exploit." });
-            if let Some(found) = found {
-                field["default"] = json!(found.command);
-                field["description"] = json!(format!(
-                    "Runs one exploit test, given its path as $DEVFLOW_EXPLOIT and its name as \
-                     $DEVFLOW_EXPLOIT_TEST. Found from {}. Empty: the session runs each exploit.",
-                    found.source
-                ));
-            }
-            fields.insert("test".to_owned(), field);
-        }
-        if let Some(here) = &self.sandbox {
+        if self.image_asked() {
             fields.insert(
-                "sandbox".to_owned(),
-                json!({ "type": "string", "title": "Sandbox", "enum": SandboxChoice::ALL.iter().map(|one| one.word()).collect::<Vec<_>>(),
-                    "default": SandboxChoice::Auto.word(),
-                    "description": format!("Where each exploit runs, with no network: auto finds {here} here; bwrap (a network namespace of its own), docker (the image below), off (the session runs them).") }),
+                "image".to_owned(),
+                json!({ "type": "string", "title": "Docker image", "maxLength": 200,
+                    "description": "Docker is the sandbox here, and no image was found for the project's runner: the image each exploit test runs in. Empty: none is set, and the session runs each exploit." }),
             );
-        }
-        if let Some(image) = &self.image {
-            let mut field = json!({ "type": "string", "title": "Docker image", "maxLength": 200,
-                "description": "The image a docker sandbox runs the exploit test in." });
-            if !image.is_empty() {
-                field["default"] = json!(image);
-            }
-            fields.insert("image".to_owned(), field);
-        }
-        for (wanted, name, title, default) in [
-            (self.run_usd, "run_usd", "Budget per attack, US$", RUN_USD),
-            (
-                self.month_usd,
-                "month_usd",
-                "Budget per month, US$",
-                MONTH_USD,
-            ),
-        ] {
-            if wanted {
-                fields.insert(
-                    name.to_owned(),
-                    json!({ "type": "number", "title": title, "minimum": 0.01, "maximum": MOST_USD, "default": default }),
-                );
-            }
         }
         if !self.targets.is_empty() {
             let shown: Vec<String> = self
@@ -230,6 +204,15 @@ impl Wanted {
         }
         let schema = json!({ "type": "object", "properties": fields });
         (said.join(" "), schema)
+    }
+}
+
+/// `a`, `a and b`, `a, b and c`.
+fn listed(said: &[String]) -> String {
+    match said {
+        [] => String::new(),
+        [one] => one.clone(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
     }
 }
 
@@ -264,6 +247,8 @@ pub fn wanted(
     let suggested = exploit.as_ref().map(|found| found.image);
     let here = match sandbox::found(SandboxChoice::Auto, suggested, path) {
         Ok(found) => found.kind.word(),
+        // docker, short of an image: the one thing then asked.
+        Err(_) if docker => "docker",
         Err(_) => "nothing",
     };
     let (targets, found) = to_confirm(project, consent, &config);
@@ -285,11 +270,17 @@ pub fn wanted(
         file_off: !setup && !config.enabled,
         stage: !config.stages_on().contains(&"attack"),
         test: (attack.test.is_none() && open("test")).then_some(exploit),
-        sandbox: (attack.sandbox.is_none() && open("sandbox")).then(|| here.to_owned()),
+        sandbox: Some(
+            match attack.sandbox {
+                None | Some(SandboxChoice::Auto) => here,
+                Some(SandboxChoice::Bwrap) => "bwrap",
+                Some(SandboxChoice::Docker) => "docker",
+                Some(SandboxChoice::Off) => "nothing",
+            }
+            .to_owned(),
+        ),
         image: (attack.image.is_none() && docker && open("image"))
             .then(|| suggested.unwrap_or_default().to_owned()),
-        run_usd: attack.budget.run_cents.is_none() && open("run_usd"),
-        month_usd: attack.budget.month_cents.is_none() && open("month_usd"),
         targets: if open(&targets_part) {
             targets
         } else {
@@ -424,12 +415,8 @@ fn to_confirm(project: &Project, consent: &Consent, config: &Config) -> (Vec<Str
 /// The answer as devflow reads it: only the fields that were asked.
 #[derive(Debug, Default)]
 struct Read {
-    switch_on: bool,
     test: Option<String>,
-    sandbox: Option<SandboxChoice>,
     image: Option<String>,
-    run_usd: Option<f64>,
-    month_usd: Option<f64>,
     targets: bool,
 }
 
@@ -447,22 +434,6 @@ fn line(answer: &Map<String, Value>, name: &str, most: usize) -> Result<Option<S
     }
 }
 
-fn dollars(answer: &Map<String, Value>, name: &str) -> Result<Option<f64>, String> {
-    let said = match answer.get(name) {
-        None | Some(Value::Null) => return Ok(None),
-        Some(Value::Number(number)) => number.as_f64(),
-        Some(Value::String(text)) if text.trim().is_empty() => return Ok(None),
-        Some(Value::String(text)) => text.trim().parse::<f64>().ok(),
-        Some(_) => None,
-    };
-    match said {
-        Some(usd) if usd.is_finite() && usd > 0.0 && usd <= MOST_USD => Ok(Some(usd)),
-        _ => Err(format!(
-            "`{name}` is a number of dollars above 0 and at most {MOST_USD}"
-        )),
-    }
-}
-
 fn yes(answer: &Map<String, Value>, name: &str, unsaid: bool) -> Result<bool, String> {
     match answer.get(name) {
         None | Some(Value::Null) => Ok(unsaid),
@@ -472,28 +443,16 @@ fn yes(answer: &Map<String, Value>, name: &str, unsaid: bool) -> Result<bool, St
 }
 
 impl Read {
+    /// What a yes writes: what devflow found, and what the person filled in
+    /// for the rest. A field that was not asked is not read.
     fn of(wanted: &Wanted, answer: &Map<String, Value>) -> Result<Read, String> {
         let mut read = Read::default();
-        if wanted.needed() {
-            // The form said yes unless the person unticked it.
-            read.switch_on = yes(answer, "switch_on", true)?;
+        match &wanted.test {
+            Some(Some(found)) => read.test = Some(found.command.clone()),
+            Some(None) => read.test = line(answer, "test", 500)?,
+            None => {}
         }
-        if wanted.test.is_some() {
-            read.test = line(answer, "test", 500)?;
-        }
-        if wanted.sandbox.is_some() {
-            read.sandbox = match line(answer, "sandbox", 20)? {
-                None => None,
-                Some(word) => Some(
-                    SandboxChoice::ALL
-                        .iter()
-                        .copied()
-                        .find(|one| one.word() == word)
-                        .ok_or_else(|| "`sandbox` is auto, bwrap, docker or off".to_owned())?,
-                ),
-            };
-        }
-        if wanted.image.is_some() {
+        if wanted.image_asked() {
             read.image = line(answer, "image", 200)?;
             if read
                 .image
@@ -502,12 +461,8 @@ impl Read {
             {
                 return Err("`image` is a docker image's name".to_owned());
             }
-        }
-        if wanted.run_usd {
-            read.run_usd = dollars(answer, "run_usd")?;
-        }
-        if wanted.month_usd {
-            read.month_usd = dollars(answer, "month_usd")?;
+        } else if let Some(image) = wanted.image.as_deref().filter(|image| !image.is_empty()) {
+            read.image = Some(image.to_owned());
         }
         if !wanted.targets.is_empty() {
             read.targets = yes(answer, "targets", false)?;
@@ -550,19 +505,10 @@ impl Applied {
     }
 }
 
-/// A dollar amount as devflow.yaml says it: whole when it is.
-fn usd(amount: f64) -> Value {
-    if amount.fract() == 0.0 && amount <= MOST_USD {
-        json!(amount as u64)
-    } else {
-        json!(amount)
-    }
-}
-
 /// Applies the person's answer to `wanted`: the file written, devflow
 /// switched on here, the targets confirmed, each yes kept with `how` it
-/// came. An answer that does not read, or that leaves devflow off where the
-/// attack needs it on, writes nothing.
+/// came. A yes is the person's: accepting the question is what switches
+/// devflow on. An answer that does not read writes nothing.
 pub fn apply(
     project: &Project,
     consent: &Consent,
@@ -572,11 +518,6 @@ pub fn apply(
     at: SystemTime,
 ) -> Result<Applied, NotApplied> {
     let read = Read::of(wanted, answer).map_err(NotApplied::Unread)?;
-    if wanted.needed() && !read.switch_on {
-        return Err(NotApplied::Unread(
-            "the person left devflow off here".to_owned(),
-        ));
-    }
     let root = project.root.as_path();
     let mut changes: Vec<(String, Value)> = Vec::new();
     if wanted.switch && (wanted.file_off || wanted.setup) {
@@ -588,17 +529,8 @@ pub fn apply(
     if let Some(test) = &read.test {
         changes.push(("stages.attack.test".to_owned(), json!(test)));
     }
-    if let Some(choice) = read.sandbox.filter(|one| *one != SandboxChoice::Auto) {
-        changes.push(("stages.attack.sandbox".to_owned(), json!(choice.word())));
-    }
     if let Some(image) = &read.image {
         changes.push(("stages.attack.image".to_owned(), json!(image)));
-    }
-    if let Some(amount) = read.run_usd {
-        changes.push(("stages.attack.budget.run_usd".to_owned(), usd(amount)));
-    }
-    if let Some(amount) = read.month_usd {
-        changes.push(("stages.attack.budget.month_usd".to_owned(), usd(amount)));
     }
     // The targets allowed: those confirmed before, and those just shown;
     // never one that was not. Worked out before anything is written.
@@ -704,6 +636,44 @@ pub fn apply(
         set,
         targets: allowed.map(|(targets, _)| targets).unwrap_or_default(),
     })
+}
+
+/// The parts of `budget` the attack's question of devflow 0.6.2 and 0.6.3
+/// filled in with what it started at (US$ 5 per attack, US$ 50 a month) in
+/// a project where consent.json says it asked them. The person never chose
+/// them, and most pay their CLI by subscription, so they no longer hold the
+/// attack; one the person changed, or wrote, still does.
+pub fn prefilled(root: &Path, consent: &Consent, budget: Budget) -> Budget {
+    let answered = consent.answered(root);
+    Budget {
+        run_cents: budget
+            .run_cents
+            .filter(|cents| *cents == PREFILLED_RUN_CENTS && answered.contains("run_usd")),
+        month_cents: budget
+            .month_cents
+            .filter(|cents| *cents == PREFILLED_MONTH_CENTS && answered.contains("month_usd")),
+    }
+}
+
+/// A budget as a person reads it.
+pub fn described(budget: Budget) -> String {
+    let mut said = Vec::new();
+    if let Some(cents) = budget.run_cents {
+        said.push(format!("US$ {} per attack", Budget::usd(cents)));
+    }
+    if let Some(cents) = budget.month_cents {
+        said.push(format!("US$ {} a month", Budget::usd(cents)));
+    }
+    said.join(", ")
+}
+
+/// `budget` as it holds the attack: without what the question prefilled.
+pub fn in_force(root: &Path, consent: &Consent, budget: Budget) -> Budget {
+    let filled = prefilled(root, consent, budget);
+    Budget {
+        run_cents: budget.run_cents.filter(|_| filled.run_cents.is_none()),
+        month_cents: budget.month_cents.filter(|_| filled.month_cents.is_none()),
+    }
 }
 
 /// The question as a terminal shows it: its message, then each field with
