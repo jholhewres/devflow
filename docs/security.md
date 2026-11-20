@@ -276,7 +276,13 @@ stands, a file's or a call's name included (`main.rs`, `App.java`,
 `subprocess.call`): a case says them otherwise. The
 IANA names are a dated snapshot, `flow/payloads/tlds-alpha-by-domain.txt`;
 to refresh it, download <https://data.iana.org/TLD/tlds-alpha-by-domain.txt>
-over it and update the version and size the payloads test pins. `devflow payloads table <class> --runner
+over it and update the version and size the payloads test pins.
+
+This check is best effort. It reads a name as UTS 46 does, plus IDNA2003's
+own readings (zero-width joiners dropped, `ß` as `ss`), so a look-alike
+spelling of a host or an address is caught; a resolver that reads text
+some other way may still find a host in it. What keeps a case from reaching
+one is the sandbox it runs in, which has no network. `devflow payloads table <class> --runner
 jest|vitest|go|pytest` prints a test table with a `check` function you fill
 in for the code under test. `stages.attack.regression: [ssrf, redos]` gives
 those classes' cases to every attack. A case an attack proposes stays in its

@@ -263,9 +263,14 @@ fn without_declared_namespaces(text: &str) -> String {
 /// maps to ASCII written as that (`８` as `8`, `ｃ` as `c`, IDNA's other
 /// full stops as `.`), each it ignores dropped (a soft hyphen), and every
 /// other kept as it is, so an address or a name spelled in look-alikes is
-/// judged as the one it resolves to.
+/// judged as the one it resolves to. IDNA2003's own readings come first:
+/// the zero-width joiners dropped, `ß` as `ss`. Best effort: the sandbox's
+/// lack of network is what keeps a case from reaching a host.
 fn folded(text: &str) -> String {
-    let text = text.replace(['\u{3002}', '\u{FF0E}', '\u{FF61}'], ".");
+    let text = text
+        .replace(['\u{3002}', '\u{FF0E}', '\u{FF61}'], ".")
+        .replace(['\u{200C}', '\u{200D}'], "")
+        .replace('ß', "ss");
     let mut said = String::with_capacity(text.len());
     let mut one = [0u8; 4];
     for ch in text.chars() {
