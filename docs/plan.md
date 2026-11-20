@@ -413,6 +413,17 @@ HEAD. The details, and how to read the report: [security.md](security.md).
   takes the session's `verified` and `prove`, recorded in the project's
   ledger (`attack::verified_into`, `attack::prove_into`), never from the
   checkout, and `doctor` tells devpit's `enabled` from devflow's own switch.
+- 0.6.3: `devflow register` also puts the MCP server in Claude Code's user
+  config, as the plugin names it, so a session that loads another plugin
+  named devflow keeps it; `doctor` names such a plugin and `status` offers
+  Claude Code the fix once.
+- 0.6.4: the attack's question asks only what has no safe default (the
+  command where no runner is found, the image where docker runs without
+  one, the targets) and says the rest; it never asks or writes a budget,
+  and one the 0.6.2/0.6.3 question prefilled holds no attack. A yes edits a
+  file that names the attack as `review.attack` in place, its stage added.
+  An exploit's tree gets the main worktree's dependency folders, and a
+  detached tree follows its main checkout's folder.
 
 **What a host sees change**
 
@@ -451,6 +462,10 @@ HEAD. The details, and how to read the report: [security.md](security.md).
   `docker run` makes the file invalid. The question
   lives in the MCP server (`ready`, `person`); a host keeps its own switches
   and asks its own way.
+- 0.6.4 adds `sandbox::dependencies_for`; `folder::dir` and `folder::file`
+  of a linked worktree with no configuration of its own answer its main
+  worktree's, and an edit that sets a field of a stage the list lacks adds
+  the stage in place.
 
 ## Release
 

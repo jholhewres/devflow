@@ -105,7 +105,6 @@ stages:
     model: large
     test: sh scripts/run-exploit.sh   # runs one exploit, given $DEVFLOW_EXPLOIT
     sandbox: auto                      # auto, bwrap, docker or off
-    budget: { run_usd: 5, month_usd: 50 }
     concurrency: 1                     # attackers at once, when several are declared
 ```
 
@@ -119,23 +118,33 @@ devflow config set stages.attack.run off   # as a file that names no attack stag
 No terminal command is needed to start attacking. When the agent calls the
 `attack` tool and something only the person gives is missing, devflow asks
 the person **one** question through the client (MCP's
-`elicitation/create`), with what it found already filled in:
+`elicitation/create`), as short as it can be. What devflow found is said in
+its text and written on a yes:
 
-| Field | Starts at |
-|---|---|
-| Switch devflow on here | yes (also writes the recommended setup when there is no devflow.yaml, and `run: release` when the attack stage is off) |
-| Exploit test command | the project's runner: `npx jest "$DEVFLOW_EXPLOIT"`, `vitest run`, `cargo test --test`, `go test -run`, `pytest`, `phpunit`, `pest` |
-| Sandbox | `auto`, which says what it finds here (bwrap or docker) |
-| Docker image | the runner's (`node:22`, `rust:1`, `golang:1`, `python:3`, `php:8`), when docker is here |
-| Budget per attack / per month | US$ 5 / US$ 50 |
-| Allow these targets | no, with what each listed target resolves to |
+- devflow switched on here (the recommended setup written where there is no
+  devflow.yaml, and the attack stage on for attacks asked by name where it
+  is off);
+- the exploit test command, from the project's runner: `npx jest
+  "$DEVFLOW_EXPLOIT"`, `vitest run`, `cargo test --test`, `go test -run`,
+  `pytest`, `phpunit`, `pest`;
+- the docker image for that runner (`node:22`, `rust:1`, `golang:1`,
+  `python:3`, `php:8`), when docker is here;
+- where the exploits run: bwrap, docker, or nowhere here, with no network.
+
+A field is asked only for what has no safe default: the command when no
+runner devflow knows was found, the image when docker is the sandbox and
+none was found, and the listed targets, with what each resolves to, which
+start unticked. Most often there is no field, and the question is its text
+with Accept and Decline. A budget is never asked: the attackers run on the
+person's own CLI, most often a subscription.
 
 On a yes devflow edits devflow.yaml in place, keeping what devpit or the
-person wrote and their comments, switches itself on for the project on this
-machine, and runs the attack in the same call. A no, or a dismissed
-question, writes nothing and the attack does not run. Once answered, a
-field left empty is not asked again through the client; a new target list
-is.
+person wrote and their comments (a file that names the attack by its older
+name, `review.attack`, gets it as a stage, the rest untouched), switches
+itself on for the project on this machine, and runs the attack in the same
+call. A no, or a dismissed question, writes nothing and the attack does not
+run. Once answered, a part is not asked again through the client; a new
+target list is.
 
 Only the person consents:
 
@@ -242,13 +251,20 @@ The attack runs on a large model and reads more than a reviewer. On one
 measured change of about 700 lines, one attack took 6 to 8 minutes and
 US$ 1.40 to 1.80 ([measurements](measurements/2026-11-presets.md)).
 `per-item` pays that after every change, so `sensitive` or `release` is the
-usual choice. `stages.attack.budget` caps it:
+usual choice. Nothing caps it unless the person sets `stages.attack.budget`
+(a CLI paid by API; a subscription needs none):
 
 - `run_usd` caps one run: the attacker's turn stops there, the report says
   what capped it (`run_capped_by`), and several attackers share it.
 - `month_usd` refuses a run before it starts once the month's attacks spent
   it. A ledger devflow cannot read refuses too: it never counts as nothing
   spent.
+
+The question of devflow 0.6.2 and 0.6.3 filled the budget in with US$ 5 per
+attack and US$ 50 a month. Where consent.json says it asked them and the
+file still says those amounts, they hold no attack: `devflow doctor` points
+them out, and `devflow config set stages.attack.budget null` takes them
+out. An amount the person changed holds as written.
 
 Each run's numbers are kept on its report and in the project's ledger,
 beside its runs and never in the repository. `devflow status --attack` adds
@@ -522,9 +538,16 @@ are capped: docker caps the container's memory, CPUs and process count;
 bwrap hides `/run` and your home folder (showing back only the project's
 dependency folders and the toolchains on your `PATH`, read-only), and its
 CPU and memory caps hold per process, with no cap on how many it starts.
-Where neither sandbox works (bwrap needs unprivileged user namespaces;
-docker needs the image), or the command is not set, the exploit stays
-`tried` with the reason, and the session runs it.
+The project's dependency folders (`node_modules`, `vendor`, `.venv` and the
+like) are mounted read-only into each worktree, from the checkout, else from
+the repository's main worktree, so an exploit test never fetches them
+offline, even when the attack reads a detached tree of a range.
+`auto` tries bwrap for real and falls back to docker: bwrap needs
+unprivileged user namespaces, which Ubuntu restricts from 23.10
+(`kernel.apparmor_restrict_unprivileged_userns=1`); `devflow doctor` says
+which one runs here, and why bwrap does not.
+Where neither sandbox works (docker needs the image), or the command is not
+set, the exploit stays `tried` with the reason, and the session runs it.
 
 ## Limits today
 

@@ -104,7 +104,9 @@ devflow runs its exploit again in the sandbox, at the commit it was confirmed
 on (its base: red, the hole shown) and at HEAD (green, the hole shut), and
 keeps the proof on it. The gate wants base red and HEAD green, no older than
 the last change, and names the side that failed. One green at its base does
-not reproduce: it goes back to the hypotheses as `tried`.
+not reproduce: it goes back to the hypotheses as `tried`. The diff's own BASE
+is never run: an exploit of code the change adds is proven where that code
+is, so do not run it before the change yourself.
 
 Done when no confirmed hypothesis at `block_on` has a red exploit test, and
 each one the sandbox confirmed is proven.
@@ -137,7 +139,8 @@ name):
 With `sensitive`, one attack per [[item]] is enough: a fix is proven by its
 exploit test turning green, not by attacking again.
 
-`stages.attack.budget` (`run_usd`, `month_usd`) holds the cost: a run past the
+`stages.attack.budget` (`run_usd`, `month_usd`), set only by the person
+(a CLI paid by API; a subscription needs none), holds the cost: a run past the
 month's budget is refused before it starts, and one run is capped by the CLI's
 own spending limit where it has one (Claude Code's), else by its time. Each
 report keeps its numbers; `devflow status --attack` adds them up for the
