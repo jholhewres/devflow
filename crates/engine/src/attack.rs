@@ -563,7 +563,8 @@ fn proven(given: &Given, stamp: &str, hypotheses: &mut [Value]) {
                 "result": result, "by": "sandbox",
                 "evidence": format!("{} at {head}: {why}", found.kind.word()),
             });
-            if given.stack.is_some() {
+            // Only an exploit that names a service of the stack met it.
+            if given.stack.is_some_and(|stack| stack.reached_by(&code)) {
                 one["verified"]["stack"] = json!(true);
             }
         }

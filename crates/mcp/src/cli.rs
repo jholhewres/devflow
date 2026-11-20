@@ -158,6 +158,14 @@ fn setting(root: &Path, path: &str, value: &Value, consent: &Consent) -> Result<
         _ => Pins::new(),
     };
     let new = to_confirm(&targets, &kept, &pins, &found);
+    // The stack as compose resolves it now: what is shown is what is kept.
+    let seen = match kind {
+        Kind::Stack => {
+            let stack = layered.config.security.stack.clone().unwrap_or_default();
+            Some(stack_resolved(&project.root, &stack)?)
+        }
+        _ => None,
+    };
     let already = proposal.changes.is_empty()
         && match kind {
             Kind::Field => true,
@@ -165,10 +173,9 @@ fn setting(root: &Path, path: &str, value: &Value, consent: &Consent) -> Result<
             Kind::Targets => new.is_empty() && unconfirmed(&kept, &targets).is_empty(),
             Kind::Stack => {
                 let named = layered.config.security.stack.as_deref();
-                let now = named.and_then(|file| stack_resolved(&project.root, file).ok());
                 matches!(
-                    (consent.confirmed_stack(&project.root), named, now),
-                    (Some((file, digest)), Some(named), Some((_, now))) if file == named && digest == now
+                    (consent.confirmed_stack(&project.root), named, &seen),
+                    (Some((file, digest)), Some(named), Some((_, now))) if file == named && digest == *now
                 )
             }
         };
@@ -199,7 +206,7 @@ fn setting(root: &Path, path: &str, value: &Value, consent: &Consent) -> Result<
         }
         Kind::Stack => {
             let stack = layered.config.security.stack.clone().unwrap_or_default();
-            let (config, digest) = stack_resolved(&project.root, &stack)?;
+            let (config, digest) = seen.as_ref().ok_or("security.stack names no file")?;
             println!("  compose file: {stack}, as compose resolves it (sha256 {digest})");
             for (name, service) in config["services"].as_object().into_iter().flatten() {
                 println!(
@@ -229,8 +236,8 @@ fn setting(root: &Path, path: &str, value: &Value, consent: &Consent) -> Result<
         }
         Kind::Stack => {
             let stack = layered.config.security.stack.clone().unwrap_or_default();
-            let (_, digest) = stack_resolved(&project.root, &stack)?;
-            consent.confirm_stack(&project.root, Some((&stack, &digest)))?;
+            let (_, digest) = seen.as_ref().ok_or("security.stack names no file")?;
+            consent.confirm_stack(&project.root, Some((&stack, digest)))?;
         }
         Kind::Field => {}
     }

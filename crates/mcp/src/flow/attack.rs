@@ -182,15 +182,7 @@ fn stack_in_force(
     let Some(named) = config.security.stack.as_deref() else {
         return Ok(None);
     };
-    let again = "the person confirms it with `devflow config set security.stack` in a terminal";
-    let Some((file, digest)) = server.consent.confirmed_stack(root) else {
-        return Err(format!("security.stack is not confirmed: {again}"));
-    };
-    if file != named {
-        return Err(format!(
-            "security.stack names another file than the one confirmed: {again}"
-        ));
-    }
+    let confirmed = server.consent.confirmed_stack(root);
     use devflow_engine::config::SandboxChoice;
     if matches!(
         config.stages.attack.sandbox,
@@ -202,11 +194,29 @@ fn stack_in_force(
         );
     }
     let docker = crate::register::on_path("docker").ok_or("security.stack needs docker")?;
-    let (_, now) = devflow_engine::stack::resolved(&docker, root, &file)?;
-    if now != digest {
-        return Err(format!("the stack changed since it was confirmed: {again}"));
+    let (_, now) = devflow_engine::stack::resolved(&docker, root, named)?;
+    in_force(confirmed, named, &now)?;
+    Ok(Some((named.to_owned(), docker)))
+}
+
+/// Whether the stack `named`, resolving to `now`, is the one the person
+/// confirmed: the same file, resolving to what it did then.
+pub(crate) fn in_force(
+    confirmed: Option<(String, String)>,
+    named: &str,
+    now: &str,
+) -> Result<(), String> {
+    let again = "the person confirms it with `devflow config set security.stack` in a terminal";
+    match confirmed {
+        None => Err(format!("security.stack is not confirmed: {again}")),
+        Some((file, _)) if file != named => Err(format!(
+            "security.stack names another file than the one confirmed: {again}"
+        )),
+        Some((_, digest)) if digest != now => {
+            Err(format!("the stack changed since it was confirmed: {again}"))
+        }
+        Some(_) => Ok(()),
     }
-    Ok(Some((file, docker)))
 }
 
 /// The stack in force, started for this attack and taken down when dropped;
@@ -398,5 +408,26 @@ pub fn after_review(
     match on_item(server, project, config, &json!({ "item": item }), reach) {
         Ok(answer) => answer,
         Err(why) => json!({ "error": why }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::in_force;
+
+    #[test]
+    fn a_stack_changed_since_it_was_confirmed_is_not_in_force() {
+        let kept = Some(("compose.yaml".to_owned(), "d1".to_owned()));
+        assert!(in_force(kept.clone(), "compose.yaml", "d1").is_ok());
+        let changed = in_force(kept.clone(), "compose.yaml", "d2").expect_err("changed");
+        assert!(
+            changed.contains("changed since it was confirmed"),
+            "{changed}"
+        );
+        assert!(in_force(kept, "other.yaml", "d1").is_err(), "another file");
+        assert!(
+            in_force(None, "compose.yaml", "d1").is_err(),
+            "never confirmed"
+        );
     }
 }

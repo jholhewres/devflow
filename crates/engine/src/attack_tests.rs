@@ -355,3 +355,36 @@ fn an_attackers_own_hypotheses_stay_apart_and_the_one_that_went_furthest_stands(
     );
     assert!(kept[0]["exploit"].is_object());
 }
+
+#[test]
+fn a_stacks_exploit_is_proven_at_head_and_the_sandbox_is_docker() {
+    let proof = |base: &str, head: &str, stack: bool| {
+        json!({ "status": "confirmed", "verified": { "by": "sandbox", "stack": stack }, "proof": {
+            "base": { "commit": "aaaaaaaaaaaaaaaa", "result": base },
+            "head": { "commit": "bbbbbbbbbbbbbbbb", "result": head },
+            "ran_at": "20261120T000000Z", "stack": stack } })
+    };
+    assert!(
+        unproven(&proof("skipped", "green", true)).is_none(),
+        "the stack runs HEAD"
+    );
+    assert!(
+        unproven(&proof("skipped", "red", true)).is_some(),
+        "still open"
+    );
+    assert!(
+        unproven(&proof("skipped", "green", false)).is_some(),
+        "a plain one needs its base"
+    );
+    use crate::config::SandboxChoice;
+    assert_eq!(sandbox_for(None, true), SandboxChoice::Docker);
+    assert_eq!(
+        sandbox_for(Some(SandboxChoice::Auto), true),
+        SandboxChoice::Docker
+    );
+    assert_eq!(sandbox_for(None, false), SandboxChoice::Auto);
+    assert_eq!(
+        sandbox_for(Some(SandboxChoice::Bwrap), true),
+        SandboxChoice::Bwrap
+    );
+}

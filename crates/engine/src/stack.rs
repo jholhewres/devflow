@@ -181,6 +181,18 @@ pub struct Up {
 }
 
 impl Up {
+    /// Whether exploit `code` names a service of the stack, and so meets it.
+    pub fn reached_by(&self, code: &str) -> bool {
+        self.targets.iter().any(|target| {
+            let host = target
+                .trim_start_matches("http://")
+                .split(':')
+                .next()
+                .unwrap_or_default();
+            !host.is_empty() && code.contains(host)
+        })
+    }
+
     fn compose(&self) -> Command {
         compose(&self.docker, &self.name, &self.files, &self.cwd)
     }
@@ -261,7 +273,30 @@ pub fn resolved(docker: &Path, root: &Path, file: &str) -> Result<(Value, String
     }
     let config: Value =
         serde_json::from_slice(&raw).map_err(|err| format!("docker compose config: {err}"))?;
-    let digest = format!("{:x}", Sha256::digest(config.to_string().as_bytes()));
+    // The images as they are here, not only their tags: a retagged image is
+    // another stack.
+    let mut images: Vec<String> = config["services"]
+        .as_object()
+        .into_iter()
+        .flatten()
+        .filter_map(|(_, service)| service["image"].as_str().map(str::to_owned))
+        .collect();
+    images.sort();
+    images.dedup();
+    let mut pinned = String::new();
+    for image in &images {
+        let mut inspect = crate::env::command(docker);
+        inspect.args(["image", "inspect", "--format", "{{.Id}}", image]);
+        let id = match ran(inspect)? {
+            (true, raw, _) => String::from_utf8_lossy(&raw).trim().to_owned(),
+            _ => "absent".to_owned(),
+        };
+        pinned.push_str(&format!("{image}={id}\n"));
+    }
+    let digest = format!(
+        "{:x}",
+        Sha256::digest(format!("{config}\n{pinned}").as_bytes())
+    );
     Ok((config, digest))
 }
 
