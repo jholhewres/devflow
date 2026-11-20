@@ -167,3 +167,116 @@ fn a_list_replaced_that_would_drop_an_unread_field_lays_the_file_out() {
     let (edited, laid_out) = rewritten(Some(text), &changes(Some(&before), &after), &after);
     assert!(laid_out, "{edited}");
 }
+
+const LISTED: &str = "\
+# Ours.
+version: 2
+enabled: true
+stages:
+  - uses: builtin/plan
+    approve: person   # always
+  - uses: builtin/review
+    enabled: true
+  - uses: builtin/completion
+    gate: devflow-done
+review:
+  # Who reads it.
+  attack: release
+  block_on: [critical, high]
+";
+
+#[test]
+fn an_attack_said_by_its_older_name_moves_to_its_stage_in_place() {
+    let before = crate::config::parse(LISTED).expect("valid");
+    assert_eq!(before.stages.attack.run, crate::config::AttackRun::Release);
+    let after = with_set(
+        &before,
+        "stages.attack.test",
+        &json!("npm test -- \"$DEVFLOW_EXPLOIT\""),
+    )
+    .expect("set");
+    let (text, laid_out) = rewritten(Some(LISTED), &changes(Some(&before), &after), &after);
+    assert!(!laid_out, "{text}");
+    assert_eq!(
+        text,
+        LISTED
+            .replace(
+                "  - uses: builtin/completion\n",
+                "  - uses: builtin/attack\n    run: release\n    test: \"npm test -- \\\"$DEVFLOW_EXPLOIT\\\"\"\n  - uses: builtin/completion\n",
+            )
+            .replace("  attack: release\n", "")
+    );
+    assert_eq!(crate::config::parse(&text), Ok(after));
+}
+
+#[test]
+fn a_stage_the_list_lacks_is_added_where_the_flow_runs_it() {
+    let flow = LISTED.replace("  attack: release\n", "");
+    let before = crate::config::parse(&flow).expect("valid");
+    let after = with_set(&before, "stages.attack.run", &json!("release")).expect("set");
+    let (text, laid_out) = rewritten(Some(&flow), &changes(Some(&before), &after), &after);
+    assert!(!laid_out, "{text}");
+    assert!(
+        text.contains("    enabled: true\n  - uses: builtin/attack\n    run: release\n  - uses: builtin/completion\n"),
+        "{text}"
+    );
+    assert!(
+        text.starts_with("# Ours.\n")
+            && text.contains("# always")
+            && text.contains("# Who reads it.")
+    );
+    assert_eq!(crate::config::parse(&text), Ok(after));
+}
+
+#[test]
+fn a_detached_tree_without_the_file_follows_its_main_checkouts_folder() {
+    let main = project(None);
+    let root = main.path();
+    std::fs::create_dir_all(root.join(LEGACY)).expect("folder");
+    std::fs::write(root.join(LEGACY).join("devflow.yaml"), "version: 2\n").expect("write");
+    let git = |args: &[&str]| {
+        let ok = std::process::Command::new("git")
+            .args(args)
+            .current_dir(root)
+            .status()
+            .is_ok_and(|status| status.success());
+        assert!(ok, "git {args:?}");
+    };
+    git(&["init", "-q"]);
+    git(&["config", "user.email", "test@example.invalid"]);
+    git(&["config", "user.name", "Test"]);
+    git(&["config", "commit.gpgsign", "false"]);
+    // devpit's folder is kept out of git, as a project may.
+    std::fs::write(root.join(".git/info/exclude"), ".devpit/\n").expect("exclude");
+    std::fs::write(root.join("README.md"), "# shop\n").expect("readme");
+    git(&["add", "-A"]);
+    git(&["commit", "-q", "-m", "first"]);
+    let head = crate::git::head_of(root).expect("head");
+    let tree = tempfile::tempdir().expect("tree");
+    let at = tree.path().join("attack");
+    crate::git::add_detached(root, &at, &head).expect("detached");
+    assert!(!at.join(LEGACY).exists());
+    assert_eq!(dir(&at), LEGACY);
+    assert_eq!(file(&at), crate::locate::DEVPIT);
+    assert_eq!(
+        crate::attack::threat_model_path(&at),
+        format!("{LEGACY}/threat-model.md")
+    );
+    crate::git::remove_detached(root, &at);
+}
+
+#[test]
+fn a_stage_added_to_a_file_with_crlf_ends_its_lines_the_same() {
+    let flow = LISTED
+        .replace("  attack: release\n", "")
+        .replace('\n', "\r\n");
+    let before = crate::config::parse(&flow).expect("valid");
+    let after = with_set(&before, "stages.attack.run", &json!("release")).expect("set");
+    let (text, laid_out) = rewritten(Some(&flow), &changes(Some(&before), &after), &after);
+    assert!(!laid_out, "{text}");
+    assert!(text.contains("builtin/attack\r\n"), "{text:?}");
+    assert!(
+        !text.replace("\r\n", "").contains('\n'),
+        "mixed endings: {text:?}"
+    );
+}

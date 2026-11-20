@@ -54,10 +54,32 @@ pub fn dir(root: &Path) -> &'static str {
     if let Some(pinned) = pinned() {
         return pinned;
     }
-    match crate::locate::config_in(root) {
-        Some(found) if found.origin == Origin::Devpit => LEGACY,
+    match origin(root) {
+        Some(Origin::Devpit) => LEGACY,
         _ => DIR,
     }
+}
+
+/// Where `root`'s configuration comes from: its own, else, for a linked
+/// worktree with none (a detached tree an attack or a review reads, where
+/// an untracked `.devpit/` is not), its main worktree's.
+fn origin(root: &Path) -> Option<Origin> {
+    crate::locate::config_in(root)
+        .or_else(|| crate::locate::config_in(&main_worktree(root)?))
+        .map(|found| found.origin)
+}
+
+/// The main worktree of a linked one, whose `.git` is a file.
+fn main_worktree(root: &Path) -> Option<std::path::PathBuf> {
+    if !root.join(".git").is_file() {
+        return None;
+    }
+    crate::git::worktrees(root)
+        .ok()?
+        .into_iter()
+        .next()
+        .map(std::path::PathBuf::from)
+        .filter(|main| main.as_path() != root)
 }
 
 /// The configuration that applies to `root`, relative to it: `devflow.yaml`,
@@ -66,7 +88,7 @@ pub fn file(root: &Path) -> String {
     if let Some(pinned) = pinned() {
         return format!("{pinned}/{}", crate::locate::FILE);
     }
-    match crate::locate::config_in(root).map(|found| found.origin) {
+    match origin(root) {
         Some(Origin::Root) => crate::locate::FILE.to_owned(),
         Some(Origin::Devpit) => crate::locate::DEVPIT.to_owned(),
         Some(Origin::Folder) | None => FILE.to_owned(),
@@ -256,9 +278,73 @@ fn json_of(node: &Node) -> serde_json::Value {
 /// `text` with each change made where it stands: a word swapped, a key
 /// added or removed, a value replaced; `None` when one cannot be.
 fn in_place(text: &str, changed: &[Change]) -> Option<String> {
-    changed.iter().try_fold(text.to_owned(), |text, change| {
-        crate::edit::set(&text, &change.path, &change.after)
-    })
+    let mut text = text.to_owned();
+    // The attack, when the list of stages does not name it: from its older
+    // name `review.attack`, else new, then added to the list as a stage.
+    let mut attack: Option<serde_json::Value> = None;
+    for change in changed {
+        if let Some(edited) = crate::edit::set(&text, &change.path, &change.after) {
+            text = edited;
+            continue;
+        }
+        let field = change.path.strip_prefix("stages.attack.")?;
+        let mut fields = match attack.take() {
+            Some(fields) => fields,
+            None => older_attack(&text),
+        };
+        with_field(&mut fields, field, &change.after);
+        attack = Some(fields);
+    }
+    if let Some(fields) = attack {
+        let said = as_json(&text)?;
+        if said
+            .get("review")
+            .and_then(|review| review.get("attack"))
+            .is_some()
+        {
+            text = crate::edit::set(&text, "review.attack", &serde_json::Value::Null)?;
+        }
+        let mut item = serde_json::json!({ "uses": "builtin/attack" });
+        if let (Some(item), serde_json::Value::Object(fields)) = (item.as_object_mut(), fields) {
+            item.extend(fields);
+        }
+        text = crate::edit::add_stage(&text, "attack", &item)?;
+    }
+    Some(text)
+}
+
+/// What `review.attack`, the attack's older name, says: a word is its `run`.
+fn older_attack(text: &str) -> serde_json::Value {
+    let said = as_json(text).and_then(|said| said.get("review")?.get("attack").cloned());
+    match said {
+        Some(serde_json::Value::String(word)) => serde_json::json!({ "run": word }),
+        Some(map @ serde_json::Value::Object(_)) => map,
+        _ => serde_json::json!({}),
+    }
+}
+
+/// `fields` with the dotted `field` set to `value`, a null removing it.
+fn with_field(fields: &mut serde_json::Value, field: &str, value: &serde_json::Value) {
+    let mut parts: Vec<&str> = field.split('.').collect();
+    let Some(last) = parts.pop() else {
+        return;
+    };
+    let mut at = fields;
+    for part in parts {
+        if !at.get(part).is_some_and(serde_json::Value::is_object) {
+            at[part] = serde_json::json!({});
+        }
+        at = &mut at[part];
+    }
+    match (at.as_object_mut(), value.is_null()) {
+        (Some(map), true) => {
+            map.remove(last);
+        }
+        (Some(map), false) => {
+            map.insert(last.to_owned(), value.clone());
+        }
+        (None, _) => {}
+    }
 }
 
 /// The name an item of a list of stages has: what follows the last `/` of `uses`.

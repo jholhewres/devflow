@@ -76,6 +76,86 @@ fn edit(
     }
 }
 
+/// The stages in the order the flow runs them: where a stage added to the
+/// list goes.
+const ORDER: [&str; 7] = [
+    "briefing",
+    "context",
+    "plan",
+    "execution",
+    "review",
+    "attack",
+    "completion",
+];
+
+/// `text` with a stage the list of `stages` lacks added as `item`, before
+/// the first stage that runs after it, else at the list's end; `None` when
+/// the list is not a block list of maps or already has it.
+pub(crate) fn add_stage(text: &str, name: &str, item: &Json) -> Option<String> {
+    let tree = node::from_yaml(text).ok()?;
+    let mut lines: Vec<String> = text.split_inclusive('\n').map(str::to_owned).collect();
+    if lines.last().is_some_and(|last| !last.ends_with('\n')) {
+        lines.last_mut()?.push('\n');
+    }
+    let Value::Map(top) = &tree.value else {
+        return None;
+    };
+    let (_, stages) = top.iter().find(|(key, _)| key.name == "stages")?;
+    let Value::Seq(items) = &stages.value else {
+        return None;
+    };
+    if items
+        .iter()
+        .any(|one| crate::folder::stage_named(one) == Some(name))
+    {
+        return None;
+    }
+    // Each item's first key: its line (from 0) and the column of its dash.
+    let first = |one: &Node| -> Option<(usize, usize)> {
+        let Value::Map(fields) = &one.value else {
+            return None;
+        };
+        let (key, _) = fields.first()?;
+        Some((key.line?.checked_sub(1)?, key.col?.checked_sub(2)?))
+    };
+    let (_, dash) = first(items.first()?)?;
+    let rank = |stage: &str| ORDER.iter().position(|one| *one == stage);
+    let after = rank(name)?;
+    let next = items.iter().find(|one| {
+        crate::folder::stage_named(one)
+            .and_then(rank)
+            .is_some_and(|at| at > after)
+    });
+    let at = match next {
+        Some(next) => first(next)?.0,
+        None => {
+            let (line, col) = first(items.last()?)?;
+            end_of(
+                &lines,
+                &Entry {
+                    line,
+                    col,
+                    only: false,
+                },
+            )
+        }
+    };
+    let line = lines.get(at.min(lines.len().saturating_sub(1)))?;
+    if next.is_some() && !line.chars().take(dash).all(|one| one == ' ') {
+        return None;
+    }
+    let mut new = Vec::new();
+    block(&Json::Array(vec![item.clone()]), dash, &mut new);
+    lines.splice(at..at, new);
+    // New lines end as the file's own do.
+    let edited = lines.concat();
+    Some(if text.contains("\r\n") {
+        edited.replace("\r\n", "\n").replace('\n', "\r\n")
+    } else {
+        edited
+    })
+}
+
 /// A map written in block style: the column its keys stand at.
 struct Here {
     col: usize,
