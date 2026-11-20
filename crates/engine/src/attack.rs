@@ -1385,6 +1385,18 @@ pub fn attacked(given: &Given) -> Result<Done, String> {
 
 /// A report kept again with the session's runs on it.
 pub fn verified(folder: &Path, config: &Config, verified: &[Value]) -> Result<Value, String> {
+    verified_into(folder, config, verified, None)
+}
+
+/// [`verified`], its numbers recorded again in the ledger at `ledger`'s
+/// home under its item or range, when the run is kept elsewhere (a vault);
+/// beside its run when `None`.
+pub fn verified_into(
+    folder: &Path,
+    config: &Config,
+    verified: &[Value],
+    ledger: Option<(&Path, &str)>,
+) -> Result<Value, String> {
     crate::security::refused(verified, &config.security.targets)?;
     let at = folder.join(REPORT);
     let mut report: Value = std::fs::read_to_string(&at)
@@ -1394,7 +1406,7 @@ pub fn verified(folder: &Path, config: &Config, verified: &[Value]) -> Result<Va
     verified_on(&mut report, verified)?;
     settled(&mut report, &config.review.block_on);
     write(folder, REPORT, &pretty(&report))?;
-    recorded_again(folder, &report);
+    recorded_again(folder, &report, ledger);
     Ok(report)
 }
 
@@ -1448,6 +1460,11 @@ fn side(
 /// (green, the hole shut), the proof kept on its hypothesis. One green at its
 /// base does not reproduce and goes back to the hypotheses, `tried`.
 pub fn prove(given: &Proving) -> Result<Value, String> {
+    prove_into(given, None)
+}
+
+/// [`prove`], its numbers recorded again as [`verified_into`] says.
+pub fn prove_into(given: &Proving, ledger: Option<(&Path, &str)>) -> Result<Value, String> {
     let mut report: Value = std::fs::read_to_string(given.folder.join(REPORT))
         .ok()
         .and_then(|text| serde_json::from_str(&text).ok())
@@ -1563,18 +1580,23 @@ pub fn prove(given: &Proving) -> Result<Value, String> {
     }
     settled(&mut report, &given.config.review.block_on);
     write(given.folder, REPORT, &pretty(&report))?;
-    recorded_again(given.folder, &report);
+    recorded_again(given.folder, &report, ledger);
     Ok(report)
 }
 
-/// A run's numbers recorded again once its hypotheses changed: its folder
-/// is `<home>/<item>/<run>`.
-fn recorded_again(folder: &Path, report: &Value) {
+/// A run's numbers recorded again once its hypotheses changed: in the
+/// ledger `ledger` names, else beside it, its folder being
+/// `<home>/<item>/<run>`.
+fn recorded_again(folder: &Path, report: &Value, ledger: Option<(&Path, &str)>) {
     let named = |at: &Path| {
         at.file_name()
             .and_then(|name| name.to_str())
             .map(str::to_owned)
     };
+    if let (Some((home, item)), Some(run)) = (ledger, named(folder)) {
+        let _ = crate::attack_metrics::record(home, item, &run, report);
+        return;
+    }
     let item = folder.parent();
     if let (Some(run), Some(item), Some(home)) = (
         named(folder),

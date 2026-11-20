@@ -38,7 +38,7 @@ pub fn attack(server: &Server, params: Value) -> Result<Value, String> {
     let state = project.read();
     let config = super::config_for(&project, &state, &server.consent, "attack")?;
     if item_of(&params).is_none() && super::text(&params, "head").is_some() {
-        return on_range(&project, config, &params, &super::review::reach);
+        return on_range(server, &project, config, &params, &super::review::reach);
     }
     on_item(server, &project, config, &params, &super::review::reach)
 }
@@ -46,6 +46,7 @@ pub fn attack(server: &Server, params: Value) -> Result<Value, String> {
 /// The attack on a range with no item: its run and each exploit kept in the
 /// project's vault, outside the checkout, under the range's name.
 pub fn on_range(
+    server: &Server,
     project: &Project,
     config: &Config,
     params: &Value,
@@ -62,9 +63,6 @@ pub fn on_range(
         }
     };
     let (base, head) = (revision("base")?, revision("head")?);
-    if super::text(params, "run").is_some() || params.get("verified").is_some() {
-        return Err("a range's attack runs once: its exploits wait in the vault for `devflow attack promote`".to_owned());
-    }
     let root = project.root.as_path();
     let head = git::commit_of(root, &head).map_err(said)?;
     let base = git::merge_base(root, &base, &head).map_err(said)?;
@@ -78,10 +76,23 @@ pub fn on_range(
     );
     let home = devflow_engine::vault::home(&project.cache(), root)?;
     let runs = devflow_engine::vault::runs(home, root);
+    let ledger = project.runs().home;
+    if let Some(run) = super::text(params, "run") {
+        return range_run(
+            server,
+            project,
+            config,
+            params,
+            (&runs, &label, &run),
+            &ledger,
+        );
+    }
+    if params.get("verified").is_some() || params.get("prove").is_some() {
+        return Err("`verified` and `prove` go with the range's attack `run`".to_owned());
+    }
     let at = SystemTime::now();
     // One month's budget for the project's attacks, with or without an item.
     let budget = config.stages.attack.budget;
-    let ledger = project.runs().home;
     attack::month_left(&ledger, budget, at)?;
     let tree = project.review_trees().join(format!(
         "attack-{label}-{}",
@@ -149,6 +160,102 @@ pub fn on_range(
         done.stamp
     ));
     Ok(answer)
+}
+
+/// A range's run in the vault, kept again: the session's runs of its
+/// exploits (`verified`), or its confirmed exploits proven at their base and
+/// at HEAD (`prove`). The attacker is not asked again.
+fn range_run(
+    server: &Server,
+    project: &Project,
+    config: &Config,
+    params: &Value,
+    (runs, label, run): (&devflow_engine::runs::Runs, &str, &str),
+    ledger: &std::path::Path,
+) -> Result<Value, String> {
+    let verified = verified_of(params)?;
+    let proving = proving_of(params)?;
+    let at = runs
+        .found(label, Some(run), attack::REPORT)
+        .ok_or_else(|| format!("run {run} of {label} has no {}", attack::REPORT))?;
+    let folder = at.parent().ok_or("a run has a folder")?.to_path_buf();
+    // A range's run is the vault's: one found in the checkout, committed or
+    // put there, is never proven nor counted.
+    let checkout = project.root.canonicalize().unwrap_or(project.root.clone());
+    if folder
+        .canonicalize()
+        .unwrap_or(folder.clone())
+        .starts_with(&checkout)
+    {
+        return Err(format!(
+            "run {run} of {label} is in the checkout, not in the vault: a range's run is read \
+             only from the vault"
+        ));
+    }
+    let report = match (proving, verified.is_empty()) {
+        (true, true) => {
+            let root = project.root.as_path();
+            let head = devflow_engine::git::head_of(root).map_err(|err| err.to_string())?;
+            attack::prove_into(
+                &attack::Proving {
+                    root,
+                    folder: &folder,
+                    config,
+                    head: &head,
+                    scratch: &project.cache().join("trees"),
+                    at: SystemTime::now(),
+                    stack: None,
+                },
+                Some((ledger, label)),
+            )?
+        }
+        (true, false) => return Err("`prove` and `verified` are two calls".to_owned()),
+        (false, true) => {
+            return Err(
+                "with `run`, send `verified` (what each exploit run showed) or `prove: true`"
+                    .to_owned(),
+            )
+        }
+        (false, false) => {
+            let targets = super::targets_in_force(project, config, &server.consent);
+            devflow_engine::security::refused(&verified, &targets)?;
+            let mut in_force = config.clone();
+            in_force.security.targets = targets;
+            attack::verified_into(&folder, &in_force, &verified, Some((ledger, label)))?
+        }
+    };
+    let done = attack::Done {
+        folder: folder.display().to_string(),
+        stamp: run.to_owned(),
+        report,
+    };
+    let mut answer = with_files(&folder, &done.report, attack::summary(&done));
+    if proving {
+        answer["proofs"] = proofs(&done.report);
+    }
+    answer["attacked"] = json!(label);
+    answer["vault"] = json!(done.folder);
+    Ok(answer)
+}
+
+/// Whether the call proves a run's confirmed exploits.
+fn proving_of(params: &Value) -> Result<bool, String> {
+    match params.get("prove") {
+        None | Some(Value::Null) | Some(Value::Bool(false)) => Ok(false),
+        Some(Value::Bool(true)) => Ok(true),
+        Some(_) => Err("`prove` is true or false".to_owned()),
+    }
+}
+
+/// Each proven hypothesis, with its proof.
+fn proofs(report: &Value) -> Value {
+    json!(report["hypotheses"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|one| !one["proof"].is_null())
+        .map(|one| json!({ "id": one["id"], "status": one["status"], "proof": one["proof"] }))
+        .collect::<Vec<_>>())
 }
 
 /// The `verified` the session sends: what each exploit run showed.
@@ -249,11 +356,7 @@ pub fn on_item(
     let item = item_here(project, &id)?;
     let runs = project.runs();
     let verified = verified_of(params)?;
-    let proving = match params.get("prove") {
-        None | Some(Value::Null) | Some(Value::Bool(false)) => false,
-        Some(Value::Bool(true)) => true,
-        Some(_) => return Err("`prove` is true or false".to_owned()),
-    };
+    let proving = proving_of(params)?;
     if proving {
         let run = super::text(params, "run").ok_or("`prove` goes with the attack's `run`")?;
         if !verified.is_empty() {
@@ -282,13 +385,7 @@ pub fn on_item(
         };
         signed(project, &item.id, &attack::comment(&done));
         let mut answer = with_files(&folder, &done.report, attack::summary(&done));
-        answer["proofs"] = json!(done.report["hypotheses"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter(|one| !one["proof"].is_null())
-            .map(|one| json!({ "id": one["id"], "status": one["status"], "proof": one["proof"] }))
-            .collect::<Vec<_>>());
+        answer["proofs"] = proofs(&done.report);
         return Ok(answer);
     }
     if let Some(run) = super::text(params, "run") {
