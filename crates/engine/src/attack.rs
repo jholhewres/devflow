@@ -1006,10 +1006,11 @@ pub fn attacked(given: &Given) -> Result<Done, String> {
         .and_then(|name| name.to_str())
         .unwrap_or_default()
         .to_owned();
-    let criteria: Vec<String> = crate::criteria::criteria(given.card.body)
-        .into_iter()
-        .map(|one| one.text)
-        .collect();
+    let criteria: Vec<String> =
+        crate::criteria::criteria_in(given.card.body, &given.config.criteria.headings)
+            .into_iter()
+            .map(|one| one.text)
+            .collect();
     let packet = (given.redact)(&review::packet(&Packet {
         dialect,
         card: Card {

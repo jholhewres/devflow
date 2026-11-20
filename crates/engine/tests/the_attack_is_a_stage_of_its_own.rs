@@ -1188,3 +1188,59 @@ fn a_scanner_finding_is_called_reachable_or_not_and_the_reachable_stand_apart() 
     assert_eq!(json["scanner"]["reachable"][0]["package"], "example-parser");
     assert_eq!(json["scanner"]["rest"][0]["rule"], "GO-2099-0002");
 }
+
+/// The attack's packet holds the criteria under a heading the project names,
+/// as the review's does.
+#[cfg(unix)]
+#[test]
+fn the_attacks_packet_reads_criteria_under_the_projects_headings() {
+    use std::time::{Duration, SystemTime};
+    let dir = tempfile::tempdir().expect("dir");
+    let root = dir.path().canonicalize().expect("root");
+    let checkout = root.join("checkout");
+    std::fs::create_dir_all(&checkout).expect("checkout");
+    let runs = devflow_engine::runs::Runs {
+        dialect: &Dialect::DEVFLOW,
+        home: root.join("home"),
+        checkout: checkout.clone(),
+    };
+    let bin = root.join("bin");
+    std::fs::create_dir_all(&bin).expect("bin");
+    let claude = fake_claude(&bin, &json!({ "version": 1, "hypotheses": [] }));
+    let reach =
+        move |_: config::Agent| -> Result<String, String> { Ok(claude.display().to_string()) };
+    let redact = |text: &str| text.to_owned();
+    let files = vec![SENSITIVE.to_owned()];
+    let config = parsed("version: 1\ncriteria:\n  headings: [Critérios de aceite]\n");
+    let done = attack::attacked(&attack::Given {
+        root: &checkout,
+        runs: &runs,
+        config: &config,
+        card: devflow_engine::evidence::Card {
+            id: "card_1",
+            title: "Sessions",
+            body: "## Critérios de aceite\n- [ ] a forged cookie is refused\n",
+        },
+        git: devflow_engine::review::Git {
+            base: "b4se",
+            head: "he4d",
+            files: &files,
+            diff: DIFF,
+        },
+        brief: None,
+        evidence: None,
+        review: None,
+        env: &[],
+        at: SystemTime::UNIX_EPOCH + Duration::from_secs(1_792_000_000),
+        budget: Duration::from_secs(60),
+        reach: &reach,
+        redact: &redact,
+        personas: devflow_engine::review::Personas::default(),
+        retro: false,
+        scratch: None,
+    })
+    .expect("attacked");
+    let packet = std::fs::read_to_string(std::path::Path::new(&done.folder).join(attack::PACKET))
+        .expect("packet");
+    assert!(packet.contains("a forged cookie is refused"), "{packet}");
+}
