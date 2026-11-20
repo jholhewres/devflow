@@ -81,7 +81,8 @@ Modelos: `models: economy` roda o trabalho e os revisores num modelo
 pequeno, e uma análise de diff grande ou sensível num modelo grande; sem
 preset, só a sessão do trabalho abre no pequeno; `models: quality` roda tudo no grande. O `model` de uma etapa
 (`small`, `default`, `large` ou o id de um modelo) e o de um revisor vencem o
-preset. Um `devflow.yaml` sem preset revisa como antes. Um modelo é um tier,
+preset. Um `devflow.yaml` sem preset revisa como antes; `models: economy` é
+o que escrever ([medido](docs/measurements/2026-11-presets.md)). Um modelo é um tier,
 exato, ou o id de um modelo; qualquer outra coisa é recusada, com o que
 escrever no lugar. Para planejar e revisar num modelo grande e executar num
 pequeno:
@@ -102,25 +103,39 @@ O `status` também diz o que o review mais recente gastou por etapa e modelo
 Duas coisas olham a segurança de uma mudança. O **revisor de segurança**
 (`devflow-security`) a lê durante o review, como os revisores de spec e de
 standards, e seus achados críticos e altos seguram o trabalho. O **ataque**
-(`review.attack`: `off` se não disser, `sensitive`, `per-item` ou `release`)
-tenta explorar a mudança, e só um achado confirmado por um teste de
-exploração segura o trabalho; o resto vira acompanhamento. Itens do plano que
-cruzam uma fronteira de confiança dizem seus casos de abuso, cada um um
-critério provado por teste, e um check com `report: sarif` lê o SARIF de
-qualquer analisador estático como achados, que nunca seguram nada.
+é uma etapa própria depois do review: tenta explorar a mudança e responde
+com hipóteses, cada uma com um teste de exploração. O devflow roda cada
+exploit num sandbox (bwrap, ou docker sem rede), numa worktree descartável,
+e só um que falha ali, `confirmed`, segura o trabalho, até ser provado
+vermelho na base e verde no HEAD.
 
 ```sh
-devflow config set review.attack sensitive
+devflow config set stages.attack.run per-item   # sensitive (o padrão), per-item, release ou off
+devflow config set stages.attack.test 'sh scripts/run-exploit.sh'   # roda um exploit, dado $DEVFLOW_EXPLOIT
+devflow config set stages.attack.budget '{"run_usd":5,"month_usd":50}'
 devflow config set security.targets '["http://localhost:8080"]'   # pede confirmação de cada alvo, no terminal
+devflow status --attack   # quanto os ataques custaram e confirmaram, e o modo que sugerem
 ```
 
-Um ataque só alcança as instâncias do próprio projeto que você confirmou
-(loopback, `localhost`, `host.docker.internal`, nomes de serviço do docker),
-nunca um terceiro nem os metadados da nuvem, e nunca contorna a recusa de um
-modelo. Hoje um leitor sem interface não roda as próprias PoCs, então quem
-roda é a sessão; o devflow não isola o shell do próprio agente. Quando cada
-um roda, quanto custa e como ler `confirmed`, `refuted` e `not_run`:
-[docs/security.md](docs/security.md) (em inglês) e [SECURITY.md](SECURITY.md).
+`review.attack` é o nome antigo da etapa e continua valendo. Um devflow.yaml
+que não fala da etapa de ataque a tem ligada como `sensitive`: além de um
+diff pequeno, ou num caminho sensível, o gate espera por ela;
+`stages.attack.run off` é como a 0.5.x se comportava. Um ataque só alcança as
+instâncias do próprio projeto que você confirmou (loopback, `localhost`,
+`host.docker.internal`, nomes de serviço do docker) ou uma stack compose que
+você confirmou, numa rede interna; nunca um terceiro nem os metadados da
+nuvem, e nunca contorna a recusa de um modelo. Cada execução escreve seu
+relatório em markdown, JSON e SARIF, com um rascunho de issue por falha
+confirmada, e não publica nada disso. Um intervalo já em produção ganha um
+retro só de segurança, cujos exploits ficam num cofre fora do repositório.
+Rodar o ataque no CI está pendente. Itens do plano que cruzam uma fronteira
+de confiança dizem seus casos de abuso, cada um um critério provado por
+teste.
+
+O devflow não isola o shell do próprio agente. Como cada parte funciona,
+quanto custa e como ler as hipóteses: [docs/security.md](docs/security.md)
+(em inglês); o que o sandbox garante e o que não garante:
+[SECURITY.md](SECURITY.md).
 
 Mais: [integrações](docs/integrations.md) · [segurança](docs/security.md) · [plano](docs/plan.md) ·
 [contribuir](CONTRIBUTING.md).

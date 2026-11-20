@@ -31,9 +31,11 @@ Worth knowing before you run it, and worth keeping in mind when reviewing:
   diff.
 - It **posts to a pull request** only after the person said yes to that exact
   draft.
-- With `review.attack` on, a reviewer **tries to exploit the change**: it
-  reads the checkout, runs its tests, and may send requests to the targets
-  in force, `DEVFLOW_SECURITY_TARGETS`. A target is in force only when
+- With the attack stage on (`stages.attack.run`, `sensitive` unless said;
+  `review.attack` is its older name), an attacker **tries to exploit the
+  change**: it reads the checkout and writes exploit tests, which devflow
+  runs in a sandbox (below) or the session runs, and they may send requests
+  to the targets in force, `DEVFLOW_SECURITY_TARGETS`. A target is in force only when
   `security.targets` lists it and the person confirmed it on a terminal
   (`devflow config set security.targets`), and only the project's own
   instances are accepted: loopback, `localhost`, `host.docker.internal`, or a
@@ -41,7 +43,10 @@ Worth knowing before you run it, and worth keeping in mind when reviewing:
   search domains included, and as the name alone) is this machine's or a
   private network's.
   A way to make a third party's host a target, or to record a PoC against
-  one, is a vulnerability.
+  one, is a vulnerability. A compose stack (`security.stack`) is started
+  only once the person confirmed it on a terminal, as compose resolves it
+  with its images' ids, on a network docker makes internal; a way to start
+  one that reaches beyond that network is a vulnerability.
   What the security reviewer and the attack do, and their limits:
   [docs/security.md](docs/security.md).
 - It **reads static analysers' SARIF** from a check's report folder; a
@@ -56,11 +61,44 @@ Worth knowing before you run it, and worth keeping in mind when reviewing:
   same release, so it guards against a broken download, not a compromised
   release. A way to install anything but a release's own archive is a
   vulnerability.
+- It **runs exploit tests in a sandbox**, when `stages.attack.test` is set
+  and bwrap or docker works here. What the sandbox enforces:
+  - each exploit runs in a throwaway worktree of HEAD, dropped after it ran;
+    the checkout is out of its reach;
+  - no network: bwrap gives it a network namespace of its own, docker runs
+    it with none, or attached only to a confirmed stack's internal network;
+  - a time limit, and caps on memory and CPU: in docker per container,
+    process count included; in bwrap per process;
+  - in bwrap, `/run` and your home folder are hidden, apart from the
+    project's dependency folders and the toolchains on your `PATH`, shown
+    back read-only.
+
+  What it does not enforce:
+  - it runs as your own user, not a separate one;
+  - bwrap caps no process count, and its memory and CPU caps hold per
+    process, not for the exploit as a whole;
+  - the toolchains shown back are your own, as installed;
+  - the docker sandbox needs access to the docker daemon, which is as good
+    as root on most machines;
+  - a hole in bwrap, docker or the kernel is beyond it.
+
+  Where no sandbox works, the exploit waits for the session, which runs it
+  with your permissions. A way for an exploit in the sandbox to write the
+  checkout, reach a network it was not given, or outlive its time is a
+  vulnerability.
+- A **headless reviewer or attacker is held to reading** by its CLI's own
+  read-only mode: Claude Code gets no shell at all, Codex runs in its
+  read-only sandbox, Cursor in ask mode and Gemini in plan mode, the last two
+  as their own settings allow. OpenCode is refused as a headless reader.
 - It **does not sandbox the agent's own shell.** The session that builds the
   work, and a reviewer's CLI, run with your permissions and their own
   settings: devflow gives the targets in force and asks that nothing else be
   reached, but it cannot stop a command an agent runs. Keep the reviewer
   CLIs' own permission settings as tight as you keep the session's.
+- It **keeps exploits out of the repository**: an attack's exploit code
+  stays in its run, beside the item's runs, and a range's in a vault in
+  devflow's cache, refused when it would resolve inside the checkout.
+  `devflow attack promote` copies one in only when the person asks.
 
 ## Scope
 

@@ -80,7 +80,8 @@ Models: `models: economy` runs the work and the reviewers on a small model
 and an analysis of a large or sensitive diff on a large one; unset, only the
 work's session opens small; `models: quality` runs everything large. A stage's own `model`
 (`small`, `default`, `large` or a model id) and a reviewer's `model` win over
-the preset. A `devflow.yaml` that names no preset reviews as it did. A model
+the preset. A `devflow.yaml` that names no preset reviews as it did;
+`models: economy` is the one to write ([measured](docs/measurements/2026-11-presets.md)). A model
 is a tier, exactly, or a model id; anything else is refused with what to
 write. To plan and review on a large model and execute on a small one:
 
@@ -100,25 +101,36 @@ devflow status   # each stage's and reviewer's model, and where it came from
 Two things look at a change's security. The **security reviewer**
 (`devflow-security`) reads it during review, like the spec and standards
 reviewers, and its critical and high findings hold the work. The **attack**
-(`review.attack`: `off` unless set, `sensitive`, `per-item` or `release`)
-tries to exploit the change, and only a finding an exploit test confirmed
-holds the work; the rest is followed up. Plan items that cross a trust
-boundary name their abuse cases, each a criterion proven by a test, and a
-check with `report: sarif` reads any static analyser's SARIF as findings,
-never a hold.
+is a stage of its own after review: it tries to exploit the change and
+answers with hypotheses, each with an exploit test. devflow runs each exploit
+in a sandbox (bwrap, or docker with no network), in a throwaway worktree, and
+only one that fails there, `confirmed`, holds the work, until it is proven
+red at its base and green at HEAD.
 
 ```sh
-devflow config set review.attack sensitive
+devflow config set stages.attack.run per-item   # sensitive (the default), per-item, release or off
+devflow config set stages.attack.test 'sh scripts/run-exploit.sh'   # runs one exploit, given $DEVFLOW_EXPLOIT
+devflow config set stages.attack.budget '{"run_usd":5,"month_usd":50}'
 devflow config set security.targets '["http://localhost:8080"]'   # asks you to confirm each, on a terminal
+devflow status --attack   # what the attacks cost and confirmed, and the mode they suggest
 ```
 
-An attack reaches only the project's own instances you confirmed (loopback,
-`localhost`, `host.docker.internal`, docker service names), never a third
-party or a cloud's metadata, and never works around a model's refusal. Today
-a headless reader cannot run its own PoCs, so the session runs them; devflow
-does not sandbox the agent's own shell. When each runs, what it costs and how
-to read `confirmed`, `refuted` and `not_run`: [docs/security.md](docs/security.md)
-and [SECURITY.md](SECURITY.md).
+`review.attack` is the stage's older name and still reads. A devflow.yaml
+that names no attack stage has it on as `sensitive`: past a small diff, or on
+a sensitive path, the gate waits for it; `stages.attack.run off` is how 0.5.x
+behaved. An attack reaches only the project's own instances you confirmed
+(loopback, `localhost`, `host.docker.internal`, docker service names) or a
+compose stack you confirmed, on an internal network; never a third party or
+a cloud's metadata, and it never works around a model's refusal. Each run
+writes its report as markdown, JSON and SARIF, with an issue draft per
+confirmed hole, and publishes none of it. A range already in production gets
+a security-only retro whose exploits stay in a vault outside the repository.
+Running the attack in CI is pending. Plan items that cross a trust boundary
+name their abuse cases, each a criterion proven by a test.
+
+devflow does not sandbox the agent's own shell. How each piece works, what
+it costs and how to read the hypotheses: [docs/security.md](docs/security.md);
+what the sandbox enforces and what it does not: [SECURITY.md](SECURITY.md).
 
 More: [integrations](docs/integrations.md) · [security](docs/security.md) · [plan](docs/plan.md) ·
 [contributing](CONTRIBUTING.md).
