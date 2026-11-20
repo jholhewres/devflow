@@ -394,6 +394,12 @@ HEAD. The details, and how to read the report: [security.md](security.md).
   confirmed them, so a later answer of the resolver cannot move them.
 - Headless readers are held to reading (`agents::read_only`); OpenCode,
   which cannot be, is refused as a reader.
+- 0.6.1: `payloads::READINGS` lists each reading of a name or an address
+  `neutral` covers, each with a case only that reading refuses; a URL with
+  no slashes after `http:` and the other special schemes is read for its
+  host and userinfo; in backticks a relative path (`./main.rs`) or a call
+  (`subprocess.call()`) is code, not a host. The README's flow shows the
+  attack stage.
 
 **What a host sees change**
 
