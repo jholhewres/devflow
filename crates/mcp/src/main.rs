@@ -428,9 +428,12 @@ fn payloads(root: &std::path::Path, action: Payloads) -> ExitCode {
                     .newest_with(&item, devflow_engine::attack::REPORT)
                     .map(|(_, at)| at),
             };
-            let Some(report) = found.as_deref().and_then(flow::json_at) else {
+            let Some((at, report)) =
+                found.and_then(|at| flow::json_at(&at).map(|report| (at, report)))
+            else {
                 return failed(format!("{item} has no attack report to take a case from"));
             };
+            println!("from: {}", at.display());
             let Some(proposed) = report["proposed_cases"]
                 .as_array()
                 .into_iter()

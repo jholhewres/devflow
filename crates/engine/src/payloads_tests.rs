@@ -33,10 +33,23 @@ fn a_real_host_or_address_is_never_neutral() {
         "http://api.someone.com/",
         "https://8.8.8.8/",
         "http://169.254.169.254/latest/",
-        "http://[fd00:ec2::254]/",
+        "http://[fd00:ec2::254]:1/",
         "write to ops@someone.com.br",
         "internal.someone.io",
         "http://someone.example.com.evil.net/",
+        "http:/169.254.169.254/latest/meta-data/",
+        "http:\\\\169.254.169.254\\latest",
+        "169.254.169.254",
+        "http:/8.8.8.8/",
+        "HTTP://8.8.8.8/",
+        "http://169.254.170.2/v2/credentials",
+        "gopher://127.0.0.1:6379/_FLUSHALL",
+        "http://10.0.0.5:8080/admin",
+        "http://127.0.0.1/",
+        "http://metadata.google.internal/",
+        "http://example.com/",
+        "fetch 8.8.4.4 then",
+        "file://intranet.someone/share",
     ] {
         assert!(neutral(named).is_err(), "{named}");
     }
@@ -50,6 +63,8 @@ fn a_real_host_or_address_is_never_neutral() {
         "http://example.com@127.0.0.1:1/",
         "http://api.test/",
         "file:///etc/hostname",
+        "<?xml version=\"1.0\"?><x xmlns:xi=\"http://www.w3.org/2001/XInclude\"/>",
+        "!!python/object/apply:os.system [\"true\"]",
     ] {
         assert!(neutral(fine).is_ok(), "{fine}: {:?}", neutral(fine));
     }
@@ -164,4 +179,25 @@ fn a_proposed_case_is_kept_only_when_kept_and_only_if_neutral() {
     let shipped_again =
         json!({ "class": "ssrf", "input": "http://127.0.0.1:1/", "want": "rejected" });
     assert!(keep(root, &shipped_again).is_err());
+}
+
+#[test]
+fn a_row_is_indented_by_its_table_never_by_its_input() {
+    let class = Class {
+        class: "sqli".to_owned(),
+        about: "a".to_owned(),
+        within_ms: None,
+        cases: vec![Case {
+            id: "k".to_owned(),
+            input: "1) OR (1=1  (x".to_owned(),
+            times: None,
+            then: None,
+            want: "inert".to_owned(),
+        }],
+    };
+    let pytest = table(&class, Runner::Pytest);
+    assert!(
+        pytest.contains("    (\"k\", \"1) OR (1=1  (x\", \"inert\"),"),
+        "{pytest}"
+    );
 }

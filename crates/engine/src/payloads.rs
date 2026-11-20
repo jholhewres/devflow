@@ -142,12 +142,17 @@ pub fn checked(case: &Case) -> Result<(), String> {
         .map_err(|why| format!("{id}: {why}"))
 }
 
-/// The top-level names a public host is said under: a word ending in one
-/// names a real place.
-const PUBLIC: [&str; 24] = [
-    "com", "net", "org", "io", "br", "dev", "app", "co", "ai", "cloud", "info", "biz", "us", "uk",
-    "de", "me", "tech", "site", "online", "xyz", "gov", "edu", "mil", "int",
+/// The top-level names a host is said under, besides every two-letter
+/// country's: a word ending in one names a real place, or an inside one.
+const PUBLIC: [&str; 40] = [
+    "com", "net", "org", "io", "dev", "app", "ai", "cloud", "info", "biz", "tech", "site",
+    "online", "xyz", "gov", "edu", "mil", "int", "arpa", "internal", "local", "corp", "lan",
+    "home", "intranet", "store", "shop", "live", "blog", "news", "page", "link", "top", "pro",
+    "name", "mobi", "asia", "jobs", "travel", "global",
 ];
+
+/// The XML namespaces a document names without fetching them.
+const NAMESPACES: [&str; 1] = ["http://www.w3.org/2001/XInclude"];
 
 /// Names that are no one's: RFC 2606 and 6761, and the XML namespace a
 /// document names without fetching it.
@@ -155,7 +160,7 @@ fn reserved_name(host: &str) -> bool {
     let host = host.trim_end_matches('.').to_ascii_lowercase();
     host.is_empty()
         || host == "localhost"
-        || ["example.com", "example.net", "example.org", "www.w3.org"].contains(&host.as_str())
+        || ["example.com", "example.net", "example.org"].contains(&host.as_str())
         || [
             ".localhost",
             ".example",
@@ -197,10 +202,15 @@ fn aton(host: &str) -> Option<Ipv4Addr> {
     u32::try_from(value).ok().map(Ipv4Addr::from)
 }
 
-/// An address that leads inside, and never a cloud's metadata address.
+/// An address that leads inside, and never a cloud's metadata address:
+/// link-local only in its first /24, far from 169.254.169.254 and
+/// 169.254.170.2.
 fn inside_v4(ip: Ipv4Addr) -> bool {
-    ip != Ipv4Addr::new(169, 254, 169, 254)
-        && (ip.is_loopback() || ip.is_unspecified() || ip.is_private() || ip.is_link_local())
+    let [first, second, third, _] = ip.octets();
+    if first == 169 && second == 254 {
+        return third == 0;
+    }
+    ip.is_loopback() || ip.is_unspecified() || ip.is_private()
 }
 
 fn inside_v6(ip: Ipv6Addr) -> bool {
@@ -218,55 +228,184 @@ fn inside_v6(ip: Ipv6Addr) -> bool {
         || (first & 0xffc0) == 0xfe80
 }
 
-/// Whether a URL's host is one a case may name.
-fn reserved_host(host: &str) -> bool {
+/// A name that resolves nowhere: `.test`, `.invalid`, `.example`.
+fn nowhere(host: &str) -> bool {
+    let host = host.trim_end_matches('.').to_ascii_lowercase();
+    ["test", "invalid", "example"]
+        .iter()
+        .any(|end| host == *end || host.ends_with(&format!(".{end}")))
+}
+
+/// An address that leads inside, said in any spelling: dotted, decimal,
+/// hex or octal IPv4, an IPv6 literal, or a loopback name.
+fn inside_address(host: &str) -> Option<bool> {
     let host = host.trim_end_matches('.');
     if let Some(inner) = host
         .strip_prefix('[')
         .and_then(|rest| rest.strip_suffix(']'))
     {
-        return inner.parse::<Ipv6Addr>().is_ok_and(inside_v6);
+        return Some(inner.parse::<Ipv6Addr>().is_ok_and(inside_v6));
     }
-    match aton(host) {
-        Some(ip) => inside_v4(ip),
-        None => reserved_name(host),
+    let lower = host.to_ascii_lowercase();
+    if lower == "localhost" || lower.ends_with(".localhost") {
+        return Some(true);
+    }
+    aton(host).map(inside_v4)
+}
+
+/// Whether a URL's host and port are ones a case may name: none (a
+/// `file:///` path), a name that resolves nowhere, or an inside address on
+/// port 1, where nothing listens.
+fn url_host(host: &str, port: Option<&str>) -> Result<(), String> {
+    if host.is_empty() || nowhere(host) {
+        return Ok(());
+    }
+    match inside_address(host) {
+        Some(true) if port == Some("1") => Ok(()),
+        Some(true) => Err(format!(
+            "`{host}` is named on a port that may listen: use port 1"
+        )),
+        _ => Err(format!(
+            "`{host}` is a host someone may own: use loopback on port 1, or a .test name"
+        )),
     }
 }
 
-/// Every host a URL in `text` names, and every address and public-looking
-/// name in it, is one nobody owns.
-pub fn neutral(text: &str) -> Result<(), String> {
-    let mut rest = text;
-    while let Some(at) = rest.find("://") {
-        let after = &rest[at + 3..];
-        let end = after
-            .find(['/', '?', '#', '"', '\'', ' ', '<', '>'])
-            .unwrap_or(after.len());
-        let authority = &after[..end];
-        let (who, host) = match authority.rsplit_once('@') {
-            Some((who, host)) => (Some(who), host),
+/// Each URL in `text`, however its slashes are written (`http:/`, `http:\\`,
+/// `HTTP://`): its host, port and userinfo.
+fn urls(text: &str) -> Vec<(String, Option<String>, Option<String>)> {
+    let mut found = Vec::new();
+    let bytes = text.as_bytes();
+    for (colon, _) in text.match_indices(':') {
+        let scheme_start = text[..colon]
+            .rfind(|ch: char| !(ch.is_ascii_alphanumeric() || matches!(ch, '+' | '.' | '-')))
+            .map_or(0, |at| at + 1);
+        let scheme = &text[scheme_start..colon];
+        if scheme.len() < 2 || !scheme.starts_with(|ch: char| ch.is_ascii_alphabetic()) {
+            continue;
+        }
+        let after = &text[colon + 1..];
+        if !after.starts_with(['/', '\\']) {
+            continue;
+        }
+        let start = if scheme.eq_ignore_ascii_case("file") {
+            // `file:///path` names no host; `file://host/path` does.
+            match after.strip_prefix("//") {
+                Some(rest) if !rest.starts_with(['/', '\\']) => colon + 3,
+                _ => continue,
+            }
+        } else {
+            let slashes = after.len() - after.trim_start_matches(['/', '\\']).len();
+            colon + 1 + slashes
+        };
+        let end = text[start..]
+            .find(|ch: char| {
+                ch.is_whitespace()
+                    || matches!(
+                        ch,
+                        '/' | '\\'
+                            | '?'
+                            | '#'
+                            | '"'
+                            | '\''
+                            | '<'
+                            | '>'
+                            | '('
+                            | ')'
+                            | ','
+                            | ';'
+                            | '`'
+                    )
+            })
+            .map_or(bytes.len(), |at| start + at);
+        let authority = &text[start..end];
+        let (who, rest) = match authority.rsplit_once('@') {
+            Some((who, rest)) => (Some(who.to_owned()), rest),
             None => (None, authority),
         };
-        let host = match host.rfind(':') {
-            Some(colon)
-                if !host.ends_with(']')
-                    && host[colon + 1..].chars().all(|ch| ch.is_ascii_digit()) =>
-            {
-                &host[..colon]
+        let (host, port) = if rest.starts_with('[') {
+            match rest.find(']') {
+                Some(close) => (&rest[..=close], rest[close + 1..].strip_prefix(':')),
+                None => (rest, None),
             }
-            _ => host,
+        } else {
+            match rest.rsplit_once(':') {
+                Some((host, port)) => (host, Some(port)),
+                None => (rest, None),
+            }
         };
-        if !reserved_host(host) {
-            return Err(format!(
-                "`{host}` is a host someone may own: use loopback or a reserved name"
-            ));
+        found.push((host.to_owned(), port.map(str::to_owned), who));
+    }
+    found
+}
+
+/// A token that is an address, though no URL names it: four dotted parts
+/// (in any base) or an IPv6 literal.
+fn bare_address(token: &str) -> Option<bool> {
+    if token.contains(':') {
+        if let Ok(ip) = token.parse::<Ipv6Addr>() {
+            return Some(inside_v6(ip));
         }
+    }
+    for part in token.split(':') {
+        let pieces: Vec<&str> = part.split('.').collect();
+        let numeric = pieces.len() == 4
+            && pieces.iter().all(|piece| {
+                !piece.is_empty()
+                    && (piece.chars().all(|ch| ch.is_ascii_digit())
+                        || piece
+                            .strip_prefix("0x")
+                            .is_some_and(|hex| hex.chars().all(|ch| ch.is_ascii_hexdigit())))
+            });
+        if numeric {
+            return Some(aton(part).is_some_and(inside_v4));
+        }
+    }
+    None
+}
+
+/// Every host and address in `text` is one nobody owns: a URL's host is
+/// loopback or private on port 1, or a name that resolves nowhere; a bare
+/// address leads inside; no name or e-mail address ends in a real place.
+pub fn neutral(text: &str) -> Result<(), String> {
+    let text = NAMESPACES.iter().fold(text.to_owned(), |text, namespace| {
+        text.replace(namespace, "")
+    });
+    for (host, port, who) in urls(&text) {
+        url_host(&host, port.as_deref())?;
         if let Some(who) = who.filter(|who| who.contains('.')) {
-            if !reserved_name(who) {
+            if !reserved_name(&who) {
                 return Err(format!("`{who}` names a real host"));
             }
         }
-        rest = &after[end..];
+    }
+    let tokens = text.split(|ch: char| {
+        ch.is_whitespace()
+            || matches!(
+                ch,
+                '/' | '\\'
+                    | '"'
+                    | '\''
+                    | '<'
+                    | '>'
+                    | '('
+                    | ')'
+                    | ','
+                    | ';'
+                    | '='
+                    | '&'
+                    | '?'
+                    | '#'
+                    | '@'
+                    | '['
+                    | ']'
+                    | '`'
+            )
+    });
+    for token in tokens.filter(|token| !token.is_empty()) {
+        if bare_address(token) == Some(false) {
+            return Err(format!("`{token}` is an address someone may own"));
+        }
     }
     let words =
         text.split(|ch: char| !(ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '@')));
@@ -275,7 +414,11 @@ pub fn neutral(text: &str) -> Result<(), String> {
             Some((who, place)) => (Some(who), place),
             None => (None, word),
         };
-        if who.is_some_and(|who| !who.is_empty()) && place.contains('.') && !reserved_host(place) {
+        let place = place.trim_end_matches('.');
+        if !place.contains('.') || reserved_name(place) || nowhere(place) {
+            continue;
+        }
+        if who.is_some_and(|who| !who.is_empty()) && inside_address(place) != Some(true) {
             return Err(format!("`{word}` is an address someone may own"));
         }
         let last = place
@@ -283,7 +426,8 @@ pub fn neutral(text: &str) -> Result<(), String> {
             .next()
             .unwrap_or_default()
             .to_ascii_lowercase();
-        if place.contains('.') && PUBLIC.contains(&last.as_str()) && !reserved_name(place) {
+        let country = last.len() == 2 && last.chars().all(|ch| ch.is_ascii_alphabetic());
+        if country || PUBLIC.contains(&last.as_str()) {
             return Err(format!("`{place}` names a real host"));
         }
     }
@@ -350,13 +494,13 @@ pub fn table(class: &Class, runner: Runner) -> String {
             .map(|line| format!("{mark} {line}\n"))
             .collect::<String>()
     };
-    let rows = |open: &str, close: &str| {
+    let rows = |indent: &str, open: &str, close: &str| {
         class
             .cases
             .iter()
             .map(|case| {
                 format!(
-                    "  {open}{}, {}, {}{close},\n",
+                    "{indent}{open}{}, {}, {}{close},\n",
                     quoted(&case.id),
                     literal(case, runner),
                     quoted(&case.want)
@@ -374,7 +518,7 @@ pub fn table(class: &Class, runner: Runner) -> String {
             format!(
                 "{}{import}async function check(input) {{\n  throw new Error(\"devflow payloads: fill in check() for {name}\");\n}}\n\nconst cases = [\n{}];\n\ndescribe(\"payloads: {name}\", () => {{\n  test.each(cases)(\"%s\", async (id, input, want) => {{\n    const started = Date.now();\n    const got = await check(input);\n    if (want === \"fast\") {{\n      expect(Date.now() - started).toBeLessThan({within});\n    }} else {{\n      expect(got).toBe(want);\n    }}\n  }});\n}});\n",
                 comment("//"),
-                rows("[", "]")
+                rows("  ", "[", "]")
             )
         }
         Runner::Go => {
@@ -386,13 +530,13 @@ pub fn table(class: &Class, runner: Runner) -> String {
             format!(
                 "{}package payloads_test\n\nimport (\n\t\"strings\"\n\t\"testing\"\n\t\"time\"\n)\n\nvar _ = strings.Repeat\n\nfunc check{title}(input string) string {{\n\tpanic(\"devflow payloads: fill in check{title}() for {name}\")\n}}\n\nfunc TestPayloads{title}(t *testing.T) {{\n\tcases := []struct{{ id, input, want string }}{{\n{}\t}}\n\tfor _, c := range cases {{\n\t\tt.Run(c.id, func(t *testing.T) {{\n\t\t\tstarted := time.Now()\n\t\t\tgot := check{title}(c.input)\n\t\t\tif c.want == \"fast\" {{\n\t\t\t\tif took := time.Since(started); took > {within}*time.Millisecond {{\n\t\t\t\t\tt.Fatalf(\"took %v\", took)\n\t\t\t\t}}\n\t\t\t}} else if got != c.want {{\n\t\t\t\tt.Fatalf(\"got %q, want %q\", got, c.want)\n\t\t\t}}\n\t\t}})\n\t}}\n}}\n",
                 comment("//"),
-                rows("\t{", "}").replace("  \t{", "\t\t{")
+                rows("\t\t", "{", "}")
             )
         }
         Runner::Pytest => format!(
             "{}import time\n\nimport pytest\n\n\ndef check(input):\n    raise NotImplementedError(\"devflow payloads: fill in check() for {name}\")\n\n\nCASES = [\n{}]\n\n\n@pytest.mark.parametrize(\"case_id,given,want\", CASES, ids=[case[0] for case in CASES])\ndef test_payloads_{name}(case_id, given, want):\n    started = time.monotonic()\n    got = check(given)\n    if want == \"fast\":\n        assert time.monotonic() - started < {within} / 1000\n    else:\n        assert got == want\n",
             comment("#"),
-            rows("(", ")").replace("  (", "    (")
+            rows("    ", "(", ")")
         ),
     }
 }
