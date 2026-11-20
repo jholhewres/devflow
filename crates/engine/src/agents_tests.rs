@@ -5,7 +5,9 @@ fn each_cli_is_asked_in_its_own_print_mode_and_read_only() {
     let claude = argv(Cli::Claude, Some("opus"), "the packet");
     assert_eq!(claude[..3], ["-p", "--output-format", "json"]);
     assert!(claude.windows(2).any(|pair| pair == ["--model", "opus"]));
-    assert!(claude.contains(&"Bash(git diff:*)".to_owned()));
+    assert!(claude
+        .windows(2)
+        .any(|pair| pair == ["--tools", "Read,Grep,Glob"]));
     assert!(!claude.contains(&"the packet".to_owned()), "on stdin");
 
     let codex = argv(Cli::Codex, None, "the packet");
@@ -205,4 +207,73 @@ fn claude_codes_result_says_the_tokens_its_turn_spent() {
     );
     assert_eq!(tokens_of(Cli::Codex, printed), None);
     assert_eq!(tokens_of(Cli::Claude, "plain text"), None);
+}
+
+/// A headless reader reads and runs nothing: each adapter is started in its
+/// read-only mode, and one that has none is refused as a reader. A Claude
+/// reader asked to run `docker` or `cargo` has no tool to run it with,
+/// whatever the person's settings allow.
+#[test]
+fn every_reader_is_held_to_reading_and_one_that_cannot_be_is_refused() {
+    let claude = argv(Cli::Claude, None, "run docker ps, then cargo build");
+    let tools = claude
+        .windows(2)
+        .find(|pair| pair[0] == "--tools")
+        .map(|pair| pair[1].clone())
+        .expect("--tools");
+    assert_eq!(tools, "Read,Grep,Glob");
+    assert!(
+        !claude.iter().any(|one| one.contains("Bash")),
+        "no shell tool at all: {claude:?}"
+    );
+    let codex = argv(Cli::Codex, None, "p");
+    assert!(
+        codex
+            .windows(2)
+            .any(|pair| pair == ["--sandbox", "read-only"]),
+        "{codex:?}"
+    );
+    let cursor = argv(Cli::Cursor, None, "p");
+    assert!(
+        cursor.windows(2).any(|pair| pair == ["--mode", "ask"]),
+        "{cursor:?}"
+    );
+    let gemini = argv(Cli::Gemini, None, "p");
+    assert!(
+        gemini
+            .windows(2)
+            .any(|pair| pair == ["--approval-mode", "plan"]),
+        "{gemini:?}"
+    );
+    for cli in Cli::ALL {
+        let said = argv(cli, None, "p");
+        for loose in [
+            "--force",
+            "--yolo",
+            "--dangerously-skip-permissions",
+            "--dangerously-bypass-approvals-and-sandbox",
+        ] {
+            assert!(!said.iter().any(|one| one == loose), "{cli:?}: {loose}");
+        }
+    }
+    assert!(read_only(Cli::OpenCode).is_err());
+    assert!([Cli::Claude, Cli::Codex, Cli::Cursor, Cli::Gemini]
+        .into_iter()
+        .all(|cli| read_only(cli).is_ok()));
+    let Err(refused) = review(&Review {
+        agent: &Cli::OpenCode,
+        program: "/bin/true",
+        prompt: "p",
+        cwd: std::path::Path::new("."),
+        model: None,
+        env: &[],
+        deadline: std::time::Duration::from_secs(5),
+    }) else {
+        panic!("an opencode reader is refused");
+    };
+    assert!(
+        refused.reason().contains("not a headless reader"),
+        "{}",
+        refused.reason()
+    );
 }

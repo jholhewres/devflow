@@ -2360,3 +2360,23 @@ fn a_reader_that_timed_out_is_asked_again() {
         assert!(!running(), "the try's own child was ended with it");
     }
 }
+
+#[test]
+fn a_cut_diff_is_read_whole_from_a_file_beside_the_packet() {
+    let dir = tempfile::tempdir().expect("dir");
+    let packet = format!("## Diff\n```diff\n+a\n```\nThe diff is cut at {MOST_DIFF} characters: read the rest with `git diff b4se`.\n## Output\n");
+    let redact = |text: &str| text.replace("s3cret", "<redacted>");
+    let said = whole_diff(packet, dir.path(), "+a\n+token=s3cret\n", &redact).expect("written");
+    assert!(
+        said.contains(&format!(
+            "read the whole diff in {}",
+            dir.path().join(WHOLE_DIFF).display()
+        )),
+        "{said}"
+    );
+    assert!(!said.contains("git diff b4se") && said.contains("## Output"));
+    let kept = std::fs::read_to_string(dir.path().join(WHOLE_DIFF)).expect("diff");
+    assert_eq!(kept, "+a\n+token=<redacted>\n");
+    let whole = whole_diff("no cut here\n".to_owned(), dir.path(), "x", &redact).expect("same");
+    assert_eq!(whole, "no cut here\n");
+}

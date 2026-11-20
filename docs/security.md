@@ -35,6 +35,23 @@ devflow config set review.reviewers '[{"agent":"claude","persona":"devflow-secur
 devflow config set review.verify advise
 ```
 
+## What a headless reader may do
+
+A reviewer or attacker devflow starts headless reads and runs nothing.
+Anything that executes belongs to the attack's sandbox. Each CLI is started
+in its read-only mode, whatever the person's own settings allow:
+
+- Claude Code gets only the Read, Grep and Glob tools (`--tools`), with no
+  shell.
+- Codex runs in its read-only sandbox.
+- Cursor runs in ask mode.
+- Gemini runs in plan mode.
+- OpenCode has no mode devflow can hold to reading, so it is refused as a
+  headless reader.
+
+A diff too long for the packet is written beside it in full, for the reader
+to read.
+
 ## The attack
 
 `review.attack` adds one more reading of the change by `devflow-security`,

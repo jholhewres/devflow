@@ -1111,6 +1111,7 @@ pub fn attacked(given: &Given) -> Result<Done, String> {
         .as_ref()
         .map(|effective| review::persona_line(models::ATTACK_PERSONA, effective))
         .unwrap_or_default();
+    let packet = review::whole_diff(packet, &path, given.git.diff, given.redact)?;
     write(&path, PACKET, &format!("{packet}\n## Personas\n{read}\n"))?;
     let started = from_review(given.review);
     // Each declared attacker, or the first reviewer's agent on the stage's

@@ -193,16 +193,22 @@ impl Unreviewed {
     }
 }
 
-/// The tools a Claude Code reviewer may use without asking: reading, and
-/// git's reading commands. Everything else is refused in print mode.
-const CLAUDE_READS: [&str; 6] = [
-    "Read",
-    "Grep",
-    "Glob",
-    "Bash(git diff:*)",
-    "Bash(git log:*)",
-    "Bash(git show:*)",
-];
+/// The only tools a Claude Code reader has: it reads, and runs nothing.
+/// `--tools` makes no other tool available, whatever the person's settings
+/// allow; `--allowedTools` alone only adds allow rules to theirs.
+pub const CLAUDE_READS: [&str; 3] = ["Read", "Grep", "Glob"];
+
+/// Whether `cli` can be held to reading as a headless reader, or why not.
+/// Anything that executes belongs to the attack's sandbox, never a reader.
+pub fn read_only(cli: Cli) -> Result<(), String> {
+    match cli {
+        Cli::OpenCode => Err(
+            "opencode has no mode its runner can hold to reading, so it is not a headless reader: use claude, codex, cursor or gemini"
+                .to_owned(),
+        ),
+        _ => Ok(()),
+    }
+}
 
 /// The most turns a Claude Code reviewer takes: generous for reading a diff,
 /// a stop for one wandering the repository at the person's cost.
@@ -213,7 +219,8 @@ pub const CLAUDE_TURNS: u32 = 60;
 pub fn argv(cli: Cli, model: Option<&str>, prompt: &str) -> Vec<String> {
     let mut argv: Vec<String> = match cli {
         Cli::Claude => vec!["-p".into(), "--output-format".into(), "json".into()],
-        // Codex's read-only sandbox: it may read and run git, and write nothing.
+        // Codex's read-only sandbox: what it runs writes nothing and reaches
+        // no network.
         Cli::Codex => vec![
             "exec".into(),
             "--sandbox".into(),
@@ -221,8 +228,21 @@ pub fn argv(cli: Cli, model: Option<&str>, prompt: &str) -> Vec<String> {
             "--color".into(),
             "never".into(),
         ],
-        Cli::Cursor => vec!["-p".into(), "--output-format".into(), "json".into()],
-        Cli::Gemini => vec!["--output-format".into(), "json".into()],
+        // Cursor's ask mode answers and runs nothing.
+        Cli::Cursor => vec![
+            "-p".into(),
+            "--output-format".into(),
+            "json".into(),
+            "--mode".into(),
+            "ask".into(),
+        ],
+        // Gemini's plan mode is its read-only one.
+        Cli::Gemini => vec![
+            "--output-format".into(),
+            "json".into(),
+            "--approval-mode".into(),
+            "plan".into(),
+        ],
         // OpenCode's `plan` agent may read and edits nothing.
         Cli::OpenCode => vec!["run".into(), "--agent".into(), "plan".into()],
     };
@@ -236,6 +256,8 @@ pub fn argv(cli: Cli, model: Option<&str>, prompt: &str) -> Vec<String> {
             argv.push("--strict-mcp-config".into());
             argv.push("--max-turns".into());
             argv.push(CLAUDE_TURNS.to_string());
+            argv.push("--tools".into());
+            argv.push(CLAUDE_READS.join(","));
             argv.push("--allowedTools".into());
             argv.extend(CLAUDE_READS.iter().map(|tool| (*tool).to_owned()));
         }
@@ -381,6 +403,9 @@ fn waited(child: &mut Child, deadline: Instant) -> Option<std::process::ExitStat
 pub fn review(asked: &Review<'_>) -> Result<Reviewed, Unreviewed> {
     let began = Instant::now();
     let agent = asked.agent;
+    if let Some(cli) = Cli::of(agent.id()) {
+        read_only(cli).map_err(Unreviewed::Failed)?;
+    }
     let mut command = crate::env::command(asked.program);
     command
         .args(agent.argv(asked.model, asked.prompt))

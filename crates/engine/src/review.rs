@@ -1316,6 +1316,7 @@ fn reviewed_anew(given: &Given) -> Result<(String, PathBuf, Record), String> {
             .map(|previous| (previous.run.as_str(), blocked.as_slice())),
         retro: given.retro,
     }));
+    let packet = whole_diff(packet, &path, git.diff, given.redact)?;
     write(&path, PACKET, &packet)?;
     write(&path, SCHEMA, dialect.assets.schema)?;
     let packet_at = path.join(PACKET).display().to_string();
@@ -1542,7 +1543,32 @@ fn asked_again(why: &str) -> bool {
     !(why.starts_with("not installed")
         || why.starts_with("not signed in")
         || why.contains("does not run this CLI headless")
+        || why.contains("not a headless reader")
         || why.contains("persona"))
+}
+
+/// Where a packet whose diff was cut keeps the whole diff.
+pub const WHOLE_DIFF: &str = "review.diff";
+
+/// A packet whose diff was cut points at the whole diff, written beside it:
+/// a reader has no shell to run `git diff` with.
+pub(crate) fn whole_diff(
+    packet: String,
+    folder: &Path,
+    diff: &str,
+    redact: &(dyn Fn(&str) -> String + Sync),
+) -> Result<String, String> {
+    let Some(at) = packet.find("The diff is cut at ") else {
+        return Ok(packet);
+    };
+    write(folder, WHOLE_DIFF, &redact(diff))?;
+    let end = packet[at..].find('\n').map_or(packet.len(), |end| at + end);
+    Ok(format!(
+        "{}The diff is cut at {MOST_DIFF} characters: read the whole diff in {}.{}",
+        &packet[..at],
+        folder.join(WHOLE_DIFF).display(),
+        &packet[end..]
+    ))
 }
 
 /// A review devpit already ran, with the session's own answers added.
