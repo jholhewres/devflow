@@ -277,6 +277,9 @@ pub(crate) fn step_json(config: &Config, step: &Step) -> Json {
             if !stages.attack.budget.is_empty() {
                 item["budget"] = json!(stages.attack.budget);
             }
+            if !stages.attack.attackers.is_empty() {
+                item["attackers"] = json!(stages.attack.attackers);
+            }
             if !stages.attack.regression.is_empty() {
                 item["regression"] = json!(stages.attack.regression);
             }

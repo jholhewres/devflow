@@ -375,7 +375,22 @@ pub struct Attack {
     /// Payload classes whose cases every attack runs again.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub regression: Vec<String>,
+    /// The attackers, each its agent and model; the first reviewer's agent
+    /// on `model` when none is declared.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub attackers: Vec<Attacker>,
 }
+
+/// One declared attacker.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Attacker {
+    pub agent: Agent,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+}
+
+/// The most attackers one attack declares.
+pub const MOST_ATTACKERS: usize = 4;
 
 /// `stages.attack.budget`: US$ per run and per calendar month, kept in
 /// cents so a configuration compares exactly.
@@ -455,6 +470,7 @@ impl Default for Attack {
             image: None,
             budget: Budget::default(),
             regression: Vec::new(),
+            attackers: Vec::new(),
         }
     }
 }
@@ -1565,6 +1581,40 @@ pub(crate) fn attack_in(fields: &mut Fields) -> Result<Attack, Invalid> {
             }
         }
     }
+    let mut attackers: Vec<Attacker> = Vec::new();
+    if let Some((node, path)) = fields.get("attackers") {
+        let listed = items(node, &path)?;
+        if listed.len() > MOST_ATTACKERS {
+            return Err(Invalid::at(
+                node.line(),
+                &path,
+                &format!("at most {MOST_ATTACKERS} attackers"),
+            ));
+        }
+        for (index, item) in listed.iter().enumerate() {
+            let at = format!("{path}.{index}");
+            let mut said = Fields::of(item, &at)?;
+            let agent = match said.get("agent") {
+                Some((node, path)) => word(node, &path, Agent::of, Agent::ALL, Agent::word)?,
+                None => {
+                    return Err(Invalid::at(
+                        said.line,
+                        &joined(&at, "agent"),
+                        "an attacker needs an agent",
+                    ))
+                }
+            };
+            let chosen = self::model(said.get("model"))?;
+            said.done()?;
+            let attacker = Attacker {
+                agent,
+                model: chosen,
+            };
+            if !attackers.contains(&attacker) {
+                attackers.push(attacker);
+            }
+        }
+    }
     Ok(Attack {
         run: if enabled { run } else { AttackRun::Off },
         model,
@@ -1573,6 +1623,7 @@ pub(crate) fn attack_in(fields: &mut Fields) -> Result<Attack, Invalid> {
         image,
         budget,
         regression,
+        attackers,
     })
 }
 

@@ -283,3 +283,36 @@ fn the_worst_scanner_findings_go_first_and_none_is_lost_without_a_word() {
     assert_eq!(given[0]["id"], "s1");
     assert_eq!(scanner_left_out(Some(&evidence)), 1);
 }
+
+#[test]
+fn hypotheses_at_one_place_and_class_are_one_naming_who_found_it() {
+    let h = |file: &str, line: i64, class: &str, title: &str| json!({ "id": "h1", "file": file, "line": line, "class": class, "title": title, "status": "tried" });
+    let kept = consolidated(vec![
+        (
+            "claude/large".to_owned(),
+            vec![
+                h("src/a.rs", 10, "ssrf", "fetch follows redirects"),
+                h("src/b.rs", 1, "authz", "no owner check"),
+            ],
+        ),
+        (
+            "codex/default".to_owned(),
+            vec![
+                h("src/a.rs", 13, "ssrf", "redirect to metadata"),
+                h("src/a.rs", 10, "traversal", "path in name"),
+            ],
+        ),
+    ]);
+    assert_eq!(kept.len(), 3, "{kept:#?}");
+    assert_eq!(
+        kept[0]["found_by"],
+        json!(["claude/large", "codex/default"])
+    );
+    assert_eq!(
+        kept[0]["title"], "fetch follows redirects",
+        "the first found stands"
+    );
+    assert_eq!(kept[2]["found_by"], json!(["codex/default"]));
+    let ids: Vec<&str> = kept.iter().filter_map(|one| one["id"].as_str()).collect();
+    assert_eq!(ids, ["h1", "h2", "h3"]);
+}

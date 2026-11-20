@@ -380,6 +380,15 @@ fn attack_fields(out: &mut String, attack: &Attack) {
     if let Some(image) = &attack.image {
         let _ = writeln!(out, "    image: {}", scalar(image));
     }
+    if !attack.attackers.is_empty() {
+        out.push_str("    attackers:\n");
+        for attacker in &attack.attackers {
+            let _ = writeln!(out, "      - agent: {}", attacker.agent.word());
+            if let Some(model) = &attacker.model {
+                let _ = writeln!(out, "        model: {}", scalar(model));
+            }
+        }
+    }
     if !attack.regression.is_empty() {
         let _ = writeln!(out, "    regression: [{}]", attack.regression.join(", "));
     }

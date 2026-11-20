@@ -833,19 +833,14 @@ fn turn(
     model: Option<&str>,
     prompt: &str,
     env: &[(String, String)],
+    cents: Option<u64>,
 ) -> Result<crate::agents::Reviewed, String> {
     let program = (given.reach)(agent)?;
     let cli = Cli::of(agent.word()).ok_or("this CLI does not run headless")?;
     let model = review::model_for(agent, model);
     let capped = Capped {
         cli,
-        usd: given
-            .config
-            .stages
-            .attack
-            .budget
-            .run_cents
-            .map(|cents| format!("{:.2}", Budget::usd(cents))),
+        usd: cents.map(|cents| format!("{:.2}", Budget::usd(cents))),
     };
     crate::agents::review(&crate::agents::Review {
         agent: &capped,
@@ -857,6 +852,42 @@ fn turn(
         deadline: given.budget,
     })
     .map_err(|unreviewed| unreviewed.reason())
+}
+
+/// Two hypotheses at one place: the same file and class, within a few
+/// lines of each other.
+fn same_place(one: &Value, other: &Value) -> bool {
+    let line = |one: &Value| one["line"].as_i64().unwrap_or(1);
+    !text(one, "class").is_empty()
+        && text(one, "class") == text(other, "class")
+        && text(one, "file") == text(other, "file")
+        && (line(one) - line(other)).abs() <= 5
+}
+
+/// Every attacker's hypotheses as one list: those at one place and of one
+/// class are one hypothesis, naming each attacker that found it; the first
+/// one found stands. Numbered again `h1`, `h2`, so each keeps a folder of
+/// exploits of its own.
+pub fn consolidated(found: Vec<(String, Vec<Value>)>) -> Vec<Value> {
+    let mut kept: Vec<Value> = Vec::new();
+    for (who, list) in found {
+        for mut one in list {
+            if let Some(had) = kept.iter_mut().find(|had| same_place(had, &one)) {
+                if let Some(by) = had["found_by"].as_array_mut() {
+                    if !by.iter().any(|said| said == who.as_str()) {
+                        by.push(json!(who));
+                    }
+                }
+                continue;
+            }
+            one["found_by"] = json!([who]);
+            kept.push(one);
+        }
+    }
+    for (at, one) in kept.iter_mut().enumerate() {
+        one["id"] = json!(format!("h{}", at + 1));
+    }
+    kept
 }
 
 /// The most scanner findings an attack is given.
@@ -1033,12 +1064,27 @@ pub fn attacked(given: &Given) -> Result<Done, String> {
         .unwrap_or_default();
     write(&path, PACKET, &format!("{packet}\n## Personas\n{read}\n"))?;
     let started = from_review(given.review);
-    let agent = models::first_agent(given.config);
-    let model = models::stage_model(given.config, models::ATTACK);
-    let mut ran = json!({
-        "agent": agent.word(), "persona": models::ATTACK_PERSONA, "model": model,
-        "by": dialect.product,
-    });
+    // Each declared attacker, or the first reviewer's agent on the stage's
+    // model; their run budget shared out, so two never spend more than one.
+    let declared: Vec<(Agent, Option<String>)> = if given.config.stages.attack.attackers.is_empty()
+    {
+        vec![(
+            models::first_agent(given.config),
+            models::stage_model(given.config, models::ATTACK),
+        )]
+    } else {
+        given
+            .config
+            .stages
+            .attack
+            .attackers
+            .iter()
+            .map(|one| (one.agent, one.model.clone()))
+            .collect()
+    };
+    let share = budget
+        .run_cents
+        .map(|cents| cents / declared.len().max(1) as u64);
     let packet_at = path.join(PACKET).display().to_string();
     let env = review::env_of_in(
         dialect,
@@ -1047,13 +1093,15 @@ pub fn attacked(given: &Given) -> Result<Done, String> {
         &packet_at,
         models::ATTACK_PERSONA,
     );
-    let answered = effective.and_then(|persona| {
+    let persona = effective.map(|persona| persona.text);
+    let one = |(agent, model): &(Agent, Option<String>)| {
+        let persona = persona.clone()?;
         turn(
             given,
-            agent,
+            *agent,
             model.as_deref(),
             &prompt_with(
-                &persona.text,
+                &persona,
                 &packet,
                 agent.word(),
                 &started,
@@ -1062,50 +1110,80 @@ pub fn attacked(given: &Given) -> Result<Done, String> {
                 &sections,
             ),
             &env,
+            share,
         )
-    });
+    };
+    let outcomes = review::in_parallel(&declared, &one);
     let mut proposed = String::new();
     let mut cases: Vec<Value> = Vec::new();
     let mut dropped_cases: Vec<Value> = Vec::new();
     let mut scanner_said: Vec<Value> = Vec::new();
-    let mut hypotheses = Vec::new();
-    match answered {
-        Ok(said) => {
-            ran["duration_ms"] = json!(said.duration_ms);
-            ran["cost_usd"] = json!(said.cost_usd);
-            if let Some(tokens) = said.tokens {
-                ran["tokens"] = json!(tokens);
-            }
-            match read_answer(&(given.redact)(&said.text)) {
-                Ok(answer) => {
-                    hypotheses = answer["hypotheses"].as_array().cloned().unwrap_or_default();
-                    cases = answer["cases"].as_array().cloned().unwrap_or_default();
-                    scanner_said = answer["scanner"].as_array().cloned().unwrap_or_default();
-                    dropped_cases = answer["dropped_cases"]
-                        .as_array()
-                        .cloned()
-                        .unwrap_or_default();
-                    proposed = answer["threat_model"]
-                        .as_str()
-                        .unwrap_or_default()
-                        .to_owned();
+    let mut found: Vec<(String, Vec<Value>)> = Vec::new();
+    let mut attackers: Vec<Value> = Vec::new();
+    for ((agent, model), outcome) in declared.iter().zip(outcomes) {
+        let who = format!("{}/{}", agent.word(), model.as_deref().unwrap_or("default"));
+        let mut ran = json!({
+            "agent": agent.word(), "persona": models::ATTACK_PERSONA, "model": model,
+            "by": dialect.product,
+        });
+        // One that refuses or fails leaves its part not run: nothing is
+        // switched in its place.
+        match outcome.unwrap_or_else(|| Err("its turn stopped before it answered".to_owned())) {
+            Ok(said) => {
+                ran["duration_ms"] = json!(said.duration_ms);
+                ran["cost_usd"] = json!(said.cost_usd);
+                if let Some(tokens) = said.tokens {
+                    ran["tokens"] = json!(tokens);
                 }
-                Err(why) => {
-                    write(&path, "raw-attack.txt", &said.text)?;
-                    ran["reason"] = json!(why);
+                match read_answer(&(given.redact)(&said.text)) {
+                    Ok(answer) => {
+                        let mine = answer["hypotheses"].as_array().cloned().unwrap_or_default();
+                        ran["found"] = json!(mine.len());
+                        found.push((who, mine));
+                        cases.extend(answer["cases"].as_array().cloned().unwrap_or_default());
+                        scanner_said
+                            .extend(answer["scanner"].as_array().cloned().unwrap_or_default());
+                        dropped_cases.extend(
+                            answer["dropped_cases"]
+                                .as_array()
+                                .cloned()
+                                .unwrap_or_default(),
+                        );
+                        if proposed.trim().is_empty() {
+                            proposed = answer["threat_model"]
+                                .as_str()
+                                .unwrap_or_default()
+                                .to_owned();
+                        }
+                    }
+                    Err(why) => {
+                        let raw = format!("raw-attack-{}.txt", attackers.len() + 1);
+                        write(&path, &raw, &said.text)?;
+                        ran["reason"] = json!(why);
+                        ran["result"] = json!("not_run");
+                    }
+                }
+            }
+            Err(why) => {
+                ran["reason"] = json!(why);
+                ran["result"] = json!("not_run");
+                // What a turn that never answered spent is not known: its cap,
+                // when it has one, stands for it, said as an estimate.
+                if let Some(cents) = share {
+                    ran["cost_usd"] = json!(Budget::usd(cents));
+                    ran["cost_estimated"] = json!(true);
                 }
             }
         }
-        Err(why) => {
-            ran["reason"] = json!(why);
-            // What a turn that never answered spent is not known: its cap,
-            // when it has one, stands for it, said as an estimate.
-            if let Some(cents) = budget.run_cents {
-                ran["cost_usd"] = json!(Budget::usd(cents));
-                ran["cost_estimated"] = json!(true);
-            }
-        }
+        attackers.push(ran);
     }
+    // A reachable word on a scanner finding stands over an unreachable one.
+    scanner_said.sort_by_key(|one| one["reachable"] != true);
+    // The proposed cases, numbered again across attackers.
+    for (at, one) in cases.iter_mut().enumerate() {
+        one["id"] = json!(format!("c{}", at + 1));
+    }
+    let mut hypotheses = consolidated(found);
     // One refuted before whose control is unchanged is never run again.
     for one in hypotheses.iter_mut() {
         if let Some(before) = refuted_again(one, &refuted) {
@@ -1139,7 +1217,7 @@ pub fn attacked(given: &Given) -> Result<Done, String> {
         "mode": if given.retro { "retro" } else { "item" },
         "run": stamp,
         "run_on": models::attack_run(given.config).word(),
-        "attackers": [ran],
+        "attackers": attackers,
         "started_from": started.len(),
         "not_tried_again": refuted.len(),
         "refuted_before": refuted,
@@ -1154,7 +1232,7 @@ pub fn attacked(given: &Given) -> Result<Done, String> {
             "run_usd": budget.run_cents.map(Budget::usd),
             "month_usd": budget.month_cents.map(Budget::usd),
             "month_spent_before": spent,
-            "run_capped_by": capped_by(agent, budget),
+            "run_capped_by": capped_by(declared[0].0, budget),
         },
     });
     settled(&mut report, &given.config.review.block_on);

@@ -1244,3 +1244,117 @@ fn the_attacks_packet_reads_criteria_under_the_projects_headings() {
         .expect("packet");
     assert!(packet.contains("a forged cookie is refused"), "{packet}");
 }
+
+/// Two declared attackers: their hypotheses are one list naming who found
+/// each, and one that fails leaves its part not run, with nothing switched
+/// in its place.
+#[cfg(unix)]
+#[test]
+fn declared_attackers_are_consolidated_and_a_failed_one_is_not_replaced() {
+    use std::os::unix::fs::PermissionsExt;
+    use std::time::{Duration, SystemTime};
+    let said = parsed("version: 1\nstages:\n  attack:\n    run: per-item\n    attackers:\n      - agent: claude\n        model: large\n      - agent: claude\n        model: small\n      - agent: codex\n");
+    assert_eq!(said.stages.attack.attackers.len(), 3);
+    let written = devflow_engine::render::render(&said);
+    assert_eq!(
+        parsed(&written).stages.attack,
+        said.stages.attack,
+        "{written}"
+    );
+    let five = "version: 1\nstages:\n  attack:\n    run: per-item\n    attackers:\n".to_owned()
+        + &["m", "a", "b", "c"]
+            .iter()
+            .map(|model| format!("      - agent: claude\n        model: {model}\n"))
+            .collect::<String>()
+        + "      - agent: codex\n";
+    assert!(config::parse(&five).is_err(), "at most four");
+
+    let dir = tempfile::tempdir().expect("dir");
+    let root = dir.path().canonicalize().expect("root");
+    let checkout = root.join("checkout");
+    std::fs::create_dir_all(&checkout).expect("checkout");
+    let runs = devflow_engine::runs::Runs {
+        dialect: &Dialect::DEVFLOW,
+        home: root.join("home"),
+        checkout: checkout.clone(),
+    };
+    let bin = root.join("bin");
+    std::fs::create_dir_all(&bin).expect("bin");
+    let envelope = |answer: Value| {
+        json!({ "type": "result", "result": answer.to_string(), "total_cost_usd": 0.3 }).to_string()
+    };
+    let large = envelope(json!({ "version": 1, "hypotheses": [
+        { "id": "h1", "title": "fetch follows redirects", "class": "ssrf", "file": SENSITIVE, "line": 1,
+          "severity": "high", "status": "refuted", "reason": "the guard resolves first" } ] }));
+    let small = envelope(json!({ "version": 1, "hypotheses": [
+        { "id": "h1", "title": "redirect to an internal host", "class": "ssrf", "file": SENSITIVE, "line": 3,
+          "severity": "high", "status": "refuted", "reason": "same guard" },
+        { "id": "h2", "title": "no owner check", "class": "authz", "file": SENSITIVE, "line": 2,
+          "severity": "medium", "status": "refuted", "reason": "the owner is checked" } ] }));
+    std::fs::write(bin.join("large.json"), large).expect("large");
+    std::fs::write(bin.join("small.json"), small).expect("small");
+    let script = bin.join("claude");
+    std::fs::write(
+        &script,
+        format!(
+            "#!/bin/sh\ncat > /dev/null\necho \"$*\" >> '{0}/calls'\ncase \"$*\" in *sonnet*) cat '{0}/small.json';; *) cat '{0}/large.json';; esac\n",
+            bin.display()
+        ),
+    )
+    .expect("script");
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).expect("mode");
+    let reach = move |agent: config::Agent| -> Result<String, String> {
+        match agent {
+            config::Agent::Claude => Ok(script.display().to_string()),
+            _ => Err("not installed".to_owned()),
+        }
+    };
+    let redact = |text: &str| text.to_owned();
+    let files = vec![SENSITIVE.to_owned()];
+    let done = attack::attacked(&attack::Given {
+        root: &checkout,
+        runs: &runs,
+        config: &said,
+        card: devflow_engine::evidence::Card {
+            id: "card_1",
+            title: "Sessions",
+            body: "",
+        },
+        git: devflow_engine::review::Git {
+            base: "b4se",
+            head: "he4d",
+            files: &files,
+            diff: DIFF,
+        },
+        brief: None,
+        evidence: None,
+        review: None,
+        env: &[],
+        at: SystemTime::UNIX_EPOCH + Duration::from_secs(1_792_000_000),
+        budget: Duration::from_secs(60),
+        reach: &reach,
+        redact: &redact,
+        personas: devflow_engine::review::Personas::default(),
+        retro: false,
+        scratch: None,
+    })
+    .expect("attacked");
+    let hypotheses = done.report["hypotheses"].as_array().expect("hypotheses");
+    assert_eq!(hypotheses.len(), 2, "{hypotheses:#?}");
+    assert_eq!(
+        hypotheses[0]["found_by"],
+        json!(["claude/large", "claude/small"])
+    );
+    assert_eq!(hypotheses[1]["found_by"], json!(["claude/small"]));
+    let attackers = done.report["attackers"].as_array().expect("attackers");
+    assert_eq!(attackers.len(), 3);
+    assert_eq!(attackers[2]["agent"], "codex");
+    assert_eq!(attackers[2]["result"], "not_run");
+    assert_eq!(attackers[2]["reason"], "not installed");
+    let calls = std::fs::read_to_string(bin.join("calls")).expect("calls");
+    assert_eq!(
+        calls.lines().count(),
+        2,
+        "no other attacker took the failed one's place: {calls}"
+    );
+}

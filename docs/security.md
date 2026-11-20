@@ -140,6 +140,16 @@ spent by stage and model. With the attack stage, `stages.attack.budget`
 (`run_usd`, `month_usd`) caps it, and `devflow status --attack` adds up what
 its runs cost and confirmed.
 
+## Several attackers
+
+`stages.attack.attackers` declares up to four attackers, each an `agent` and
+a `model`, to cover each other's blind spots. Their hypotheses are
+consolidated: the same file and class within a few lines are one, naming
+every attacker that found it. The run's budget is shared out among them. An
+attacker that refuses or fails leaves its part not run, and devflow switches
+no other agent or model in its place. Each attacker's cost and time are kept
+on the report.
+
 ## What the attack knows of your project
 
 With the attack stage, a project gives the attack its own context in two
