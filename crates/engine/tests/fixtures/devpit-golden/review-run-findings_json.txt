@@ -35,7 +35,8 @@
       "findings": 0,
       "model": null,
       "persona": "devflow-spec",
-      "reason": null
+      "reason": null,
+      "via": "session"
     }
   ],
   "skipped": [

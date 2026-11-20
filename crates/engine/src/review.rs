@@ -884,6 +884,8 @@ pub struct Ran {
     pub stage: Option<String>,
     /// The tokens its turn spent, when its CLI says.
     pub tokens: Option<Tokens>,
+    /// Why each earlier try gave no answer, when it was asked again.
+    pub tries: Vec<String>,
 }
 
 impl Ran {
@@ -895,6 +897,13 @@ impl Ran {
         });
         if let Some(stage) = &self.stage {
             json["stage"] = json!(stage);
+        }
+        if !self.tries.is_empty() {
+            json["tries"] = json!(self.tries);
+        }
+        // A persona the session's own report filled, not a headless reader.
+        if self.by == "session" {
+            json["via"] = json!("session");
         }
         if let Some(tokens) = &self.tokens {
             json["tokens"] = json!(tokens);
@@ -919,6 +928,17 @@ impl Ran {
             reason: text("reason"),
             stage: text("stage"),
             tokens: value.get("tokens").and_then(Tokens::of),
+            tries: value
+                .get("tries")
+                .and_then(Value::as_array)
+                .map(|tries| {
+                    tries
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .map(str::to_owned)
+                        .collect()
+                })
+                .unwrap_or_default(),
         })
     }
 
@@ -1273,42 +1293,43 @@ fn reviewed_anew(given: &Given) -> Result<(String, PathBuf, Record), String> {
     // An answer that is not findings keeps what was said: "invalid JSON" with
     // nothing to read was every review of the first real project.
     type Unread = (String, Option<reviewing::Reviewed>);
-    let one = |reader: &Reader| -> Result<(Value, reviewing::Reviewed), Unread> {
-        let reviewer = &reader.reviewer;
-        let persona = effective_persona(given.root, given.personas, &reviewer.persona)
-            .map_err(|why| (why, None))?
-            .text;
-        let agent = reviewer.agent.word();
-        let attack = reader.stage == models::ATTACK;
-        let asked = if attack {
-            attack_prompt(&persona, &packet, agent)
-        } else {
-            prompt(&persona, &packet, agent, &reviewer.persona)
-        };
-        let env = env_of_in(dialect, given.env, git, &packet_at, &reviewer.persona);
-        let said = turn_in(
-            dialect,
-            reviewer.agent,
-            reviewer.model.as_deref(),
-            given.reach,
-            &asked,
-            given.root,
-            &env,
-            deadline,
-        )
-        .map_err(|why| (why, None))?;
-        match findings::read_signed(&said.text, agent, &reviewer.persona)
-            .and_then(|answer| held_to_retro(answer, given.retro))
-        {
-            Ok(mut answer) => {
-                if attack {
-                    findings::from_attack(&mut answer);
+    let one =
+        |reader: &Reader, deadline: Duration| -> Result<(Value, reviewing::Reviewed), Unread> {
+            let reviewer = &reader.reviewer;
+            let persona = effective_persona(given.root, given.personas, &reviewer.persona)
+                .map_err(|why| (why, None))?
+                .text;
+            let agent = reviewer.agent.word();
+            let attack = reader.stage == models::ATTACK;
+            let asked = if attack {
+                attack_prompt(&persona, &packet, agent)
+            } else {
+                prompt(&persona, &packet, agent, &reviewer.persona)
+            };
+            let env = env_of_in(dialect, given.env, git, &packet_at, &reviewer.persona);
+            let said = turn_in(
+                dialect,
+                reviewer.agent,
+                reviewer.model.as_deref(),
+                given.reach,
+                &asked,
+                given.root,
+                &env,
+                deadline,
+            )
+            .map_err(|why| (why, None))?;
+            match findings::read_signed(&said.text, agent, &reviewer.persona)
+                .and_then(|answer| held_to_retro(answer, given.retro))
+            {
+                Ok(mut answer) => {
+                    if attack {
+                        findings::from_attack(&mut answer);
+                    }
+                    Ok((answer, said))
                 }
-                Ok((answer, said))
+                Err(why) => Err((why, Some(said))),
             }
-            Err(why) => Err((why, Some(said))),
-        }
-    };
+        };
     let scale = scale::chosen(
         &given.config.review,
         given.previous.map(|previous| previous.run.as_str()),
@@ -1350,7 +1371,27 @@ fn reviewed_anew(given: &Given) -> Result<(String, PathBuf, Record), String> {
             &format!("{packet}\n## Personas\n{}\n", read.join("\n")),
         )?;
     }
-    let outcomes = in_parallel(&readers, &one);
+    // A reader that failed or ran out of time is asked again after a pause,
+    // while the review has time for a try; each try's reason is kept.
+    let started = std::time::Instant::now();
+    let tried = |reader: &Reader| {
+        let mut tries: Vec<String> = Vec::new();
+        let mut outcome = one(reader, deadline);
+        for pause in RETRY_PAUSES {
+            let why = match &outcome {
+                Err((why, _)) if asked_again(why) => why.clone(),
+                _ => break,
+            };
+            if deadline.saturating_sub(started.elapsed() + pause) < LEAST_TRY {
+                break;
+            }
+            tries.push(why);
+            std::thread::sleep(pause);
+            outcome = one(reader, deadline.saturating_sub(started.elapsed()));
+        }
+        (outcome, tries)
+    };
+    let outcomes = in_parallel(&readers, &tried);
     let mut record = Record {
         base: git.base.to_owned(),
         head: git.head.to_owned(),
@@ -1387,10 +1428,16 @@ fn reviewed_anew(given: &Given) -> Result<(String, PathBuf, Record), String> {
             reason: None,
             stage: (reader.stage != "review").then(|| reader.stage.to_owned()),
             tokens: None,
+            tries: Vec::new(),
         };
-        match outcome
-            .unwrap_or_else(|| Err(("its turn stopped before it answered".to_owned(), None)))
-        {
+        let outcome = match outcome {
+            Some((outcome, tries)) => {
+                ran.tries = tries;
+                outcome
+            }
+            None => Err(("its turn stopped before it answered".to_owned(), None)),
+        };
+        match outcome {
             Ok((answer, said)) => {
                 let taken: Vec<String> = record.ran.iter().filter_map(|r| r.file.clone()).collect();
                 let file = file_for(&taken, &ran.agent, &ran.persona);
@@ -1424,6 +1471,24 @@ fn reviewed_anew(given: &Given) -> Result<(String, PathBuf, Record), String> {
 
 fn pretty(value: &Value) -> String {
     serde_json::to_string_pretty(value).unwrap_or_default()
+}
+
+/// The pauses before a reader that gave no answer is asked again: two more
+/// tries at most.
+#[cfg(not(test))]
+const RETRY_PAUSES: [Duration; 2] = [Duration::from_secs(5), Duration::from_secs(20)];
+#[cfg(test)]
+const RETRY_PAUSES: [Duration; 2] = [Duration::from_millis(5), Duration::from_millis(20)];
+/// The least time a try is given: less, and it is not made.
+const LEAST_TRY: Duration = Duration::from_secs(60);
+
+/// Whether a reader that gave no answer is worth asking again: not when its
+/// CLI is missing or signed out, or its persona cannot be read.
+fn asked_again(why: &str) -> bool {
+    !(why.starts_with("not installed")
+        || why.starts_with("not signed in")
+        || why.contains("does not run this CLI headless")
+        || why.contains("persona"))
 }
 
 /// A review devpit already ran, with the session's own answers added.
@@ -1511,6 +1576,7 @@ fn reviewed_again(given: &Given, run: &str) -> Result<(String, PathBuf, Record),
             reason: None,
             stage: None,
             tokens: None,
+            tries: Vec::new(),
         });
         record.answers.push(answer);
     }

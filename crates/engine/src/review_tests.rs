@@ -2059,3 +2059,159 @@ fn a_hand_back_never_narrows_the_axes_a_run_was_started_on() {
         "standards still waits"
     );
 }
+
+/// A fake reader that fails its first `fails` tries, saying why, then
+/// answers; each try leaves a mark beside it.
+#[cfg(unix)]
+fn flaky_cli(dir: &Path, name: &str, answer: &Value, fails: usize) -> String {
+    let path = dir.join(name);
+    let script = format!(
+        "#!/bin/sh\ncat > /dev/null\nhere=$(dirname \"$0\")\necho try >> \"$here/{name}.tries\"\nif [ $(wc -l < \"$here/{name}.tries\") -le {fails} ]; then echo 'overloaded, try again' >&2; exit 1; fi\ncat <<'EOF'\n{answer}\nEOF\n"
+    );
+    written_apart(&path, &script);
+    path.display().to_string()
+}
+
+#[cfg(unix)]
+#[test]
+fn a_reader_that_failed_is_retried_and_each_tries_reason_is_kept() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let root = dir.path();
+    let said = answer("claude", "devflow-security", vec![]);
+    let cli = flaky_cli(root, "claude-flaky", &said, 1);
+    let reach = move |agent: Agent| match agent {
+        Agent::Claude => Ok(cli.clone()),
+        _ => Err("not installed".to_owned()),
+    };
+    let config = config_with(
+        vec![reviewer(Agent::Claude, "devflow-security")],
+        Consolidate::Nothing,
+    );
+    let done = Ran {
+        root,
+        config: &config,
+        asked: fresh(),
+        reach: &reach,
+        jev: None,
+    }
+    .review()
+    .expect("reviewed");
+    let tries = std::fs::read_to_string(root.join("claude-flaky.tries")).expect("tries");
+    assert_eq!(tries.lines().count(), 2, "asked again once");
+    let ran = &done.ran[0];
+    assert!(ran.file.is_some(), "the second try answered: {ran:?}");
+    assert_eq!(ran.tries.len(), 1);
+    assert!(ran.tries[0].contains("overloaded"), "{:?}", ran.tries);
+    let record = std::fs::read_to_string(Path::new(&done.folder).join(RECORD)).expect("record");
+    assert!(record.contains("\"tries\""), "{record}");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_reader_that_keeps_failing_stops_at_the_limit_and_a_missing_one_is_not_retried() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let root = dir.path();
+    let said = answer("claude", "devflow-security", vec![]);
+    let cli = flaky_cli(root, "claude-down", &said, 99);
+    let reach = move |agent: Agent| match agent {
+        Agent::Claude => Ok(cli.clone()),
+        _ => Err("not installed".to_owned()),
+    };
+    let config = config_with(
+        vec![
+            reviewer(Agent::Claude, "devflow-security"),
+            reviewer(Agent::Codex, "devflow-spec"),
+        ],
+        Consolidate::Nothing,
+    );
+    let done = Ran {
+        root,
+        config: &config,
+        asked: fresh(),
+        reach: &reach,
+        jev: None,
+    }
+    .review()
+    .expect("reviewed");
+    let tries = std::fs::read_to_string(root.join("claude-down.tries")).expect("tries");
+    assert_eq!(
+        tries.lines().count(),
+        1 + RETRY_PAUSES.len(),
+        "the first try and the limit's"
+    );
+    let down = done
+        .ran
+        .iter()
+        .find(|ran| ran.agent == "claude")
+        .expect("claude");
+    assert_eq!(down.tries.len(), RETRY_PAUSES.len());
+    assert!(
+        down.reason
+            .as_deref()
+            .is_some_and(|why| why.contains("overloaded")),
+        "{down:?}"
+    );
+    let missing = done
+        .ran
+        .iter()
+        .find(|ran| ran.agent == "codex")
+        .expect("codex");
+    assert!(
+        missing.tries.is_empty(),
+        "a missing CLI is not asked again: {missing:?}"
+    );
+    assert_eq!(missing.reason.as_deref(), Some("not installed"));
+}
+
+#[cfg(unix)]
+#[test]
+fn a_persona_the_sessions_report_filled_is_recorded_via_session() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let root = dir.path();
+    let said = answer("claude", "devflow-security", vec![]);
+    let cli = fake_cli(root, "claude-fake", &said, "{}", "0");
+    let reach = move |agent: Agent| match agent {
+        Agent::Claude => Ok(cli.clone()),
+        _ => Err("not installed".to_owned()),
+    };
+    let config = config_with(
+        vec![reviewer(Agent::Claude, "devflow-security")],
+        Consolidate::Nothing,
+    );
+    let first = Ran {
+        root,
+        config: &config,
+        asked: fresh(),
+        reach: &reach,
+        jev: None,
+    }
+    .review()
+    .expect("reviewed");
+    let reports: Vec<Value> = first
+        .pending
+        .iter()
+        .map(|persona| answer("claude", persona, vec![]))
+        .collect();
+    let handed = Ran {
+        root,
+        config: &config,
+        asked: asked(&json!({ "card": "card_1", "run": first.stamp, "reports": reports }))
+            .expect("asked"),
+        reach: &reach,
+        jev: None,
+    }
+    .review()
+    .expect("handed back");
+    let record: Value = serde_json::from_str(
+        &std::fs::read_to_string(Path::new(&handed.folder).join(RECORD)).expect("record"),
+    )
+    .expect("json");
+    for ran in record["ran"].as_array().expect("ran") {
+        let via = if ran["persona"] == "devflow-security" {
+            Value::Null
+        } else {
+            json!("session")
+        };
+        assert_eq!(ran["via"], via, "{ran}");
+    }
+}
