@@ -364,8 +364,8 @@ fn main() -> ExitCode {
                 ExitCode::FAILURE
             }
         },
-        Command::Attack { promote, .. } if !promote.is_empty() => {
-            eprintln!("devflow attack takes one item; `devflow attack promote` takes two");
+        Command::Attack { promote, run, .. } if !promote.is_empty() || run.is_some() => {
+            eprintln!("devflow attack takes one item; `--run` and two names are for `devflow attack promote`");
             ExitCode::FAILURE
         }
         Command::Attack {

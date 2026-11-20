@@ -32,10 +32,13 @@ fn a_vault_is_never_inside_the_checkout() {
     let dir = tempfile::tempdir().expect("dir");
     let checkout = dir.path().join("repo");
     std::fs::create_dir_all(&checkout).expect("repo");
-    let outside = home(&dir.path().join("cache"), &checkout).expect("outside");
-    assert!(!outside.starts_with(checkout.canonicalize().expect("real")));
+    let kept = home(&dir.path().join("cache"), &checkout).expect("outside");
+    assert!(!kept.starts_with(checkout.canonicalize().expect("real")));
     let refused = home(&checkout.join(".cache"), &checkout).expect_err("inside");
     assert!(refused.contains("inside the checkout"), "{refused}");
+    // A retro run's own exploits folder is held to the same.
+    assert!(outside(&checkout.join(".cache/reviews/r/exploits"), &checkout).is_err());
+    assert!(outside(&dir.path().join("cache/reviews/r/exploits"), &checkout).is_ok());
     // Nor through a link that leads into it.
     #[cfg(unix)]
     {
@@ -87,4 +90,9 @@ fn promote_refuses_a_path_or_a_link_out_of_the_repository() {
         promote(&root, &folder, &report(), "h4").is_err(),
         "a kept file out of its run"
     );
+    let mut hidden = report();
+    hidden["hypotheses"][0]["exploit"]["path"] = json!(".github/workflows/x.yml");
+    let refused = promote(&root, &folder, &hidden, "h1").expect_err("hidden");
+    assert!(refused.contains("hidden"), "{refused}");
+    assert!(!root.join(".github").exists());
 }

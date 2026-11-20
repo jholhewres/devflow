@@ -492,7 +492,16 @@ pub fn standalone(
     });
     if done.retro && held_to_security && done.pending.is_empty() && unproven {
         // The exploits of code in production stay out of the repository.
-        let vault = std::path::Path::new(&done.folder).join("exploits");
+        let vault = match devflow_engine::vault::outside(
+            &std::path::Path::new(&done.folder).join("exploits"),
+            root,
+        ) {
+            Ok(vault) => vault,
+            Err(why) => {
+                answer["next"] = json!(format!("Nowhere to prove it: {why}."));
+                return Ok(answer);
+            }
+        };
         answer["vault"] = json!(vault.display().to_string());
         answer["next"] = json!(format!(
             "Prove the retro (devflow-review): for each finding of findings.json, write its exploit test under {} (outside the repository, one folder per finding), run it, then call review with {}, run \"{}\" and verified: one {{ finding, result, evidence, test: the exploit's path }} each. Never write it into the checkout: `devflow attack promote` brings an attack's exploit in once its fix lands.",

@@ -2011,3 +2011,51 @@ fn a_security_only_retro_reads_only_security_and_records_verified_alone() {
         assert!(axes_asked(Some(&wrong)).is_err(), "{wrong}");
     }
 }
+
+/// A run started on every axis is never narrowed by a hand-back that asks
+/// for fewer: spec and standards still wait.
+#[cfg(unix)]
+#[test]
+fn a_hand_back_never_narrows_the_axes_a_run_was_started_on() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let root = dir.path();
+    let said = answer("claude", "devflow-security", vec![]);
+    let cli = fake_cli(root, "claude-fake", &said, "{}", "0");
+    let reach = move |agent: Agent| match agent {
+        Agent::Claude => Ok(cli.clone()),
+        _ => Err("not installed".to_owned()),
+    };
+    let config = config_with(
+        vec![reviewer(Agent::Claude, "devflow-security")],
+        Consolidate::Nothing,
+    );
+    let started = Ran {
+        root,
+        config: &config,
+        asked: fresh(),
+        reach: &reach,
+        jev: None,
+    }
+    .retro()
+    .expect("reviewed");
+    assert_eq!(started.pending, ["devflow-spec", "devflow-standards"]);
+    let spec = answer("session", "devflow-spec", vec![]);
+    let mut narrowing =
+        asked(&json!({ "card": "card_1", "run": started.stamp, "reports": [spec] }))
+            .expect("asked");
+    narrowing.axes = vec!["devflow-security".to_owned(), "devflow-spec".to_owned()];
+    let handed = Ran {
+        root,
+        config: &config,
+        asked: narrowing,
+        reach: &reach,
+        jev: None,
+    }
+    .retro()
+    .expect("handed back");
+    assert_eq!(
+        handed.pending,
+        ["devflow-standards"],
+        "standards still waits"
+    );
+}

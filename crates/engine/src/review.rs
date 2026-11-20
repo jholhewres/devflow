@@ -86,7 +86,9 @@ const MOST_CHANGED: usize = 200;
 /// Kept back from the reviewers for the consolidating pass.
 const PASS: Duration = Duration::from_secs(180);
 
-#[derive(Debug, Clone, PartialEq)]
+/// What a review is asked. `Default` lets a host build one by the fields it
+/// knows, so a field added later never breaks it.
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct Asked {
     pub card: String,
     /// The branch or commit the diff starts from, when not the card's own.
@@ -1464,7 +1466,7 @@ fn reviewed_again(given: &Given, run: &str) -> Result<(String, PathBuf, Record),
         }),
         // The run says what it is: a hand-back that leaves `mode` out is still retro.
         retro: given.retro || kept["mode"] == "retro",
-        // And which axes it is held to, though the hand-back leaves them out.
+        // And the axes it was started on: a hand-back never narrows them.
         axes: kept["axes"]
             .as_array()
             .map(|list| {
@@ -1473,7 +1475,7 @@ fn reviewed_again(given: &Given, run: &str) -> Result<(String, PathBuf, Record),
                     .map(str::to_owned)
                     .collect()
             })
-            .unwrap_or_else(|| given.asked.axes.clone()),
+            .unwrap_or_default(),
     };
     for mut one in ran {
         let answer = one.file.as_deref().and_then(|file| read_json(&path, file));

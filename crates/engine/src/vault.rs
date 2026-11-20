@@ -15,11 +15,16 @@ pub const VAULT: &str = "vault";
 /// The vault under `cache`, made when missing; refused when it resolves
 /// inside the checkout.
 pub fn home(cache: &Path, checkout: &Path) -> Result<PathBuf, String> {
-    let home = cache.join(VAULT);
-    std::fs::create_dir_all(&home).map_err(|err| format!("{}: {err}", home.display()))?;
-    let real = home
+    outside(&cache.join(VAULT), checkout)
+}
+
+/// `folder`, made when missing, as it resolves; refused when that is inside
+/// the checkout: an exploit is never kept in the repository.
+pub fn outside(folder: &Path, checkout: &Path) -> Result<PathBuf, String> {
+    std::fs::create_dir_all(folder).map_err(|err| format!("{}: {err}", folder.display()))?;
+    let real = folder
         .canonicalize()
-        .map_err(|err| format!("{}: {err}", home.display()))?;
+        .map_err(|err| format!("{}: {err}", folder.display()))?;
     let tree = checkout
         .canonicalize()
         .unwrap_or_else(|_| checkout.to_path_buf());
@@ -56,6 +61,16 @@ pub fn promote(root: &Path, folder: &Path, report: &Value, id: &str) -> Result<S
         .as_str()
         .ok_or_else(|| format!("{id} has no exploit"))?;
     let path = crate::attack::exploit_path(path)?;
+    // Never where a tool runs a file on its own: a hidden folder or file
+    // (`.github/workflows`, `.husky`, `.vscode`).
+    if Path::new(&path)
+        .components()
+        .any(|part| part.as_os_str().to_string_lossy().starts_with('.'))
+    {
+        return Err(format!(
+            "{path} is hidden, where a tool may run it on its own: an exploit belongs with the tests"
+        ));
+    }
     let saved = one["exploit"]["saved"]
         .as_str()
         .ok_or_else(|| format!("{id}'s exploit was not kept"))?;
