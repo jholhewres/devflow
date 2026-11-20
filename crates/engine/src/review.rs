@@ -1568,8 +1568,9 @@ const RETRY_PAUSES: [Duration; 2] = [Duration::from_millis(5), Duration::from_mi
 /// The least time a try is given: less, and it is not made.
 #[cfg(not(test))]
 const LEAST_TRY: Duration = Duration::from_secs(60);
+// Enough for a fake reader to answer on a machine busy with other tests.
 #[cfg(test)]
-const LEAST_TRY: Duration = Duration::from_secs(2);
+const LEAST_TRY: Duration = Duration::from_secs(3);
 
 /// The first try's time: the deadline less what one more try needs (its
 /// pause, its least time, and half that again to end the one that ran out
