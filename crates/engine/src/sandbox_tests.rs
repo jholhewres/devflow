@@ -312,3 +312,26 @@ fn a_stacks_exploit_joins_its_network_and_is_told_its_targets() {
     assert_eq!(argv[at + 1], "devflow-stack-1-net");
     assert!(argv.contains(&"DEVFLOW_SECURITY_TARGETS=http://web:8080".to_owned()));
 }
+
+#[test]
+fn a_tree_of_a_detached_review_tree_gets_the_main_checkouts_dependencies() {
+    let (dir, root) = repo();
+    let head = crate::git::head_of(&root).expect("head");
+    // The tree an attack on a range reviews in: a worktree with no
+    // node_modules of its own.
+    let review = dir.path().join("review");
+    crate::git::add_detached(&root, &review, &head).expect("review tree");
+    assert!(dependencies(&review).is_empty());
+    let deps = dependencies_for(&review);
+    assert_eq!(deps.len(), 1, "{deps:?}");
+    assert_eq!(
+        deps[0].canonicalize().unwrap(),
+        root.join("node_modules").canonicalize().unwrap()
+    );
+    let at = dir.path().join("exploit-tree");
+    let tree = tree_at(&review, &head, &at).expect("tree");
+    assert!(at.join("node_modules/lib").is_dir(), "linked in");
+    assert_eq!(tree.deps.len(), 1);
+    drop(tree);
+    crate::git::remove_detached(&root, &review);
+}

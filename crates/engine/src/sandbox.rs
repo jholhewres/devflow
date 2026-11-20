@@ -143,7 +143,12 @@ pub fn found(choice: SandboxChoice, image: Option<&str>, path: &OsStr) -> Result
             .status()
             .is_ok_and(|status| status.success());
         if !works {
-            return Err("bwrap cannot make a network namespace here".to_owned());
+            return Err(match userns_restricted() {
+                true => "bwrap cannot make a network namespace here: unprivileged user namespaces \
+                         are restricted (kernel.apparmor_restrict_unprivileged_userns=1)"
+                    .to_owned(),
+                false => "bwrap cannot make a network namespace here".to_owned(),
+            });
         }
         Ok(Sandbox {
             kind: Kind::Bwrap,
@@ -345,6 +350,37 @@ pub fn argv(
     }
 }
 
+/// Whether AppArmor keeps unprivileged user namespaces from being made, as
+/// Ubuntu does from 23.10: bwrap then cannot sandbox.
+fn userns_restricted() -> bool {
+    std::fs::read_to_string("/proc/sys/kernel/apparmor_restrict_unprivileged_userns")
+        .is_ok_and(|said| said.trim() == "1")
+}
+
+/// The dependency folders a run of `checkout` sees: its own, then those of
+/// the repository's main worktree that it lacks. A detached tree an attack
+/// reviews in has none of its own (`node_modules` is never committed), so
+/// without the main worktree's an exploit test would fetch them, offline.
+pub fn dependencies_for(checkout: &Path) -> Vec<PathBuf> {
+    let mut found = dependencies(checkout);
+    let main = crate::git::worktrees(checkout)
+        .ok()
+        .and_then(|all| all.into_iter().next())
+        .map(PathBuf::from);
+    let same = |a: &Path, b: &Path| match (a.canonicalize(), b.canonicalize()) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => a == b,
+    };
+    if let Some(main) = main.filter(|main| !same(main, checkout)) {
+        for dep in dependencies(&main) {
+            if !found.iter().any(|one| one.file_name() == dep.file_name()) {
+                found.push(dep);
+            }
+        }
+    }
+    found
+}
+
 /// A throwaway worktree of a commit, removed when dropped, and the
 /// checkout's dependency folders linked into it.
 pub struct Tree {
@@ -360,9 +396,9 @@ impl Drop for Tree {
 }
 
 /// A worktree of `commit` at `at`, with the checkout's dependency folders
-/// linked in, removed when the returned [`Tree`] is dropped. Only the
-/// links made here are the run's dependencies: one the commit itself holds
-/// is never mounted.
+/// linked in ([`dependencies_for`]), removed when the returned [`Tree`] is
+/// dropped. Only the links made here are the run's dependencies: one the
+/// commit itself holds is never mounted.
 pub fn tree_at(checkout: &Path, commit: &str, at: &Path) -> Result<Tree, String> {
     if let Some(parent) = at.parent() {
         std::fs::create_dir_all(parent).map_err(|err| format!("{}: {err}", parent.display()))?;
@@ -373,7 +409,7 @@ pub fn tree_at(checkout: &Path, commit: &str, at: &Path) -> Result<Tree, String>
         at: at.to_path_buf(),
         deps: Vec::new(),
     };
-    for dep in dependencies(checkout) {
+    for dep in dependencies_for(checkout) {
         let Some(name) = dep.file_name() else {
             continue;
         };
