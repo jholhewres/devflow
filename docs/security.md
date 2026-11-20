@@ -269,7 +269,11 @@ and NoSQL injection, XXE, deserialization and prompt injection. Each case is a n
 and what safe code does with it. A URL's host is loopback or private on port
 1, or a name that resolves nowhere; a bare address leads inside; no name or
 e-mail address ends in a real place, and no case names a real project or
-person. `devflow payloads table <class> --runner
+person. A real place is any two-letter country's, any top-level name IANA
+delegates, or a name networks use inside (`internal`, `local`, `corp`…). The
+IANA names are a dated snapshot, `flow/payloads/tlds-alpha-by-domain.txt`;
+to refresh it, download <https://data.iana.org/TLD/tlds-alpha-by-domain.txt>
+over it and update the version and size the payloads test pins. `devflow payloads table <class> --runner
 jest|vitest|go|pytest` prints a test table with a `check` function you fill
 in for the code under test. `stages.attack.regression: [ssrf, redos]` gives
 those classes' cases to every attack. A case an attack proposes stays in its

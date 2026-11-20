@@ -613,9 +613,37 @@ fn a_country_label_is_a_host_anywhere_and_a_namespace_only_where_declared() {
         "src/main.rs",
         "C:\\work\\db.id",
         "\\\\?\\UNC\\evil.rs\\share",
+        "\\\\evil.club\\share",
+        "\\\\?\\UNC\\evil.zip\\x",
+        "db.internal",
         "<xi:include href=\"http://www.w3.org/2001/XInclude\"/>",
         "fetch http://www.w3.org/2001/XInclude",
     ] {
         assert!(neutral(named).is_err(), "{named}");
+    }
+}
+
+/// The top-level names are IANA's list as of a dated snapshot: refreshing it
+/// is a change someone sees, with its version and size here.
+#[test]
+fn the_top_level_names_are_a_dated_snapshot_of_ianas_list() {
+    let mut lines = TLDS.lines();
+    assert_eq!(
+        lines.next(),
+        Some("# Version 2026111900, Last Updated Thu Nov 19 07:07:01 2026 UTC")
+    );
+    let names: Vec<&str> = lines.collect();
+    assert_eq!(names.len(), 1436);
+    assert!(names.iter().all(|name| !name.is_empty()
+        && name
+            .chars()
+            .all(|ch| ch.is_ascii_uppercase() || ch.is_ascii_digit() || ch == '-')));
+    for (word, host) in [
+        ("evil.club", true),
+        ("os.system", false),
+        ("x.dtd", false),
+        ("settings.yml", false),
+    ] {
+        assert_eq!(neutral(word).is_err(), host, "{word}");
     }
 }

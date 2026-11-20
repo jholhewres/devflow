@@ -185,14 +185,24 @@ pub fn checked(case: &Case) -> Result<(), String> {
         .map_err(|why| format!("{id}: {why}"))
 }
 
-/// The top-level names a host is said under, besides every two-letter
-/// country's: a word ending in one names a real place, or an inside one.
-const PUBLIC: [&str; 40] = [
-    "com", "net", "org", "io", "dev", "app", "ai", "cloud", "info", "biz", "tech", "site",
-    "online", "xyz", "gov", "edu", "mil", "int", "arpa", "internal", "local", "corp", "lan",
-    "home", "intranet", "store", "shop", "live", "blog", "news", "page", "link", "top", "pro",
-    "name", "mobi", "asia", "jobs", "travel", "global",
-];
+/// Every top-level name IANA delegates, as a dated snapshot: its first line
+/// says the version. A word ending in one names a real place.
+pub const TLDS: &str = include_str!("../../../flow/payloads/tlds-alpha-by-domain.txt");
+
+/// Names a network uses inside without IANA delegating them: a word ending
+/// in one may name a host inside someone's network.
+const INSIDE: [&str; 6] = ["internal", "local", "corp", "lan", "home", "intranet"];
+
+/// Whether `label`, a last label, names a real place or an inside one: any
+/// two-letter country's, delegated or not yet, IANA's, or an inside name.
+fn top_level(label: &str) -> bool {
+    (label.len() == 2 && label.chars().all(|ch| ch.is_ascii_alphabetic()))
+        || INSIDE.contains(&label)
+        || TLDS
+            .lines()
+            .filter(|line| !line.starts_with('#'))
+            .any(|tld| tld.trim().eq_ignore_ascii_case(label))
+}
 
 /// The XML namespaces a document declares without fetching them.
 const NAMESPACES: [&str; 1] = ["http://www.w3.org/2001/XInclude"];
@@ -515,9 +525,10 @@ pub fn neutral(text: &str) -> Result<(), String> {
             .next()
             .unwrap_or_default()
             .to_ascii_lowercase();
-        let country = last.len() == 2 && last.chars().all(|ch| ch.is_ascii_alphabetic());
-        if country || PUBLIC.contains(&last.as_str()) {
-            return Err(format!("`{place}` names a real host"));
+        if top_level(&last) {
+            return Err(format!(
+                "`{place}` reads as a real host: `{last}` is a top-level name (a file's name too, such as main.rs)"
+            ));
         }
     }
     Ok(())
