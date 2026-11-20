@@ -388,3 +388,18 @@ fn a_stacks_exploit_is_proven_at_head_and_the_sandbox_is_docker() {
         SandboxChoice::Bwrap
     );
 }
+
+/// An exploit joins the stack when the target it declares is one of the
+/// stack's, however the attacker wrote its case or a trailing slash.
+#[test]
+fn a_declared_target_is_on_the_stack_however_it_is_written() {
+    let targets = ["http://web:8080".to_owned()];
+    let declaring = |target: &str| json!({ "exploit": { "target": target } });
+    for said in ["http://web:8080", "HTTP://Web:8080/", " http://web:8080 "] {
+        assert!(on_stack(Some(&targets), &declaring(said)), "{said}");
+    }
+    for said in ["", "http://web:9090", "http://web"] {
+        assert!(!on_stack(Some(&targets), &declaring(said)), "{said}");
+    }
+    assert!(!on_stack(None, &declaring("http://web:8080")), "no stack");
+}

@@ -379,6 +379,9 @@ pub struct Attack {
     /// on `model` when none is declared.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub attackers: Vec<Attacker>,
+    /// How many attackers run at once: one after another unless said.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub concurrency: Option<u8>,
 }
 
 /// One declared attacker.
@@ -471,6 +474,7 @@ impl Default for Attack {
             budget: Budget::default(),
             regression: Vec::new(),
             attackers: Vec::new(),
+            concurrency: None,
         }
     }
 }
@@ -1623,6 +1627,23 @@ pub(crate) fn attack_in(fields: &mut Fields) -> Result<Attack, Invalid> {
             }
         }
     }
+    let concurrency = match fields.get("concurrency") {
+        Some((node, path)) => Some(
+            match scalar(node, &path, "a number of attackers")? {
+                (given, true) => given.parse::<u8>().ok(),
+                _ => None,
+            }
+            .filter(|at_once| (1..=MOST_ATTACKERS as u8).contains(at_once))
+            .ok_or_else(|| {
+                Invalid::at(
+                    node.line(),
+                    &path,
+                    &format!("expected 1 to {MOST_ATTACKERS} attackers at once"),
+                )
+            })?,
+        ),
+        None => None,
+    };
     Ok(Attack {
         run: if enabled { run } else { AttackRun::Off },
         model,
@@ -1632,6 +1653,7 @@ pub(crate) fn attack_in(fields: &mut Fields) -> Result<Attack, Invalid> {
         budget,
         regression,
         attackers,
+        concurrency,
     })
 }
 

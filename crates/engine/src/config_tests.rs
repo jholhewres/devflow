@@ -457,3 +457,29 @@ fn a_model_is_an_exact_tier_or_a_well_formed_id() {
     );
     assert_eq!(reviewer.field, "review.reviewers.0.model", "{reviewer}");
 }
+
+/// Attackers run one after another unless `concurrency` says how many at
+/// once, never more than may be declared.
+#[test]
+fn attackers_run_one_at_a_time_unless_concurrency_says() {
+    let with = |at_once: &str| {
+        format!("version: 1\nstages:\n  attack:\n    run: per-item\n    concurrency: {at_once}\n")
+    };
+    let plain = parse("version: 1\nstages:\n  attack:\n    run: per-item\n").expect("plain");
+    assert_eq!(plain.stages.attack.concurrency, None);
+    let two = parse(&with("2")).expect("two");
+    assert_eq!(two.stages.attack.concurrency, Some(2));
+    let written = crate::render::render(&two);
+    assert_eq!(
+        parse(&written).expect("written").stages.attack,
+        two.stages.attack,
+        "{written}"
+    );
+    for wrong in ["0", "5", "many", "-1"] {
+        let why = refused(&with(wrong));
+        assert!(
+            why.to_string().contains("attackers at once"),
+            "{wrong}: {why}"
+        );
+    }
+}

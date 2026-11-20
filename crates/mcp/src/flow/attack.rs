@@ -177,7 +177,8 @@ fn stack_in_force(
     server: &Server,
     project: &Project,
     config: &Config,
-) -> Result<Option<(String, std::path::PathBuf)>, String> {
+    // The file, docker, and the digest it resolves to now.
+) -> Result<Option<(String, std::path::PathBuf, String)>, String> {
     let root = project.root.as_path();
     let Some(named) = config.security.stack.as_deref() else {
         return Ok(None);
@@ -196,7 +197,7 @@ fn stack_in_force(
     let docker = crate::register::on_path("docker").ok_or("security.stack needs docker")?;
     let (_, now) = devflow_engine::stack::resolved(&docker, root, named)?;
     in_force(confirmed, named, &now)?;
-    Ok(Some((named.to_owned(), docker)))
+    Ok(Some((named.to_owned(), docker, now)))
 }
 
 /// Whether the stack `named`, resolving to `now`, is the one the person
@@ -227,10 +228,11 @@ fn started_stack(
     config: &Config,
 ) -> Result<(Option<devflow_engine::stack::Up>, Option<String>), String> {
     match stack_in_force(server, project, config) {
-        Ok(Some((file, docker))) => devflow_engine::stack::up(
+        Ok(Some((file, docker, confirmed))) => devflow_engine::stack::up(
             &docker,
             &project.root,
             &file,
+            &confirmed,
             &project.cache().join("stacks"),
             &devflow_engine::runs::stamp(SystemTime::now()),
         )

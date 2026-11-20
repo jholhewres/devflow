@@ -536,7 +536,7 @@ fn proven(given: &Given, stamp: &str, hypotheses: &mut [Value]) {
             one["ran"] = json!({ "result": "not_run", "reason": why });
             continue;
         }
-        let on_stack = on_stack(given.stack, one);
+        let on_stack = on_stack(given.stack.map(|stack| stack.targets.as_slice()), one);
         let ran = sandbox::run(
             if on_stack { &stacked } else { &found },
             &tree,
@@ -948,9 +948,13 @@ pub fn consolidated(found: Vec<(String, Vec<Value>)>) -> Vec<Value> {
 
 /// Whether a hypothesis's exploit said it reaches one of the stack's
 /// targets: only then does it run on the stack's network.
-fn on_stack(stack: Option<&crate::stack::Up>, one: &Value) -> bool {
-    let said = text(&one["exploit"], "target");
-    stack.is_some_and(|stack| !said.is_empty() && stack.targets.contains(&said))
+fn on_stack(targets: Option<&[String]>, one: &Value) -> bool {
+    // Said as the attacker writes it: any case, a trailing slash or not.
+    let plain = |target: &str| target.trim().trim_end_matches('/').to_ascii_lowercase();
+    let said = plain(&text(&one["exploit"], "target"));
+    targets.is_some_and(|targets| {
+        !said.is_empty() && targets.iter().any(|target| plain(target) == said)
+    })
 }
 
 /// The sandbox an attack's exploits run in: with a stack, docker unless one
@@ -1201,7 +1205,12 @@ pub fn attacked(given: &Given) -> Result<Done, String> {
             share,
         )
     };
-    let outcomes = review::in_parallel(&declared, &one);
+    // At most `concurrency` attackers at once: one after another unless said.
+    let at_once = usize::from(given.config.stages.attack.concurrency.unwrap_or(1)).max(1);
+    let outcomes: Vec<_> = declared
+        .chunks(at_once)
+        .flat_map(|some| review::in_parallel(some, &one))
+        .collect();
     let mut proposed = String::new();
     let mut cases: Vec<Value> = Vec::new();
     let mut dropped_cases: Vec<Value> = Vec::new();

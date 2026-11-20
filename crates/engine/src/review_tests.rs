@@ -2386,3 +2386,66 @@ fn a_cut_diff_is_read_whole_from_a_file_beside_the_packet() {
         quoted
     );
 }
+
+/// The packet names, by digest, only the personas someone reads: an axis's
+/// overlay when the session reviews that axis, never when a reader of every
+/// axis answered for it.
+#[cfg(unix)]
+#[test]
+fn the_packet_names_only_the_overlays_someone_reads() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let root = dir.path();
+    let reviewers = root.join(crate::folder::DIR).join("reviewers");
+    std::fs::create_dir_all(&reviewers).expect("reviewers");
+    std::fs::write(
+        reviewers.join("devflow-security.overlay.md"),
+        "Links come from strangers.",
+    )
+    .expect("overlay");
+    let claude = fake_cli(
+        root,
+        "claude-fake",
+        &answer("claude", "devflow-all", Vec::new()),
+        "{}",
+        "0",
+    );
+    let config = config_with(
+        vec![reviewer(Agent::Claude, "devflow-all")],
+        Consolidate::Jev,
+    );
+    let packet = |done: &Done| {
+        std::fs::read_to_string(Path::new(&done.folder).join(PACKET)).expect("packet")
+    };
+    let answered = move |_: Agent| Ok(claude.clone());
+    let done = Ran {
+        root,
+        config: &config,
+        asked: fresh(),
+        reach: &answered,
+        jev: None,
+    }
+    .review()
+    .expect("reviewed");
+    assert!(done.pending.is_empty());
+    assert!(
+        !packet(&done).contains("devflow-security"),
+        "nobody read it: {}",
+        packet(&done)
+    );
+    let missing = |_: Agent| Err::<String, String>("not installed".to_owned());
+    let done = Ran {
+        root,
+        config: &config,
+        asked: fresh(),
+        reach: &missing,
+        jev: None,
+    }
+    .review()
+    .expect("reviewed");
+    assert!(done.pending.contains(&"devflow-security".to_owned()));
+    let said = packet(&done);
+    assert!(
+        said.contains("## Personas\n") && said.contains("devflow-security.overlay.md (sha256:"),
+        "the session reads it: {said}"
+    );
+}

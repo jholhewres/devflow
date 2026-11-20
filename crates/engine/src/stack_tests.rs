@@ -1,5 +1,7 @@
 use serde_json::json;
 
+use std::path::{Path, PathBuf};
+
 use super::*;
 
 fn config(service: serde_json::Value) -> serde_json::Value {
@@ -108,4 +110,79 @@ fn what_would_leave_the_private_network_is_refused_before_anything_starts() {
     assert!(checked(&top, dir.path())
         .expect_err("secrets")
         .contains("`secrets`"));
+}
+
+/// A docker that answers `compose config` with one service on `image`, and
+/// `image inspect` with `id`, or as if the image were absent when empty;
+/// every call it gets is logged.
+#[cfg(unix)]
+fn fake_docker(dir: &Path, id: &str) -> PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+    let docker = dir.join("docker");
+    let config = r#"{"name":"devflow-stack","services":{"web":{"image":"web:1","expose":["80"]}}}"#;
+    let inspect = if id.is_empty() {
+        "exit 1".to_owned()
+    } else {
+        format!("echo {id}")
+    };
+    std::fs::write(
+        &docker,
+        format!(
+            "#!/bin/sh\necho \"$*\" >> '{log}'\ncase \"$*\" in\n  *' config '*) echo '{config}' ;;\n  'image inspect'*) {inspect} ;;\n  *) exit 9 ;;\nesac\n",
+            log = dir.join("calls").display()
+        ),
+    )
+    .expect("docker");
+    std::fs::set_permissions(&docker, std::fs::Permissions::from_mode(0o755)).expect("mode");
+    docker
+}
+
+/// The images the person confirmed are the ones the stack starts on: an
+/// absent image is refused, and a stack that no longer resolves to the
+/// digest confirmed never starts.
+#[cfg(unix)]
+#[test]
+fn a_stack_starts_only_on_the_images_its_digest_covers() {
+    let dir = tempfile::tempdir().expect("dir");
+    let root = dir.path().join("project");
+    std::fs::create_dir_all(&root).expect("project");
+    std::fs::write(root.join("compose.yaml"), "services: {}\n").expect("compose");
+    let first = fake_docker(dir.path(), "sha256:aaa");
+    let (_, digest) = resolved(&first, &root, "compose.yaml").expect("resolved");
+    let retagged = fake_docker(dir.path(), "sha256:bbb");
+    let (_, other) = resolved(&retagged, &root, "compose.yaml").expect("resolved");
+    assert_ne!(digest, other, "a retagged image is another stack");
+    std::fs::remove_file(dir.path().join("calls")).expect("calls");
+    let Err(refused) = up(
+        &retagged,
+        &root,
+        "compose.yaml",
+        &digest,
+        &dir.path().join("s"),
+        "t",
+    ) else {
+        panic!("a stack changed since it was confirmed never starts");
+    };
+    assert!(
+        refused.contains("changed since it was confirmed"),
+        "{refused}"
+    );
+    let calls = std::fs::read_to_string(dir.path().join("calls")).expect("calls");
+    assert!(!calls.contains(" up "), "nothing started: {calls}");
+    let absent = fake_docker(dir.path(), "");
+    let Err(refused) = resolved(&absent, &root, "compose.yaml") else {
+        panic!("an absent image is refused");
+    };
+    assert!(refused.contains("not on this machine"), "{refused}");
+}
+
+#[test]
+fn a_service_that_would_pull_on_its_own_is_refused() {
+    let dir = tempfile::tempdir().expect("dir");
+    let refused = checked(
+        &config(json!({ "image": "x", "pull_policy": "always" })),
+        dir.path(),
+    )
+    .expect_err("pull_policy");
+    assert!(refused.contains("`pull_policy`"), "{refused}");
 }

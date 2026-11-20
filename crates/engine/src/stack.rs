@@ -26,7 +26,7 @@ const TOP_KEYS: [&str; 4] = ["name", "services", "networks", "volumes"];
 /// What a service may say: anything else (a build, a published port, a
 /// host's network, pid or ipc, privileges, capabilities, devices, secrets,
 /// configs, extra hosts) is refused.
-const SERVICE_KEYS: [&str; 20] = [
+const SERVICE_KEYS: [&str; 19] = [
     "image",
     "command",
     "entrypoint",
@@ -45,7 +45,6 @@ const SERVICE_KEYS: [&str; 20] = [
     "networks",
     "volumes",
     "init",
-    "pull_policy",
     "hostname",
 ];
 
@@ -284,6 +283,12 @@ fn ran(mut command: Command) -> Result<(bool, Vec<u8>, String), String> {
 /// fixed name: what the person confirms, and its SHA-256 over everything it
 /// pulls in (includes, extends, env files), not only the file's bytes.
 pub fn resolved(docker: &Path, root: &Path, file: &str) -> Result<(Value, String), String> {
+    resolving(docker, root, file).map(|(config, digest, _)| (config, digest))
+}
+
+/// [`resolved`], with the image ids its digest covers.
+type Pins = Vec<(String, String)>;
+fn resolving(docker: &Path, root: &Path, file: &str) -> Result<(Value, String, Pins), String> {
     use sha2::{Digest, Sha256};
     let at = crate::fsguard::resolve(root, file)
         .map_err(|_| format!("security.stack: {file} is not a file of the project"))?;
@@ -300,7 +305,8 @@ pub fn resolved(docker: &Path, root: &Path, file: &str) -> Result<(Value, String
         serde_json::from_slice(&raw).map_err(|err| format!("docker compose config: {err}"))?;
     // The images as they are here, not only their tags: a retagged image is
     // another stack.
-    let pinned: String = image_ids(docker, &config)?
+    let pins = image_ids(docker, &config)?;
+    let pinned: String = pins
         .iter()
         .map(|(service, id)| format!("{service}={id}\n"))
         .collect();
@@ -308,16 +314,17 @@ pub fn resolved(docker: &Path, root: &Path, file: &str) -> Result<(Value, String
         "{:x}",
         Sha256::digest(format!("{config}\n{pinned}").as_bytes())
     );
-    Ok((config, digest))
+    Ok((config, digest, pins))
 }
 
 /// Starts the stack `file` of the project at `root` on an internal network,
 /// its override written in `scratch`; refused before anything starts when
-/// the stack would leave it.
+/// the stack would leave it, or no longer resolves to `confirmed`.
 pub fn up(
     docker: &Path,
     root: &Path,
     file: &str,
+    confirmed: &str,
     scratch: &Path,
     stamp: &str,
 ) -> Result<Up, String> {
@@ -326,9 +333,12 @@ pub fn up(
     let name = format!("devflow-stack-{}", stamp.to_ascii_lowercase());
     let network = format!("{name}-net");
     std::fs::create_dir_all(scratch).map_err(|err| format!("{}: {err}", scratch.display()))?;
-    // Each service on the image it was confirmed with, by its id.
-    let (plain, _) = resolved(docker, root, file)?;
-    let pins = image_ids(docker, &plain)?;
+    // Each service on the image it was confirmed with, by the ids that
+    // digest covers.
+    let (_, digest, pins) = resolving(docker, root, file)?;
+    if digest != confirmed {
+        return Err("the stack changed since it was confirmed".to_owned());
+    }
     let overriding = scratch.join(format!("{name}.override.yaml"));
     std::fs::write(&overriding, override_yaml(&network, &pins))
         .map_err(|err| format!("{}: {err}", overriding.display()))?;

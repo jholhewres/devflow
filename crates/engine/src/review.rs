@@ -473,6 +473,33 @@ pub fn persona_line(persona: &str, effective: &Effective) -> String {
     }
 }
 
+/// The personas the session reviews with, named in the packet beside the
+/// readers' when a project overlays one: a reader that did not answer leaves
+/// its axes to the session.
+fn named_in_packet(folder: &Path, lines: &[String], overlaid: bool) -> Result<(), String> {
+    let Ok(packet) = std::fs::read_to_string(folder.join(PACKET)) else {
+        return Ok(());
+    };
+    let section = packet.contains("\n## Personas\n");
+    let missing: Vec<&String> = lines
+        .iter()
+        .filter(|line| !packet.contains(line.as_str()))
+        .collect();
+    if missing.is_empty() || !(section || overlaid) {
+        return Ok(());
+    }
+    let mut text = packet.trim_end().to_owned();
+    if !section {
+        text.push_str("\n\n## Personas");
+    }
+    for line in missing {
+        text.push('\n');
+        text.push_str(line);
+    }
+    text.push('\n');
+    write(folder, PACKET, &text)
+}
+
 /// Where a pending persona's text is written in the run, for the session.
 pub fn persona_file(persona: &str) -> String {
     format!("persona-{persona}.md")
@@ -1381,11 +1408,20 @@ fn reviewed_anew(given: &Given) -> Result<(String, PathBuf, Record), String> {
     // can be read again as it was.
     let mut read: Vec<String> = Vec::new();
     let mut overlaid = false;
-    // The headless readers', and the axes' the session may review itself.
+    // The headless readers', and the axes' the session may review itself:
+    // never when a reader reads every axis.
+    let all_read = readers
+        .iter()
+        .any(|reader| reader.reviewer.persona == scale::ALL_AXES);
     let named: Vec<String> = readers
         .iter()
         .map(|reader| reader.reviewer.persona.clone())
-        .chain(axis_personas().into_iter().map(str::to_owned))
+        .chain(
+            axis_personas()
+                .into_iter()
+                .filter(|_| !all_read)
+                .map(str::to_owned),
+        )
         .collect();
     for persona in &named {
         if let Ok(effective) = effective_persona(given.root, given.personas, persona) {
@@ -1926,10 +1962,15 @@ pub fn reviewed(given: &Given) -> Result<Done, String> {
     );
     // The session's subagents read each persona as this project resolves it,
     // beside the packet: the project keeps no copy of devpit's.
+    let mut session_read = Vec::new();
+    let mut overlaid = false;
     for persona in &pending {
-        let text = effective_persona(given.root, given.personas, persona)?.text;
-        write(&path, &persona_file(persona), &text)?;
+        let effective = effective_persona(given.root, given.personas, persona)?;
+        overlaid |= effective.overlay.is_some();
+        session_read.push(persona_line(persona, &effective));
+        write(&path, &persona_file(persona), &effective.text)?;
     }
+    named_in_packet(&path, &session_read, overlaid)?;
     let mut all: Vec<Value> = record
         .answers
         .iter()

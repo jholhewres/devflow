@@ -45,6 +45,13 @@ fn gone(name: &str, network: &str) -> bool {
     left.is_empty() && !exists
 }
 
+/// The digest the person would confirm for the stack at `root` now.
+fn confirmed(root: &std::path::Path) -> String {
+    stack::resolved(&docker(), root, "compose.yaml")
+        .expect("resolved")
+        .1
+}
+
 #[test]
 fn a_stack_runs_on_an_internal_network_its_exploits_reach_and_is_taken_down() {
     let Some(image) = image() else { return };
@@ -52,7 +59,15 @@ fn a_stack_runs_on_an_internal_network_its_exploits_reach_and_is_taken_down() {
         "services:\n  store:\n    image: {image}\n    expose: [\"6379\"]\n"
     ));
     let scratch = dir.path().join("scratch");
-    let up = stack::up(&docker(), dir.path(), "compose.yaml", &scratch, "t1").expect("up");
+    let up = stack::up(
+        &docker(),
+        dir.path(),
+        "compose.yaml",
+        &confirmed(dir.path()),
+        &scratch,
+        "t1",
+    )
+    .expect("up");
     let network = up.network.clone();
     assert_eq!(up.targets, ["http://store:6379"]);
     assert_eq!(
@@ -109,6 +124,7 @@ fn a_stack_that_fails_to_start_is_taken_down_too() {
         &docker(),
         dir.path(),
         "compose.yaml",
+        &confirmed(dir.path()),
         &dir.path().join("scratch"),
         "t2",
     );
@@ -129,6 +145,7 @@ fn a_stack_that_would_leave_its_network_never_starts() {
         &docker(),
         dir.path(),
         "compose.yaml",
+        &confirmed(dir.path()),
         &dir.path().join("scratch"),
         "t3",
     ) else {
@@ -215,6 +232,7 @@ fn an_exploit_that_wants_a_target_runs_against_the_stack() {
         &docker(),
         &root,
         "compose.yaml",
+        &confirmed(&root),
         &dir.path().join("stacks"),
         "t4",
     )

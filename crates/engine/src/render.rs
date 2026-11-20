@@ -392,6 +392,9 @@ fn attack_fields(out: &mut String, attack: &Attack) {
     if let Some(image) = &attack.image {
         let _ = writeln!(out, "    image: {}", scalar(image));
     }
+    if let Some(at_once) = attack.concurrency {
+        let _ = writeln!(out, "    concurrency: {at_once}");
+    }
     if !attack.attackers.is_empty() {
         out.push_str("    attackers:\n");
         for attacker in &attack.attackers {

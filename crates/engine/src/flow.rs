@@ -280,6 +280,9 @@ pub(crate) fn step_json(config: &Config, step: &Step) -> Json {
             if !stages.attack.attackers.is_empty() {
                 item["attackers"] = json!(stages.attack.attackers);
             }
+            if let Some(at_once) = stages.attack.concurrency {
+                item["concurrency"] = json!(at_once);
+            }
             if !stages.attack.regression.is_empty() {
                 item["regression"] = json!(stages.attack.regression);
             }
