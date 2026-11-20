@@ -135,7 +135,7 @@ run's context names the persona and the overlay by their digests.
 ## Payload repertoire
 
 devflow ships generic cases by attack class: SSRF, ReDoS, path traversal, SQL
-and NoSQL injection, XXE and deserialization. Each case is a neutral input
+and NoSQL injection, XXE, deserialization and prompt injection. Each case is a neutral input
 and what safe code does with it. Its hosts are loopback, private or reserved
 names on port 1, never a cloud's metadata address, and it names no real
 project or person. `devflow payloads table <class> --runner
@@ -144,6 +144,13 @@ in for the code under test. `stages.attack.regression: [ssrf, redos]` gives
 those classes' cases to every attack. A case an attack proposes stays in its
 report until you keep it with `devflow payloads add <item> <case>` on a
 terminal, in `payloads/<class>.json` of devflow's folder.
+
+The prompt-injection table tests the code that builds a model's messages,
+with no model called. Each case is text a user, a tool or a document wrote.
+You fill in `build`, which gives the text to your message builder and returns
+the messages it built. The table fails when the text became a system,
+developer or assistant message, or when a tool's output reached the model
+undelimited. The security persona checks the same properties in a review.
 
 ## Where exploits run
 

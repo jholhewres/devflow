@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 /// Each class devflow ships, and its cases.
-pub const SHIPPED: [(&str, &str); 7] = [
+pub const SHIPPED: [(&str, &str); 8] = [
     ("ssrf", include_str!("../../../flow/payloads/ssrf.json")),
     ("redos", include_str!("../../../flow/payloads/redos.json")),
     (
@@ -28,11 +28,21 @@ pub const SHIPPED: [(&str, &str); 7] = [
         "deserialization",
         include_str!("../../../flow/payloads/deserialization.json"),
     ),
+    (
+        PROMPT_INJECTION,
+        include_str!("../../../flow/payloads/prompt-injection.json"),
+    ),
 ];
 
-/// What safe code does with a case: refuses it, takes it as plain data, or
-/// answers within the class's time.
-pub const WANTS: [&str; 3] = ["rejected", "inert", "fast"];
+/// The class whose cases go to a message builder, not to a check.
+pub const PROMPT_INJECTION: &str = "prompt-injection";
+/// Who wrote a prompt-injection case's text.
+pub const SOURCES: [&str; 3] = ["user", "tool", "document"];
+
+/// What safe code does with a case: refuses it, takes it as plain data,
+/// answers within the class's time, or (a prompt's text) keeps it as data in
+/// its writer's role.
+pub const WANTS: [&str; 4] = ["rejected", "inert", "fast", "data"];
 /// The time a `fast` case has when its class says none.
 const WITHIN_MS: u64 = 1000;
 const MOST_INPUT: usize = 2000;
@@ -51,6 +61,9 @@ pub struct Case {
     pub times: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub then: Option<String>,
+    /// Who wrote it, for a prompt-injection case: a user, a tool, a document.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from: Option<String>,
     pub want: String,
 }
 
@@ -98,7 +111,7 @@ pub fn kept(root: &Path, class: &str) -> Result<Vec<Case>, String> {
     let cases: Vec<Case> =
         serde_json::from_str(&text).map_err(|err| format!("{relative}: {err}"))?;
     for case in &cases {
-        checked(case).map_err(|why| format!("{relative}: {why}"))?;
+        checked_in(class, case).map_err(|why| format!("{relative}: {why}"))?;
     }
     Ok(cases)
 }
@@ -108,6 +121,28 @@ pub fn class(root: &Path, class: &str) -> Result<Class, String> {
     let mut found = shipped(class)?;
     found.cases.extend(kept(root, class)?);
     Ok(found)
+}
+
+/// [`checked`], and a case that fits its class: a prompt-injection case is
+/// one a writer's text keeps as data, and only it.
+pub fn checked_in(class: &str, case: &Case) -> Result<(), String> {
+    checked(case)?;
+    let id = &case.id;
+    match (
+        class == PROMPT_INJECTION,
+        case.want == "data",
+        case.from.as_deref(),
+    ) {
+        (true, true, Some(from)) if SOURCES.contains(&from) => Ok(()),
+        (true, ..) => Err(format!(
+            "{id}: a prompt-injection case wants data, from {}",
+            SOURCES.join(", ")
+        )),
+        (false, false, None) => Ok(()),
+        (false, ..) => Err(format!(
+            "{id}: only a prompt-injection case wants data or says from"
+        )),
+    }
 }
 
 /// Whether a case is one devflow runs: a plain id, a known want, a bounded
@@ -491,9 +526,29 @@ fn literal(case: &Case, runner: Runner) -> String {
     said
 }
 
+/// A class's name as a type's (`PromptInjection`) or a function's
+/// (`prompt_injection`).
+fn title(name: &str) -> String {
+    name.split(['-', '_'])
+        .map(|part| {
+            let mut chars = part.chars();
+            chars.next().map_or_else(String::new, |first| {
+                first.to_ascii_uppercase().to_string() + chars.as_str()
+            })
+        })
+        .collect()
+}
+
+fn snake(name: &str) -> String {
+    name.replace('-', "_")
+}
+
 /// A test table for `runner`: every case of `class`, with a `check` the
-/// project fills in.
+/// project fills in; a prompt-injection table over a message builder.
 pub fn table(class: &Class, runner: Runner) -> String {
+    if class.class == PROMPT_INJECTION {
+        return builder_table(class, runner);
+    }
     let within = class.within_ms.unwrap_or(WITHIN_MS);
     let name = &class.class;
     let head = format!(
@@ -534,11 +589,7 @@ pub fn table(class: &Class, runner: Runner) -> String {
             )
         }
         Runner::Go => {
-            let title: String = name
-                .chars()
-                .enumerate()
-                .map(|(at, ch)| if at == 0 { ch.to_ascii_uppercase() } else { ch })
-                .collect();
+            let title = title(name);
             format!(
                 "{}package payloads_test\n\nimport (\n\t\"strings\"\n\t\"testing\"\n\t\"time\"\n)\n\nvar _ = strings.Repeat\n\nfunc check{title}(input string) string {{\n\tpanic(\"devflow payloads: fill in check{title}() for {name}\")\n}}\n\nfunc TestPayloads{title}(t *testing.T) {{\n\tcases := []struct{{ id, input, want string }}{{\n{}\t}}\n\tfor _, c := range cases {{\n\t\tt.Run(c.id, func(t *testing.T) {{\n\t\t\tstarted := time.Now()\n\t\t\tgot := check{title}(c.input)\n\t\t\tif c.want == \"fast\" {{\n\t\t\t\tif took := time.Since(started); took > {within}*time.Millisecond {{\n\t\t\t\t\tt.Fatalf(\"took %v\", took)\n\t\t\t\t}}\n\t\t\t}} else if got != c.want {{\n\t\t\t\tt.Fatalf(\"got %q, want %q\", got, c.want)\n\t\t\t}}\n\t\t}})\n\t}}\n}}\n",
                 comment("//"),
@@ -546,9 +597,69 @@ pub fn table(class: &Class, runner: Runner) -> String {
             )
         }
         Runner::Pytest => format!(
-            "{}import time\n\nimport pytest\n\n\ndef check(input):\n    raise NotImplementedError(\"devflow payloads: fill in check() for {name}\")\n\n\nCASES = [\n{}]\n\n\n@pytest.mark.parametrize(\"case_id,given,want\", CASES, ids=[case[0] for case in CASES])\ndef test_payloads_{name}(case_id, given, want):\n    started = time.monotonic()\n    got = check(given)\n    if want == \"fast\":\n        assert time.monotonic() - started < {within} / 1000\n    else:\n        assert got == want\n",
+            "{}import time\n\nimport pytest\n\n\ndef check(input):\n    raise NotImplementedError(\"devflow payloads: fill in check() for {name}\")\n\n\nCASES = [\n{}]\n\n\n@pytest.mark.parametrize(\"case_id,given,want\", CASES, ids=[case[0] for case in CASES])\ndef test_payloads_{snake}(case_id, given, want):\n    started = time.monotonic()\n    got = check(given)\n    if want == \"fast\":\n        assert time.monotonic() - started < {within} / 1000\n    else:\n        assert got == want\n",
             comment("#"),
-            rows("    ", "(", ")")
+            rows("    ", "(", ")"),
+            snake = snake(name)
+        ),
+    }
+}
+
+/// The prompt-injection table: each case's text given to the project's
+/// message builder as its writer's, and the messages it builds checked for
+/// where that text landed. No model is called.
+fn builder_table(class: &Class, runner: Runner) -> String {
+    let name = &class.class;
+    let head = format!(
+        "devflow payloads: {name}, {} cases. {}\nFill in build(): give the text to the code that builds a model's messages, as\nif `from` (a user, a tool or a document) wrote it, and return the messages it\nbuilds, each with its role and content. No model is called.",
+        class.cases.len(),
+        class.about
+    );
+    let comment = |mark: &str| {
+        head.lines()
+            .map(|line| format!("{mark} {line}\n"))
+            .collect::<String>()
+    };
+    let rows = |indent: &str, open: &str, close: &str| {
+        class
+            .cases
+            .iter()
+            .map(|case| {
+                format!(
+                    "{indent}{open}{}, {}, {}{close},\n",
+                    quoted(&case.id),
+                    literal(case, runner),
+                    quoted(case.from.as_deref().unwrap_or("user"))
+                )
+            })
+            .collect::<String>()
+    };
+    match runner {
+        Runner::Jest | Runner::Vitest => {
+            let import = if runner == Runner::Vitest {
+                "import { describe, test } from \"vitest\";\n\n"
+            } else {
+                ""
+            };
+            format!(
+                "{}{import}async function build(content, from) {{\n  throw new Error(\"devflow payloads: fill in build() for {name}\");\n}}\n\nconst cases = [\n{}];\n\n// Whether a message holds `content`, read as JSON so a list of blocks reads too.\nfunction holds(message, content) {{\n  return JSON.stringify(message.content).includes(JSON.stringify(content).slice(1, -1));\n}}\n\ndescribe(\"payloads: {name}\", () => {{\n  test.each(cases)(\"%s\", async (id, input, from) => {{\n    const holding = (await build(input, from)).filter((message) => holds(message, input));\n    if (holding.length === 0) {{\n      throw new Error(`the ${{from}} content is in no message`);\n    }}\n    for (const message of holding) {{\n      if (message.role === \"system\" || message.role === \"developer\") {{\n        throw new Error(`${{from}} content became a ${{message.role}} message`);\n      }}\n      if (message.role === \"assistant\") {{\n        throw new Error(`${{from}} content became the assistant's message`);\n      }}\n      if (from === \"tool\" && message.role !== \"tool\" && message.content === input) {{\n        throw new Error(\"tool output reached the model undelimited\");\n      }}\n    }}\n  }});\n}});\n",
+                comment("//"),
+                rows("  ", "[", "]")
+            )
+        }
+        Runner::Go => {
+            let title = title(name);
+            format!(
+                "{}package payloads_test\n\nimport (\n\t\"strings\"\n\t\"testing\"\n)\n\n// A message as the builder hands it to a model.\ntype message{title} struct{{ Role, Content string }}\n\nfunc build{title}(content, from string) []message{title} {{\n\tpanic(\"devflow payloads: fill in build{title}() for {name}\")\n}}\n\nfunc TestPayloads{title}(t *testing.T) {{\n\tcases := []struct{{ id, input, from string }}{{\n{}\t}}\n\tfor _, c := range cases {{\n\t\tt.Run(c.id, func(t *testing.T) {{\n\t\t\theld := 0\n\t\t\tfor _, m := range build{title}(c.input, c.from) {{\n\t\t\t\tif !strings.Contains(m.Content, c.input) {{\n\t\t\t\t\tcontinue\n\t\t\t\t}}\n\t\t\t\theld++\n\t\t\t\tswitch m.Role {{\n\t\t\t\tcase \"system\", \"developer\":\n\t\t\t\t\tt.Fatalf(\"%s content became a %s message\", c.from, m.Role)\n\t\t\t\tcase \"assistant\":\n\t\t\t\t\tt.Fatalf(\"%s content became the assistant's message\", c.from)\n\t\t\t\t}}\n\t\t\t\tif c.from == \"tool\" && m.Role != \"tool\" && m.Content == c.input {{\n\t\t\t\t\tt.Fatalf(\"tool output reached the model undelimited\")\n\t\t\t\t}}\n\t\t\t}}\n\t\t\tif held == 0 {{\n\t\t\t\tt.Fatalf(\"the %s content is in no message\", c.from)\n\t\t\t}}\n\t\t}})\n\t}}\n}}\n",
+                comment("//"),
+                rows("\t\t", "{", "}")
+            )
+        }
+        Runner::Pytest => format!(
+            "{}import json\n\nimport pytest\n\n\ndef build(content, source):\n    raise NotImplementedError(\"devflow payloads: fill in build() for {name}\")\n\n\nCASES = [\n{}]\n\n\ndef holds(message, content):\n    \"\"\"Whether a message holds `content`, read as JSON so a list of blocks reads too.\"\"\"\n    return json.dumps(content)[1:-1] in json.dumps(message[\"content\"])\n\n\n@pytest.mark.parametrize(\"case_id,given,source\", CASES, ids=[case[0] for case in CASES])\ndef test_payloads_{snake}(case_id, given, source):\n    holding = [message for message in build(given, source) if holds(message, given)]\n    assert holding, f\"the {{source}} content is in no message\"\n    for message in holding:\n        role = message[\"role\"]\n        assert role not in (\"system\", \"developer\"), f\"{{source}} content became a {{role}} message\"\n        assert role != \"assistant\", f\"{{source}} content became the assistant's message\"\n        if source == \"tool\":\n            assert role == \"tool\" or message[\"content\"] != given, \"tool output reached the model undelimited\"\n",
+            comment("#"),
+            rows("    ", "(", ")"),
+            snake = snake(name)
         ),
     }
 }
@@ -630,15 +741,17 @@ pub fn proposed_of(answer: &Value) -> (Vec<Value>, Vec<Value>) {
         }
         let text = |key: &str| one[key].as_str().unwrap_or_default().to_owned();
         let class = text("class");
+        let from = text("from");
         let case = Case {
             id: format!("c{}", kept.len() + 1),
             input: text("input"),
             times: None,
             then: None,
+            from: (!from.is_empty()).then_some(from),
             want: text("want"),
         };
         let held = shipped(&class)
-            .and_then(|_| checked(&case))
+            .and_then(|_| checked_in(&class, &case))
             .and_then(|()| host_free(&case.input));
         match held {
             Ok(()) => {
@@ -647,8 +760,12 @@ pub fn proposed_of(answer: &Value) -> (Vec<Value>, Vec<Value>) {
                     .filter(|ch| !ch.is_control())
                     .take(400)
                     .collect();
-                kept.push(json!({ "id": case.id, "class": class, "input": case.input,
-                                  "want": case.want, "why": why }));
+                let mut one = json!({ "id": case.id, "class": class, "input": case.input,
+                                      "want": case.want, "why": why });
+                if let Some(from) = &case.from {
+                    one["from"] = json!(from);
+                }
+                kept.push(one);
             }
             Err(reason) => dropped.push(json!({ "class": class, "reason": reason })),
         }
@@ -689,9 +806,10 @@ pub fn keep(root: &Path, proposed: &Value) -> Result<String, String> {
         input,
         times: None,
         then: None,
+        from: proposed["from"].as_str().map(str::to_owned),
         want: proposed["want"].as_str().unwrap_or_default().to_owned(),
     };
-    checked(&case)?;
+    checked_in(class, &case)?;
     host_free(&case.input)?;
     cases.push(case);
     let relative = kept_path(root, class);

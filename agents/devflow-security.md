@@ -63,6 +63,17 @@ this axis, and report what an attacker can actually reach, not theory.
   reaching a shell, a query, a path or HTML unchecked, secrets or other users'
   data in the context, tools with more reach than the task, no cap on tokens,
   calls or recursion.
+- **Prompt-building code,** when the change builds the messages a model
+  reads, holds four structural properties, each checked with no model called
+  (`devflow payloads table prompt-injection`):
+  - text a user, a tool or a document wrote never becomes a system or
+    developer message, nor the assistant's;
+  - a tool's output reaches the model delimited as data, in its tool-result
+    role or block, never spliced into an instruction;
+  - each message keeps the role of who wrote it: a role named inside the text
+    (`{"role": "system"}`, `SYSTEM:`, `Human:`) is never lifted into one;
+  - a tool that writes, sends or deletes asks the person first when the
+    request came from external content: a tool's output, a document, a page.
 - **Always:** secrets in code, logs or test fixtures; a size read from outside
   with no ceiling; a shell command built from a string instead of an argument
   list.
