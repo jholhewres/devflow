@@ -315,7 +315,21 @@ fn project(root: &Path, consent: &Consent) -> Vec<Said> {
                     layout.file
                 ))),
             }
+            let filled =
+                crate::ready::prefilled(&project.root, consent, config.stages.attack.budget);
+            if !filled.is_empty() {
+                said.push(maybe(format!(
+                    "{}: stages.attack.budget ({}) was filled in by the attack's question of \
+                     devflow 0.6.2 or 0.6.3, never chosen, so it no longer holds the attack: \
+                     `devflow config set stages.attack.budget null` takes it out",
+                    layout.file,
+                    crate::ready::described(filled)
+                )));
+            }
             let path = std::env::var_os("PATH").unwrap_or_default();
+            if config.stages_on().contains(&"attack") {
+                said.push(sandbox(&config.stages.attack, &path));
+            }
             for check in config.stages.execution.every_check() {
                 match devflow_engine::available::why_not(&project.root, &path, &check.run) {
                     None => said.push(ok(format!("check `{}` can run", check.name))),
@@ -341,6 +355,28 @@ fn project(root: &Path, consent: &Consent) -> Vec<Said> {
         )));
     }
     said
+}
+
+/// Where the attack's exploits run here, and why bwrap does not when
+/// `auto` fell back to docker.
+fn sandbox(attack: &devflow_engine::config::Attack, path: &std::ffi::OsStr) -> Said {
+    use devflow_engine::config::SandboxChoice;
+    use devflow_engine::sandbox::{self, Kind};
+    let choice = attack.sandbox.unwrap_or(SandboxChoice::Auto);
+    match sandbox::found(choice, attack.image.as_deref(), path) {
+        Ok(found) => {
+            let mut what = format!("the attack's exploits run in {}", found.kind.word());
+            if choice == SandboxChoice::Auto && found.kind == Kind::Docker {
+                if let Err(why) = sandbox::found(SandboxChoice::Bwrap, None, path) {
+                    what.push_str(&format!(", not bwrap: {why}"));
+                }
+            }
+            ok(what)
+        }
+        Err(why) => maybe(format!(
+            "the attack has no sandbox here ({why}): the session runs each exploit itself"
+        )),
+    }
 }
 
 fn decisions() -> Vec<Said> {

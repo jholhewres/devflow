@@ -225,3 +225,37 @@ fn a_release_range_past_the_months_budget_is_not_attacked() {
     assert!(!bin.join("asked").exists(), "no attacker was asked");
     assert!(!out.path().join("devflow-attack.sarif").exists());
 }
+
+/// The budget the attack's question of devflow 0.6.2 and 0.6.3 filled in
+/// (US$ 50 a month), never chosen, holds no attack: one the person writes
+/// does, as above.
+#[cfg(unix)]
+#[test]
+fn a_month_budget_the_old_question_prefilled_does_not_stop_the_attack() {
+    let (repo, home) = project(50.0);
+    let root = repo.path().canonicalize().unwrap();
+    let key = root.display().to_string();
+    std::fs::write(
+        home.path().join("config/devflow/consent.json"),
+        json!({ "enabled": [key], "answered": { key.clone(): ["test", "sandbox", "run_usd", "month_usd"] } })
+            .to_string(),
+    )
+    .unwrap();
+    let bin = home.path().join("bin");
+    fake_claude(&bin, &json!({ "version": 1, "hypotheses": [] }));
+    let spent = json!({ "attackers": [{ "agent": "claude", "cost_usd": 60.0, "duration_ms": 1000 }], "hypotheses": [] });
+    let run = devflow_engine::runs::stamp(std::time::SystemTime::now());
+    devflow_engine::attack_metrics::record(&root.join(".devflow/runs"), "card_0", &run, &spent)
+        .unwrap();
+    let out = tempfile::tempdir().unwrap();
+    let ran = devflow(
+        &root,
+        home.path(),
+        out.path(),
+        &["attack", "--range", "HEAD~1..HEAD"],
+    );
+    let stderr = String::from_utf8_lossy(&ran.stderr);
+    assert!(ran.status.success(), "{stderr}");
+    assert!(bin.join("asked").exists(), "the attacker was asked");
+    assert!(out.path().join("devflow-attack.sarif").is_file());
+}

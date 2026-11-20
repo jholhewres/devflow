@@ -281,3 +281,83 @@ fn only_a_plugin_named_devflow_without_its_server_hides_devflow() {
     assert_eq!(shadowing(&session(&["claude", "--plugin-dir"])), None);
     assert_eq!(shadowing(&[]), None);
 }
+
+#[test]
+fn a_budget_the_old_question_prefilled_is_pointed_out_with_how_to_take_it_out() {
+    let home = tempfile::tempdir().unwrap();
+    let root = tempfile::tempdir().unwrap();
+    let folder = root.path().join(".devflow");
+    fs::create_dir_all(&folder).unwrap();
+    fs::write(
+        folder.join("devflow.yaml"),
+        "version: 2\nenabled: true\nstages:\n  attack:\n    run: release\n    budget: { run_usd: 5, month_usd: 50 }\n",
+    )
+    .unwrap();
+    let consent = Consent::at(&home.path().join("devflow"));
+    let said = findings(
+        root.path(),
+        &machine(home.path()),
+        &consent,
+        "/bin/devflow",
+        &[],
+    );
+    assert!(
+        !said
+            .iter()
+            .any(|one| one.what.contains("stages.attack.budget")),
+        "written by hand: theirs"
+    );
+
+    let parts = ["run_usd".to_owned(), "month_usd".to_owned()];
+    consent
+        .keep_answer(
+            &Project::at(root.path()).root,
+            &crate::consent::Answered {
+                switched_on: true,
+                targets: None,
+                yeses: &["enabled"],
+                parts: &parts,
+                how: crate::consent::How::Elicitation,
+                asked_for: "attack",
+                at: std::time::SystemTime::now(),
+            },
+        )
+        .unwrap();
+    let said = findings(
+        root.path(),
+        &machine(home.path()),
+        &consent,
+        "/bin/devflow",
+        &[],
+    );
+    let budget = said
+        .iter()
+        .find(|one| one.what.contains("stages.attack.budget"))
+        .expect("pointed out");
+    assert!(budget.optional, "{}", budget.what);
+    assert!(
+        budget.what.contains("US$ 5 per attack, US$ 50 a month"),
+        "{}",
+        budget.what
+    );
+    assert!(
+        budget
+            .what
+            .contains("devflow config set stages.attack.budget null"),
+        "{}",
+        budget.what
+    );
+}
+
+#[test]
+fn an_attack_with_no_sandbox_here_is_said_to_run_its_exploits_in_the_session() {
+    let attack = devflow_engine::config::Attack::default();
+    let said = sandbox(&attack, std::ffi::OsStr::new(""));
+    assert!(!said.ok && said.optional, "{}", said.what);
+    assert!(said.what.contains("no sandbox here"), "{}", said.what);
+    assert!(
+        said.what.contains("the session runs each exploit"),
+        "{}",
+        said.what
+    );
+}

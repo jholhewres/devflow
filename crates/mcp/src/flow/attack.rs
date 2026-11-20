@@ -40,6 +40,8 @@ pub fn attack(server: &Server, params: Value) -> Result<Value, String> {
     let asked = crate::ready::before_attack(server, &project, launching)?;
     let state = project.read();
     let config = super::config_for(&project, &state, &server.consent, "attack")?;
+    let (config, budget_note) = budgeted(server, &project, config);
+    let config = &config;
     let mut answer = if item_of(&params).is_none() && super::text(&params, "head").is_some() {
         on_range(server, &project, config, &params, &super::review::reach)
     } else {
@@ -47,6 +49,9 @@ pub fn attack(server: &Server, params: Value) -> Result<Value, String> {
     }?;
     if let Some(asked) = asked {
         answer["asked"] = asked;
+    }
+    if let Some(note) = budget_note {
+        answer["budget_note"] = note;
     }
     Ok(answer)
 }
@@ -508,15 +513,82 @@ pub fn after_review(
     item: &str,
     reach: devflow_engine::review::Reach,
 ) -> Value {
-    match on_item(server, project, config, &json!({ "item": item }), reach) {
-        Ok(answer) => answer,
+    let (config, budget_note) = budgeted(server, project, config);
+    match on_item(server, project, &config, &json!({ "item": item }), reach) {
+        Ok(mut answer) => {
+            if let Some(note) = budget_note {
+                answer["budget_note"] = note;
+            }
+            answer
+        }
         Err(why) => json!({ "error": why }),
     }
 }
 
+/// `config` as an attack runs on it: without a budget the question of 0.6.2
+/// and 0.6.3 prefilled, which the person never chose; and a note saying so.
+pub fn budgeted(server: &Server, project: &Project, config: &Config) -> (Config, Option<Value>) {
+    let budget = config.stages.attack.budget;
+    let prefilled = crate::ready::prefilled(&project.root, &server.consent, budget);
+    let mut config = config.clone();
+    config.stages.attack.budget = crate::ready::in_force(&project.root, &server.consent, budget);
+    let note = (!prefilled.is_empty()).then(|| {
+        json!(format!(
+            "stages.attack.budget ({}) was filled in by the attack's question of devflow 0.6.2 \
+             or 0.6.3, never chosen, so it no longer holds the attack; `devflow config set \
+             stages.attack.budget null` takes it out of devflow.yaml",
+            crate::ready::described(prefilled)
+        ))
+    });
+    (config, note)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::in_force;
+    use super::{budgeted, in_force};
+    use crate::project::Project;
+    use crate::server::Server;
+    use devflow_engine::config::{Budget, Config};
+
+    #[test]
+    fn an_attack_after_a_review_drops_the_prefilled_budget_too() {
+        let dir = tempfile::tempdir().unwrap();
+        let project = Project::at(dir.path());
+        let server = Server {
+            consent: crate::consent::Consent::at(&dir.path().join("home")),
+            ..Server::new(dir.path())
+        };
+        let mut config = Config::default();
+        config.stages.attack.budget = Budget {
+            run_cents: Some(500),
+            month_cents: Some(5_000),
+        };
+        let (kept, note) = budgeted(&server, &project, &config);
+        assert_eq!(
+            kept.stages.attack.budget, config.stages.attack.budget,
+            "written by hand"
+        );
+        assert!(note.is_none());
+        let parts = ["run_usd".to_owned(), "month_usd".to_owned()];
+        server
+            .consent
+            .keep_answer(
+                &project.root,
+                &crate::consent::Answered {
+                    switched_on: true,
+                    targets: None,
+                    yeses: &["enabled"],
+                    parts: &parts,
+                    how: crate::consent::How::Elicitation,
+                    asked_for: "attack",
+                    at: std::time::SystemTime::now(),
+                },
+            )
+            .unwrap();
+        let (dropped, note) = budgeted(&server, &project, &config);
+        assert!(dropped.stages.attack.budget.is_empty());
+        assert!(note.unwrap().as_str().unwrap().contains("US$ 5 per attack"));
+    }
 
     #[test]
     fn a_stack_changed_since_it_was_confirmed_is_not_in_force() {
