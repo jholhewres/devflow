@@ -490,11 +490,15 @@ pub struct Reviewer {
 pub struct Security {
     /// URLs of the project's own instances, each [`crate::security::target`].
     pub targets: Vec<String>,
+    /// A compose file of the project the attack starts on an internal
+    /// network and attacks, once the person confirmed it on a terminal.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stack: Option<String>,
 }
 
 impl Security {
     pub fn is_empty(&self) -> bool {
-        self.targets.is_empty()
+        self.targets.is_empty() && self.stack.is_none()
     }
 }
 
@@ -1155,8 +1159,12 @@ fn security(node: &Node, path: &str) -> Result<Security, Invalid> {
             }
         }
     }
+    let stack = match fields.get("stack") {
+        Some((node, path)) => Some(text(node, &path, 300)?),
+        None => None,
+    };
     fields.done()?;
-    Ok(Security { targets })
+    Ok(Security { targets, stack })
 }
 
 fn stage(field: Option<(&Node, String)>) -> Result<Stage, Invalid> {

@@ -51,6 +51,20 @@ fn what_an_attack_may_reach_is_the_persons_to_widen() {
         assert!(refused, "{path}: {said}");
         assert!(said.as_str().unwrap().contains("in a terminal"), "{said}");
     }
+    // Nor is a stack the attack starts.
+    let (refused, said) = mcp.answer(
+        "setup",
+        json!({ "preset": "custom", "set": { "security.stack": "compose.yaml" } }),
+    );
+    assert!(refused, "{said}");
+    let (refused, said) = mcp.answer(
+        "set",
+        json!({ "path": "security.stack", "value": "compose.yaml", "apply": true }),
+    );
+    assert!(
+        refused && said.as_str().unwrap().contains("in a terminal"),
+        "{said}"
+    );
     let yaml = root.join(".devflow/devflow.yaml");
     assert!(!std::fs::read_to_string(&yaml).unwrap().contains("security"));
 

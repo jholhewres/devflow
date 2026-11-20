@@ -31,6 +31,18 @@ struct Kept {
     /// file from before has none, and its names are confirmed again.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pinned: BTreeMap<String, Pins>,
+    /// By project: the `security.stack` the person confirmed there, and the
+    /// SHA-256 of its compose file then.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    stacks: BTreeMap<String, (String, String)>,
+}
+
+/// A compose file's SHA-256, as its stack was confirmed.
+pub fn digest_of(root: &Path, file: &str) -> Option<String> {
+    use sha2::{Digest, Sha256};
+    let at = devflow_engine::fsguard::resolve(root, file).ok()?;
+    let text = std::fs::read(at).ok()?;
+    Some(format!("{:x}", Sha256::digest(&text)))
 }
 
 /// The person's decisions, in one file.
@@ -123,6 +135,33 @@ impl Consent {
             .targets
             .remove(&key_of(root))
             .unwrap_or_default()
+    }
+
+    /// Keeps `stack` as what the person confirmed in the project, with its
+    /// compose file's digest now; `None` forgets it.
+    pub fn confirm_stack(&self, root: &Path, stack: Option<&str>) -> Result<(), String> {
+        let mut kept = self.kept();
+        let key = key_of(root);
+        match stack {
+            Some(file) => {
+                let digest = digest_of(root, file)
+                    .ok_or_else(|| format!("{file} is not a file of the project"))?;
+                kept.stacks.insert(key, (file.to_owned(), digest));
+            }
+            None => {
+                kept.stacks.remove(&key);
+            }
+        }
+        self.keep(&kept)
+    }
+
+    /// The stack in force in the project: the one devflow.yaml names, only
+    /// while its compose file is what the person confirmed.
+    pub fn stack_in_force(&self, root: &Path, named: Option<&str>) -> Option<String> {
+        let named = named?;
+        let (file, digest) = self.kept().stacks.remove(&key_of(root))?;
+        (file == named && digest_of(root, &file).as_deref() == Some(digest.as_str()))
+            .then_some(file)
     }
 
     /// The addresses each confirmed name resolved to then, by origin.

@@ -55,6 +55,7 @@ pub mod scale;
 pub mod security;
 pub mod setup;
 pub mod skills;
+pub mod stack;
 pub mod stage;
 pub mod started;
 pub mod vault;

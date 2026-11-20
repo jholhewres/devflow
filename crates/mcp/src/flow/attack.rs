@@ -134,6 +134,7 @@ pub fn on_range(
         retro: super::text(params, "mode").as_deref() == Some("retro"),
         scratch: Some(&project.cache().join("trees")),
         flow: None,
+        stack: None,
     });
     drop(detached);
     let done = done?;
@@ -276,6 +277,23 @@ pub fn on_item(
         }
         None => None,
     };
+    // The stack the person confirmed, started for this attack and taken
+    // down when it is dropped; one not in force is said, never started.
+    let named = config.security.stack.as_deref();
+    let in_force = server.consent.stack_in_force(root, named);
+    let stack = match &in_force {
+        Some(file) => {
+            let docker = crate::register::on_path("docker").ok_or("security.stack needs docker")?;
+            Some(devflow_engine::stack::up(
+                &docker,
+                root,
+                file,
+                &project.cache().join("stacks"),
+                &devflow_engine::runs::stamp(SystemTime::now()),
+            )?)
+        }
+        None => None,
+    };
     let teams = project.teams();
     let personal = project::personal_reviewers();
     let redacting = |text: &str| redact(text);
@@ -310,10 +328,16 @@ pub fn on_item(
         retro: false,
         scratch: Some(&project.cache().join("trees")),
         flow: flowed.as_ref(),
+        stack: stack.as_ref(),
     })?;
+    drop(stack);
     signed(project, &item.id, &attack::comment(&done));
     let folder = std::path::PathBuf::from(&done.folder);
-    Ok(with_files(&folder, &done.report, attack::summary(&done)))
+    let mut answer = with_files(&folder, &done.report, attack::summary(&done));
+    if named.is_some() && in_force.is_none() {
+        answer["stack"] = json!("security.stack is not in force: the person confirms it, or its changed compose file, with `devflow config set security.stack` in a terminal");
+    }
+    Ok(answer)
 }
 
 /// The attack asked with a review by name (`attack: true`), on the item it

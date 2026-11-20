@@ -113,11 +113,13 @@ enum Kind {
     Field,
     Switch(Ask),
     Targets,
+    Stack,
 }
 
 fn kind_of(path: &str, value: &Value) -> Kind {
     match ask_of(path, value) {
         Some(ask) => Kind::Switch(ask),
+        None if path == "security.stack" => Kind::Stack,
         None if devflow_engine::security::persons_only(path) => Kind::Targets,
         None => Kind::Field,
     }
@@ -161,6 +163,9 @@ fn setting(root: &Path, path: &str, value: &Value, consent: &Consent) -> Result<
             Kind::Field => true,
             Kind::Switch(ask) => consent.made(&project.root, ask),
             Kind::Targets => new.is_empty() && unconfirmed(&kept, &targets).is_empty(),
+            Kind::Stack => consent
+                .stack_in_force(&project.root, layered.config.security.stack.as_deref())
+                .is_some(),
         };
     if already {
         return Ok(format!("{path} is already {after}"));
@@ -187,6 +192,16 @@ fn setting(root: &Path, path: &str, value: &Value, consent: &Consent) -> Result<
              targets. They are this project's own instances, never a third party's. Allow them, \
              on this machine?"
         }
+        Kind::Stack => {
+            let stack = layered.config.security.stack.clone().unwrap_or_default();
+            match crate::consent::digest_of(&project.root, &stack) {
+                Some(digest) => println!("  compose file: {stack} (sha256 {digest})"),
+                None => return Err(format!("{stack} is not a file of the project")),
+            }
+            "devflow's attack will start this compose stack on an internal network, with no \
+             published port and no way out, and send exploits to its services. It is this \
+             project's own stack. Allow it, on this machine? A change to the file asks again."
+        }
         _ => "Write it?",
     };
     if !confirmed(question)? {
@@ -201,6 +216,9 @@ fn setting(root: &Path, path: &str, value: &Value, consent: &Consent) -> Result<
         Kind::Targets => {
             let pins = pins_after(&targets, &new, &pins, &found);
             consent.confirm_targets(&project.root, &targets, &pins)?;
+        }
+        Kind::Stack => {
+            consent.confirm_stack(&project.root, layered.config.security.stack.as_deref())?;
         }
         Kind::Field => {}
     }

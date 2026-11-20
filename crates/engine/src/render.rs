@@ -51,10 +51,22 @@ pub fn render_in(dialect: &Dialect, config: &Config) -> String {
              # loopback, localhost, host.docker.internal or a docker service's name.\n\
              # Each is in force only once the person confirms it on a terminal with\n\
              # `devflow config set security.targets`.\n\
-             security:\n  targets:\n",
+             security:\n",
         );
+        if config.security.targets.is_empty() {
+            out.push_str("  targets: []\n");
+        } else {
+            out.push_str("  targets:\n");
+        }
         for target in &config.security.targets {
             let _ = writeln!(out, "    - {}", scalar(target));
+        }
+        if let Some(stack) = &config.security.stack {
+            out.push_str(
+                "  # A compose file the attack starts on an internal network and\n  \
+                 # attacks, once confirmed with `devflow config set security.stack`.\n",
+            );
+            let _ = writeln!(out, "  stack: {}", scalar(stack));
         }
     }
     if config.version != V1 && !config.locked.is_empty() {

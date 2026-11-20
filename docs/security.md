@@ -204,6 +204,22 @@ outside its tool role or tool_result block. Whether a tool that writes asks
 the person first, and how a delimiter is escaped, is left to the security
 review.
 
+## A local stack to attack
+
+`security.stack` names a compose file of the project. You confirm it in a
+terminal with `devflow config set security.stack compose.yaml`, which shows
+the file's SHA-256. A changed file is not in force until you confirm it
+again, and MCP `set` and `setup` refuse the field. Before an attack, devflow
+starts the stack on a network of its own that docker makes internal, so
+nothing on it reaches beyond it. The exploits run in the docker sandbox
+attached only to that network, with the services' exposed ports as targets.
+The stack is taken down when the attack is done, even when it failed.
+
+devflow refuses a stack that would leave its network before anything
+starts: a host network mode, a published port (use `expose`), a privileged
+service or added capabilities, the host's pid or ipc, a bind mount from
+outside the project, and a network that is not internal.
+
 ## Where exploits run
 
 With the attack stage, set `stages.attack.test` to the command that runs one

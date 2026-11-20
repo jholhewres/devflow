@@ -58,6 +58,12 @@ pub struct Sandbox {
     pub image: Option<String>,
     /// `prlimit`, when this machine has it: bwrap's CPU and memory limits.
     pub prlimit: Option<PathBuf>,
+    /// Docker's: the internal network of a stack the exploit reaches; none
+    /// when not said.
+    pub network: Option<String>,
+    /// What the exploit is told besides its path and test: the stack's
+    /// targets.
+    pub env: Vec<(String, String)>,
 }
 
 /// What one test run may take.
@@ -133,6 +139,8 @@ pub fn found(choice: SandboxChoice, image: Option<&str>, path: &OsStr) -> Result
             program,
             image: None,
             prlimit: prlimit.clone(),
+            network: None,
+            env: Vec::new(),
         })
     };
     let docker = || -> Result<Sandbox, String> {
@@ -145,6 +153,8 @@ pub fn found(choice: SandboxChoice, image: Option<&str>, path: &OsStr) -> Result
             program,
             image: Some(image.to_owned()),
             prlimit: None,
+            network: None,
+            env: Vec::new(),
         })
     };
     match choice {
@@ -283,7 +293,7 @@ pub fn argv(
                 "--user".into(),
                 format!("{uid}:{gid}"),
                 "--network".into(),
-                "none".into(),
+                sandbox.network.clone().unwrap_or_else(|| "none".to_owned()),
                 "--read-only".into(),
                 "--tmpfs".into(),
                 "/tmp".into(),
@@ -305,6 +315,9 @@ pub fn argv(
             }
             for name in [EXPLOIT, EXPLOIT_TEST] {
                 argv.extend(["-e".into(), name.to_owned()]);
+            }
+            for (name, value) in &sandbox.env {
+                argv.extend(["-e".into(), format!("{name}={value}")]);
             }
             argv.extend([
                 "-e".into(),

@@ -200,6 +200,7 @@ fn the_attack_keeps_each_hypothesis_and_its_exploits_out_of_the_checkout() {
         retro: false,
         scratch: None,
         flow: None,
+        stack: None,
     })
     .expect("attacked");
     let report = &done.report;
@@ -513,6 +514,7 @@ fn attacked_with(hypotheses: Value, yaml: &str) -> Value {
         retro: false,
         scratch: Some(&scratch),
         flow: None,
+        stack: None,
     })
     .expect("attacked");
     assert_eq!(
@@ -798,6 +800,7 @@ fn a_run_past_the_months_budget_is_refused_before_it_starts() {
         retro: false,
         scratch: None,
         flow: None,
+        stack: None,
     })
     .expect_err("past the month's budget");
     assert!(refused.contains("month budget"), "{refused}");
@@ -855,6 +858,7 @@ fn the_months_budget_never_counts_what_it_cannot_read_as_nothing() {
             retro: false,
             scratch: None,
             flow: None,
+            stack: None,
         })
     };
     let capped = parsed("version: 1\nstages:\n  attack:\n    run: sensitive\n    budget: { run_usd: 3, month_usd: 40 }\n");
@@ -977,6 +981,7 @@ fn the_attack_reads_the_threat_model_and_keeps_what_it_refuted_refuted() {
         retro: false,
         scratch: None,
         flow: None,
+        stack: None,
     })
     .expect("attacked");
     let one = &done.report["hypotheses"][0];
@@ -1070,6 +1075,7 @@ fn a_regression_class_goes_to_every_attack_and_a_proposed_case_waits_for_a_perso
         retro: false,
         scratch: None,
         flow: None,
+        stack: None,
     })
     .expect("attacked");
     let prompt = std::fs::read_to_string(bin.join("prompt.txt")).expect("prompt");
@@ -1162,6 +1168,7 @@ fn a_scanner_finding_is_called_reachable_or_not_and_the_reachable_stand_apart() 
         retro: false,
         scratch: None,
         flow: None,
+        stack: None,
     })
     .expect("attacked");
     let prompt = std::fs::read_to_string(bin.join("prompt.txt")).expect("prompt");
@@ -1246,6 +1253,7 @@ fn the_attacks_packet_reads_criteria_under_the_projects_headings() {
         retro: false,
         scratch: None,
         flow: None,
+        stack: None,
     })
     .expect("attacked");
     let packet = std::fs::read_to_string(std::path::Path::new(&done.folder).join(attack::PACKET))
@@ -1346,6 +1354,7 @@ fn declared_attackers_are_consolidated_and_a_failed_one_is_not_replaced() {
         retro: false,
         scratch: None,
         flow: None,
+        stack: None,
     })
     .expect("attacked");
     let hypotheses = done.report["hypotheses"].as_array().expect("hypotheses");
@@ -1453,6 +1462,7 @@ fn an_attack_on_a_flow_reads_both_sides_and_names_each_sides_fix() {
         retro: false,
         scratch: None,
         flow: Some(&flowed),
+        stack: None,
     })
     .expect("attacked");
     let prompt = std::fs::read_to_string(bin.join("prompt.txt")).expect("prompt");

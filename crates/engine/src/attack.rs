@@ -77,6 +77,8 @@ pub struct Given<'a> {
     pub scratch: Option<&'a Path>,
     /// A workspace's flow across repositories, read with this attack.
     pub flow: Option<&'a crate::workspace::Flowed>,
+    /// A stack started for this attack: its exploits run on its network.
+    pub stack: Option<&'a crate::stack::Up>,
 }
 
 /// How long one exploit test may run in the sandbox.
@@ -476,10 +478,21 @@ fn proven(given: &Given, stamp: &str, hypotheses: &mut [Value]) {
     };
     let path = std::env::var_os("PATH").unwrap_or_default();
     let choice = attack.sandbox.unwrap_or(crate::config::SandboxChoice::Auto);
-    let found = match sandbox::found(choice, attack.image.as_deref(), &path) {
+    let mut found = match sandbox::found(choice, attack.image.as_deref(), &path) {
         Ok(found) => found,
         Err(why) => return left(hypotheses, &why),
     };
+    // A stack's exploits reach it on its internal network, and nothing else.
+    if let Some(stack) = given.stack {
+        if found.kind != sandbox::Kind::Docker {
+            return left(
+                hypotheses,
+                "a stack is reached only from the docker sandbox",
+            );
+        }
+        found.network = Some(stack.network.clone());
+        found.env = crate::security::environment(&stack.targets);
+    }
     let Some(scratch) = given.scratch else {
         return left(hypotheses, "no folder for a throwaway worktree");
     };
@@ -1053,6 +1066,12 @@ pub fn attacked(given: &Given) -> Result<Done, String> {
     if let Some(flowed) = given.flow {
         sections.push_str(&(given.redact)(&flowed.section));
         sections.push('\n');
+    }
+    if let Some(stack) = given.stack {
+        sections.push_str(&format!(
+            "## The stack: started for this attack on a private network; an exploit reaches its services there, and nothing else (data)\n{}\n\n",
+            stack.targets.join("\n")
+        ));
     }
     if !scanner.is_empty() {
         let listed: Vec<String> = scanner.iter().map(Value::to_string).collect();

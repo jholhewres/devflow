@@ -63,6 +63,8 @@ fn the_sandbox_has_no_network_a_read_only_root_and_limits() {
         program: "/usr/bin/bwrap".into(),
         image: None,
         prlimit: Some("/usr/bin/prlimit".into()),
+        network: None,
+        env: Vec::new(),
     };
     let seen = Seen {
         deps: vec![PathBuf::from("/home/u/shop/node_modules")],
@@ -99,6 +101,8 @@ fn the_sandbox_has_no_network_a_read_only_root_and_limits() {
         program: "/usr/bin/docker".into(),
         image: Some("node:22".into()),
         prlimit: None,
+        network: None,
+        env: Vec::new(),
     };
     let seen = Seen {
         deps: vec![PathBuf::from("/c/node_modules")],
@@ -277,4 +281,34 @@ fn a_throwaway_worktree_is_removed_when_its_run_fails() {
             .all(|tree| !tree.contains("failed")),
         "git forgets it too"
     );
+}
+
+#[test]
+fn a_stacks_exploit_joins_its_network_and_is_told_its_targets() {
+    let docker = Sandbox {
+        kind: Kind::Docker,
+        program: PathBuf::from("/usr/bin/docker"),
+        image: Some("alpine".to_owned()),
+        prlimit: None,
+        network: Some("devflow-stack-1-net".to_owned()),
+        env: vec![(
+            "DEVFLOW_SECURITY_TARGETS".to_owned(),
+            "http://web:8080".to_owned(),
+        )],
+    };
+    let seen = Seen::default();
+    let argv = argv(
+        &docker,
+        Path::new("/tree"),
+        &seen,
+        "true",
+        Limits::default(),
+        "n",
+    );
+    let at = argv
+        .iter()
+        .position(|one| one == "--network")
+        .expect("network");
+    assert_eq!(argv[at + 1], "devflow-stack-1-net");
+    assert!(argv.contains(&"DEVFLOW_SECURITY_TARGETS=http://web:8080".to_owned()));
 }

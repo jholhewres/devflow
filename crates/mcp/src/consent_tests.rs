@@ -105,3 +105,41 @@ fn a_record_from_before_the_addresses_were_kept_still_reads() {
     assert_eq!(consent.confirmed_targets(one.path()), ["http://api:8000"]);
     assert!(consent.pinned(one.path()).is_empty());
 }
+
+#[test]
+fn a_stack_is_in_force_only_while_its_compose_file_is_what_was_confirmed() {
+    let dir = tempfile::tempdir().expect("dir");
+    let root = dir.path().join("project");
+    std::fs::create_dir_all(&root).expect("project");
+    std::fs::write(root.join("compose.yaml"), "services: {}\n").expect("compose");
+    let consent = Consent::at(&dir.path().join("home"));
+    assert_eq!(
+        consent.stack_in_force(&root, Some("compose.yaml")),
+        None,
+        "never confirmed"
+    );
+    consent
+        .confirm_stack(&root, Some("compose.yaml"))
+        .expect("confirmed");
+    assert_eq!(
+        consent
+            .stack_in_force(&root, Some("compose.yaml"))
+            .as_deref(),
+        Some("compose.yaml")
+    );
+    assert_eq!(
+        consent.stack_in_force(&root, Some("other.yaml")),
+        None,
+        "another file"
+    );
+    std::fs::write(
+        root.join("compose.yaml"),
+        "services: { web: { image: x } }\n",
+    )
+    .expect("changed");
+    assert_eq!(
+        consent.stack_in_force(&root, Some("compose.yaml")),
+        None,
+        "changed since"
+    );
+}
