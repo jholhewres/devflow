@@ -245,18 +245,21 @@ pipeline runs it, with the stage's settings and budget:
 - `run_usd` caps each run. `month_usd` counts what the project's ledger,
   `.devflow/runs/attack-ledger.jsonl`, says this month: a runner that starts
   from a fresh checkout each time keeps it only when the pipeline caches
-  that folder.
+  that folder. GitHub scopes a cache to the ref that saved it, and a tag's
+  run reads only its own and the default branch's, so the example runs from
+  the default branch, by hand, with the range as its input.
 - devflow runs only where the person switched it on. A pipeline has no
   terminal for `devflow config set enabled true`, so the job writes that
   decision for its own checkout, as it is given its secrets.
 
-GitHub Actions, on a release tag:
+GitHub Actions, run from the default branch before a release:
 
 ```yaml
 name: attack
 on:
-  push:
-    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      range: { description: "the release range, A..B", required: true }
 jobs:
   attack:
     runs-on: ubuntu-latest
@@ -277,9 +280,8 @@ jobs:
       - name: attack the release
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: |
-          previous=$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^")
-          ~/.local/bin/devflow attack --range "$previous..$GITHUB_SHA"
+          RANGE: ${{ inputs.range }}
+        run: ~/.local/bin/devflow attack --range "$RANGE"
       - uses: github/codeql-action/upload-sarif@v3
         if: always()
         with: { sarif_file: devflow-attack.sarif }

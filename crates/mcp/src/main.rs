@@ -365,10 +365,6 @@ fn ranging(
         Ok(said) => said,
         Err(why) => return could_not(why),
     };
-    println!(
-        "{}",
-        serde_json::to_string_pretty(&said).unwrap_or_default()
-    );
     let folder = std::path::PathBuf::from(said["vault"].as_str().unwrap_or_default());
     let Some(report) = flow::json_at(&folder.join(attack::REPORT)) else {
         return could_not(format!(
@@ -390,10 +386,23 @@ fn ranging(
         (junit, attack_report::junit(&report, &block_on)),
     ];
     for (at, text) in written {
+        // A link planted at the path would carry the write elsewhere.
+        if std::fs::symlink_metadata(at).is_ok_and(|meta| meta.file_type().is_symlink()) {
+            return could_not(format!("{} is a link: name a file", at.display()));
+        }
         if let Err(err) = std::fs::write(at, text) {
             return could_not(format!("{}: {err}", at.display()));
         }
     }
+    // The job's log says what devflow sets, never the attack's own words.
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&serde_json::json!({
+            "run": said["run"], "verdict": report["verdict"], "counts": report["counts"],
+            "vault": folder, "sarif": sarif, "junit": junit,
+        }))
+        .unwrap_or_default()
+    );
     let not_run = attack_report::not_run(&report);
     let annotate = std::env::var("GITHUB_ACTIONS").is_ok_and(|on| on == "true");
     for (id, why) in &not_run {
@@ -419,11 +428,12 @@ fn ranging(
             println!("::error title=devflow attack::{said}");
         }
     }
-    if held.is_empty() {
-        ExitCode::SUCCESS
-    } else {
-        ExitCode::from(1)
-    }
+    ExitCode::from(ci_exit(&report, &block_on))
+}
+
+/// A CI run's exit code: 1 when a confirmed exploit is in `block_on`, else 0.
+fn ci_exit(report: &serde_json::Value, block_on: &[devflow_engine::config::Severity]) -> u8 {
+    u8::from(!devflow_engine::attack_report::held(report, block_on).is_empty())
 }
 
 /// `devflow attack`: the attack tool's answer, printed as JSON.
@@ -836,4 +846,32 @@ fn models_table(rows: &[serde_json::Value]) -> Vec<String> {
         .iter()
         .map(|row| format!("{:<stage$}  {:<model$}  {}", row[0], row[1], row[2]))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use devflow_engine::config::Severity;
+    use serde_json::json;
+
+    use super::{ci_exit, range_ends};
+
+    #[test]
+    fn a_release_range_exits_1_on_a_confirmed_exploit_in_block_on_and_0_below_it() {
+        let report = json!({ "hypotheses": [
+            { "id": "h1", "status": "confirmed", "severity": "high", "class": "ssrf" },
+            { "id": "h2", "status": "refuted", "severity": "critical" },
+        ] });
+        assert_eq!(ci_exit(&report, &[Severity::Critical, Severity::High]), 1);
+        assert_eq!(ci_exit(&report, &[Severity::Critical]), 0, "below block_on");
+        assert_eq!(ci_exit(&json!({ "hypotheses": [] }), &[Severity::High]), 0);
+    }
+
+    #[test]
+    fn a_release_range_is_a_dot_dot_or_three_dots() {
+        assert_eq!(range_ends("v0.5.2..HEAD"), Some(("v0.5.2", "HEAD")));
+        assert_eq!(range_ends("main...feature"), Some(("main", "feature")));
+        for not in ["HEAD", "..HEAD", "v1..", "a..b..c"] {
+            assert_eq!(range_ends(not), None, "{not}");
+        }
+    }
 }

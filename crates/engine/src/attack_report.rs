@@ -718,16 +718,23 @@ pub fn held(report: &Value, block_on: &[crate::config::Severity]) -> Vec<Value> 
         .collect()
 }
 
-/// The hypotheses tried that no sandbox ran, each with its id and why:
-/// they prove nothing either way.
+/// The hypotheses nothing ran, each with its id and why: one the attack did
+/// not try, and one tried that no sandbox ran. They prove nothing either
+/// way. The why is devflow's own, never the attack's.
 pub fn not_run(report: &Value) -> Vec<(String, String)> {
     report["hypotheses"]
         .as_array()
         .into_iter()
         .flatten()
-        .filter(|one| one["status"] == "tried" && one["ran"]["result"] == "not_run")
+        .filter(|one| {
+            one["status"] == "not_run"
+                || (one["status"] == "tried" && one["ran"]["result"] == "not_run")
+        })
         .map(|one| {
             let id = id_of(&one["id"]).as_str().unwrap_or(LEFT_OUT).to_owned();
+            if one["status"] == "not_run" {
+                return (id, "the attack did not try it".to_owned());
+            }
             let why: String = text(&one["ran"], "reason")
                 .split_whitespace()
                 .collect::<Vec<_>>()
@@ -784,6 +791,9 @@ pub fn junit(report: &Value, block_on: &[crate::config::Severity]) -> String {
                 xml(&proof_said(one)),
                 xml(text(one, "impact"))
             )
+        } else if one["status"] == "not_run" {
+            "<skipped message=\"the attack did not try it: it proves nothing either way\"/>"
+                .to_owned()
         } else if one["status"] == "tried" && skipped.contains(&id) {
             "<skipped message=\"no sandbox ran its exploit: it proves nothing either way\"/>"
                 .to_owned()

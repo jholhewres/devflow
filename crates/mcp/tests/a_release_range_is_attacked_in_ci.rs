@@ -146,6 +146,30 @@ fn a_release_range_is_attacked_headless_with_its_sarif_and_junit_written() {
         !junit.contains("signature is never checked"),
         "the attack's words: {junit}"
     );
+    // The job's log carries none of the attack's words either.
+    for said in [&stdout, &stderr] {
+        assert!(!said.contains("signed with any key"), "{said}");
+        assert!(!said.contains("signature is never checked"), "{said}");
+    }
+    assert!(stdout.contains("\"verdict\""), "{stdout}");
+    // A link planted where the SARIF goes carries no write elsewhere.
+    let elsewhere = out.path().join("elsewhere.sarif");
+    std::fs::write(&elsewhere, "kept").unwrap();
+    std::os::unix::fs::symlink(&elsewhere, out.path().join("linked.sarif")).unwrap();
+    let linked = devflow(
+        &root,
+        home.path(),
+        out.path(),
+        &[
+            "attack",
+            "--range",
+            "HEAD~1..HEAD",
+            "--sarif",
+            "linked.sarif",
+        ],
+    );
+    assert_eq!(linked.status.code(), Some(2));
+    assert_eq!(std::fs::read_to_string(&elsewhere).unwrap(), "kept");
     // The paths the CI names are where they go.
     let named = devflow(
         &root,

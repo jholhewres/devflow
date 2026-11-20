@@ -353,3 +353,19 @@ fn junit_holds_a_path_with_markup_as_text() {
     let said = junit(&report, &[crate::config::Severity::High]);
     assert!(said.contains("src/a&amp;b&apos;c.ts"), "{said}");
 }
+
+/// A hypothesis the attack did not try proves nothing either: warned of and
+/// skipped, with devflow's words for why, never its own.
+#[test]
+fn a_hypothesis_the_attack_did_not_try_is_skipped_and_warned_of() {
+    let mut report = report();
+    report["hypotheses"][1]["status"] = json!("not_run");
+    report["hypotheses"][1]["reason"] = json!(SAID[2]);
+    assert_eq!(
+        not_run(&report),
+        [("h2".to_owned(), "the attack did not try it".to_owned())]
+    );
+    let said = junit(&report, &[crate::config::Severity::High]);
+    assert!(said.contains("skipped=\"1\""), "{said}");
+    assert!(said.contains("the attack did not try it"), "{said}");
+}
