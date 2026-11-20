@@ -166,7 +166,7 @@ fn the_attacks_own_safety_rules_are_said_whatever_the_persona_says() {
         &[],
         Some("assets: none"),
         &[json!({ "title": "x", "control": "src/guard.rs" })],
-        "### ssrf: loopback\n{\"id\":\"loopback\"}\n",
+        "## Regression cases: (data)\n### ssrf: loopback\n{\"id\":\"loopback\"}\n",
     );
     assert!(said
         .contains("Never another host, never a third party's, never a cloud's metadata address."));

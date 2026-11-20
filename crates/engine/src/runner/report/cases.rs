@@ -60,12 +60,17 @@ impl Reported {
         self.found.extend(other.found.into_iter().take(room));
     }
 
-    /// Whether a SARIF report was among what was read.
+    /// Whether a scanner's report (SARIF, npm audit, govulncheck) was among
+    /// what was read.
     pub fn read_sarif(&self) -> bool {
-        self.tested
-            .read_from
-            .iter()
-            .any(|format| format == super::sarif::SARIF)
+        self.tested.read_from.iter().any(|format| {
+            [
+                super::sarif::SARIF,
+                super::audit::NPM_AUDIT,
+                super::audit::GOVULNCHECK,
+            ]
+            .contains(&format.as_str())
+        })
     }
 
     pub(super) fn case(&mut self, name: &str, place: Option<String>, outcome: Outcome) {

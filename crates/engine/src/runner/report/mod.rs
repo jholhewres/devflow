@@ -6,6 +6,7 @@ use std::path::Path;
 
 use crate::verdict::Tested;
 
+pub mod audit;
 mod cargo;
 mod cases;
 mod go;
@@ -57,6 +58,8 @@ pub fn from_file(text: &str, cwd: &Path) -> Option<Tested> {
 fn file_cases(text: &str, cwd: &Path) -> Option<Reported> {
     match text.trim_start().as_bytes().first()? {
         b'{' => sarif::from_json(text, cwd)
+            .or_else(|| audit::npm_audit(text, cwd))
+            .or_else(|| audit::govulncheck(text, cwd))
             .or_else(|| vitest::from_json(text, cwd))
             .or_else(|| go::from_lines(text)),
         b'<' => junit::from_xml(text, cwd),

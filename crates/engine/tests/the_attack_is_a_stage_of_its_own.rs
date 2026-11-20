@@ -1093,3 +1093,98 @@ fn a_regression_class_goes_to_every_attack_and_a_proposed_case_waits_for_a_perso
         .as_str()
         .is_some_and(|said| said.contains("devflow payloads add card_1")));
 }
+
+/// What the evidence's scanners found is given to the attacker, which says
+/// of each whether untrusted input reaches it; the report lists the
+/// reachable ones with their fix apart from the rest.
+#[cfg(unix)]
+#[test]
+fn a_scanner_finding_is_called_reachable_or_not_and_the_reachable_stand_apart() {
+    use std::time::{Duration, SystemTime};
+    let dir = tempfile::tempdir().expect("dir");
+    let root = dir.path().canonicalize().expect("root");
+    let checkout = root.join("checkout");
+    std::fs::create_dir_all(&checkout).expect("checkout");
+    let runs = devflow_engine::runs::Runs {
+        dialect: &Dialect::DEVFLOW,
+        home: root.join("home"),
+        checkout: checkout.clone(),
+    };
+    let evidence = json!({ "checks": [{ "name": "audit", "findings": [
+        { "tool": "npm audit", "rule": "GHSA-aaaa-bbbb-cccc", "package": "example-parser", "file": "package-lock.json",
+          "line": 1, "severity": "high", "message": "example-parser <2.1.0: Prototype pollution", "fix": "upgrade example-parser to 2.1.0" },
+        { "tool": "govulncheck", "rule": "GO-2099-0002", "package": "example.test/lib/tls", "file": "go.mod",
+          "line": 1, "severity": "low", "message": "Weak default (imports example.test/lib/tls)" },
+    ] }] });
+    let bin = root.join("bin");
+    std::fs::create_dir_all(&bin).expect("bin");
+    let claude = fake_claude(
+        &bin,
+        &json!({ "version": 1, "hypotheses": [], "scanner": [
+            { "id": "s1", "reachable": true, "path": "src/api.ts:12 parse(req.body) → example-parser.parse", "fix": "upgrade example-parser to 2.1.0" },
+            { "id": "s2", "reachable": false, "path": "only its types are imported" },
+        ] }),
+    );
+    let reach =
+        move |_: config::Agent| -> Result<String, String> { Ok(claude.display().to_string()) };
+    let redact = |text: &str| text.to_owned();
+    let files = vec![SENSITIVE.to_owned()];
+    let done = attack::attacked(&attack::Given {
+        root: &checkout,
+        runs: &runs,
+        config: &Config::default(),
+        card: devflow_engine::evidence::Card {
+            id: "card_1",
+            title: "Sessions",
+            body: "",
+        },
+        git: devflow_engine::review::Git {
+            base: "b4se",
+            head: "he4d",
+            files: &files,
+            diff: DIFF,
+        },
+        brief: None,
+        evidence: Some(&evidence),
+        review: None,
+        env: &[],
+        at: SystemTime::UNIX_EPOCH + Duration::from_secs(1_792_000_000),
+        budget: Duration::from_secs(60),
+        reach: &reach,
+        redact: &redact,
+        personas: devflow_engine::review::Personas::default(),
+        retro: false,
+        scratch: None,
+    })
+    .expect("attacked");
+    let prompt = std::fs::read_to_string(bin.join("prompt.txt")).expect("prompt");
+    assert!(
+        prompt.contains("## Scanner findings") && prompt.contains("\"id\":\"s1\""),
+        "given to the attacker"
+    );
+    let scanner = done.report["scanner"].as_array().expect("scanner");
+    assert_eq!(scanner[0]["reachable"], true);
+    assert_eq!(
+        scanner[0]["path"],
+        "src/api.ts:12 parse(req.body) → example-parser.parse"
+    );
+    assert_eq!(scanner[1]["reachable"], false);
+    assert_eq!(
+        attack::summary(&done)["scanner"],
+        json!({ "reachable": 1, "rest": 1 })
+    );
+    let markdown = devflow_engine::attack_report::markdown(&done.report, &[]);
+    let reachable = markdown
+        .find("## Scanner findings untrusted input reaches")
+        .expect("its own section");
+    let rest = markdown
+        .find("The other 1 scanner findings")
+        .expect("the rest apart");
+    let fix = markdown
+        .find("Fix: upgrade example-parser to 2.1.0")
+        .expect("the fix");
+    assert!(reachable < fix && fix < rest, "{markdown}");
+    let json = devflow_engine::attack_report::json_of(&done.report, &[]);
+    assert_eq!(json["scanner"]["reachable"][0]["package"], "example-parser");
+    assert_eq!(json["scanner"]["rest"][0]["rule"], "GO-2099-0002");
+}

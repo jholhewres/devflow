@@ -34,6 +34,12 @@ pub struct ToolFinding {
     pub end_line: Option<u64>,
     pub severity: Severity,
     pub message: String,
+    /// A dependency scanner's: the vulnerable package.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub package: Option<String>,
+    /// A dependency scanner's: the fix it names.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fix: Option<String>,
 }
 
 impl ToolFinding {
@@ -186,6 +192,8 @@ fn finding(
                 .unwrap_or_default(),
             LONGEST_MESSAGE,
         ),
+        package: None,
+        fix: None,
     })
 }
 

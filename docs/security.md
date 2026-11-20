@@ -145,6 +145,14 @@ security persona: it comes after the persona's rules and cannot remove one.
 `devflow persona show devflow-security` prints what a reader reads, and each
 run's context names the persona and the overlay by their digests.
 
+## Scanner findings, reachable or not
+
+A check whose `report` is `sarif`, `npm-audit` (`npm audit --json`) or
+`govulncheck` (`govulncheck -json`) is read as findings at their package and
+place. The attack is given each one and says whether untrusted input reaches
+it, with the call path. Its report lists the reachable ones with their fix
+apart from the rest, the noise a scanner alone leaves you with.
+
 ## Payload repertoire
 
 devflow ships generic cases by attack class: SSRF, ReDoS, path traversal, SQL

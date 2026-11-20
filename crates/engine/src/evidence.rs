@@ -433,7 +433,10 @@ pub fn run_check(
         .lines()
         .filter(|line| !line.trim().is_empty())
         .collect();
-    let verdict = if check.report == Format::Sarif {
+    let verdict = if matches!(
+        check.report,
+        Format::Sarif | Format::NpmAudit | Format::Govulncheck
+    ) {
         tool_checked(reported.as_ref())
     } else {
         checked(check.report, state, read, ended.exit_code)

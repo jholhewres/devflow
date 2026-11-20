@@ -89,7 +89,7 @@ words!(
 );
 words!(
     /// The report a check writes, which devpit reads as its evidence.
-    Report { Junit = "junit", Vitest = "vitest", Jest = "jest", Cargo = "cargo", Go = "go", Sarif = "sarif", Nothing = "none" }
+    Report { Junit = "junit", Vitest = "vitest", Jest = "jest", Cargo = "cargo", Go = "go", Sarif = "sarif", NpmAudit = "npm-audit", Govulncheck = "govulncheck", Nothing = "none" }
 );
 words!(
     /// What an E2E check keeps besides its report.

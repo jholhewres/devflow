@@ -344,7 +344,31 @@ pub fn json_of(report: &Value, payloads: &[String]) -> Value {
         "metrics": report["metrics"],
         "hypotheses": report["hypotheses"].as_array().into_iter().flatten()
             .map(|one| shown(one, payloads)).collect::<Vec<_>>(),
+        "scanner": {
+            "reachable": scanned(report, payloads, true),
+            "rest": scanned(report, payloads, false),
+        },
     })
+}
+
+/// The scanner findings the attack called reachable, or the rest, each
+/// scrubbed as a hypothesis is.
+fn scanned(report: &Value, payloads: &[String], reachable: bool) -> Vec<Value> {
+    report["scanner"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|one| (one["reachable"] == true) == reachable)
+        .map(|one| {
+            let said = |key: &str| scrub(text(one, key), payloads);
+            json!({
+                "id": one["id"], "tool": one["tool"], "rule": one["rule"], "package": one["package"],
+                "file": one["file"], "line": one["line"], "severity": one["severity"],
+                "reachable": one["reachable"], "path": said("path"),
+                "fix": if text(one, "attacker_fix").is_empty() { said("fix") } else { said("attacker_fix") },
+            })
+        })
+        .collect()
 }
 
 /// The report as markdown.
@@ -369,6 +393,41 @@ pub fn markdown(report: &Value, payloads: &[String]) -> String {
             metrics["cost_usd"].as_f64().unwrap_or_default(),
             metrics["duration_ms"].as_u64().unwrap_or_default() / 60_000
         ));
+    }
+    let reachable = scanned(report, payloads, true);
+    let rest = scanned(report, payloads, false);
+    if !reachable.is_empty() || !rest.is_empty() {
+        out.push_str("\n## Scanner findings untrusted input reaches\n\n");
+        if reachable.is_empty() {
+            out.push_str("None.\n");
+        }
+        for one in &reachable {
+            out.push_str(&format!(
+                "- {} {} `{}` in {} at {}:{}: {}. Fix: {}\n",
+                text(one, "severity"),
+                text(one, "rule"),
+                text(one, "package"),
+                text(one, "tool"),
+                text(one, "file"),
+                one["line"].as_u64().unwrap_or(1),
+                text(one, "path"),
+                text(one, "fix")
+            ));
+        }
+        out.push_str(&format!(
+            "\nThe other {} scanner findings: not reached, or not said.\n",
+            rest.len()
+        ));
+        for one in &rest {
+            out.push_str(&format!(
+                "- {} {} `{}` at {}:{}\n",
+                text(one, "severity"),
+                text(one, "rule"),
+                text(one, "package"),
+                text(one, "file"),
+                one["line"].as_u64().unwrap_or(1)
+            ));
+        }
     }
     out.push_str("\n| Status | Severity | Where | Hypothesis | Why |\n|---|---|---|---|---|\n");
     for one in report["hypotheses"].as_array().into_iter().flatten() {
