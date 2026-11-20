@@ -542,6 +542,10 @@ The project's dependency folders (`node_modules`, `vendor`, `.venv` and the
 like) are mounted read-only into each worktree, from the checkout, else from
 the repository's main worktree, so an exploit test never fetches them
 offline, even when the attack reads a detached tree of a range.
+A red run confirms only when what it printed names the exploit's test, its
+parts joined as the runner joins them (jest's `describe › test`, vitest's
+`describe > test`, `::`), and no harness error: all of it is read, not only
+the end the report keeps.
 `auto` tries bwrap for real and falls back to docker: bwrap needs
 unprivileged user namespaces, which Ubuntu restricts from 23.10
 (`kernel.apparmor_restrict_unprivileged_userns=1`); `devflow doctor` says

@@ -424,6 +424,12 @@ HEAD. The details, and how to read the report: [security.md](security.md).
   file that names the attack as `review.attack` in place, its stage added.
   An exploit's tree gets the main worktree's dependency folders, and a
   detached tree follows its main checkout's folder.
+- 0.6.5: a red exploit run confirms when its output names the test the way
+  jest (` › `), vitest (` > `) or `::` join it, read whole; the markdown
+  report names a proposed threat model by where the project keeps it;
+  `doctor` lists the person's yeses and what the question does not ask
+  again; the update's lock holds its pid, is taken over once its holder is
+  gone, and a lock that cannot be made says why.
 
 **What a host sees change**
 
@@ -466,6 +472,9 @@ HEAD. The details, and how to read the report: [security.md](security.md).
   of a linked worktree with no configuration of its own answer its main
   worktree's, and an edit that sets a field of a stage the list lacks adds
   the stage in place.
+- 0.6.5 adds `sandbox::Ran::reached`, whether the whole output named the
+  exploit's test; `attack::reached` reads a test's name as the runner joins
+  its parts.
 
 ## Release
 
