@@ -484,3 +484,27 @@ fn attackers_run_one_at_a_time_unless_concurrency_says() {
         );
     }
 }
+
+/// The image goes into `docker run` before the command: one that reads as a
+/// flag would set docker's own options, so only an image's name is read.
+#[test]
+fn an_attack_image_is_an_image_name_never_a_flag() {
+    let with = |image: &str| {
+        format!("version: 1\nstages:\n  attack: {{ run: sensitive, sandbox: docker, image: '{image}' }}\n")
+    };
+    for good in [
+        "node:22",
+        "ghcr.io/acme/tests:1.2-slim",
+        "redis@sha256:abc123",
+        "python:3.12_x",
+    ] {
+        let config = parse(&with(good)).unwrap_or_else(|why| panic!("{good}: {why}"));
+        assert_eq!(config.stages.attack.image.as_deref(), Some(good));
+    }
+    for bad in ["--network=host", "-v/:/host", "node 22", "node;sh", "$(id)"] {
+        let why = refused(&with(bad));
+        assert_eq!(why.field, "stages.attack.image", "{bad}");
+    }
+    assert!(crate::sandbox::image_named("node:22"));
+    assert!(!crate::sandbox::image_named("--privileged"));
+}

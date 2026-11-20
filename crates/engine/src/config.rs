@@ -1579,7 +1579,17 @@ pub(crate) fn attack_in(fields: &mut Fields) -> Result<Attack, Invalid> {
         None => None,
     };
     let image = match fields.get("image") {
-        Some((node, path)) => Some(text(node, &path, 200)?),
+        Some((node, path)) => {
+            let image = text(node, &path, 200)?;
+            if !crate::sandbox::image_named(&image) {
+                return Err(Invalid::at(
+                    node.line(),
+                    &path,
+                    "a docker image's name: letters, digits and . _ / : @ -, starting with a letter or a digit",
+                ));
+            }
+            Some(image)
+        }
         None => None,
     };
     let budget = match fields.get("budget") {

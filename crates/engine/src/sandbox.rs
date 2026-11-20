@@ -33,6 +33,17 @@ const TAIL: usize = 4_000;
 /// a secret above all, stays out.
 const KEPT: [&str; 4] = ["PATH", "LANG", "LC_ALL", "TERM"];
 
+/// Whether `image` names a docker image and nothing else: it goes into
+/// `docker run` before the command, so a word that reads as a flag
+/// (`--network=host`) or holds a space would set docker's own options.
+pub fn image_named(image: &str) -> bool {
+    let mut chars = image.chars();
+    chars
+        .next()
+        .is_some_and(|first| first.is_ascii_alphanumeric())
+        && chars.all(|one| one.is_ascii_alphanumeric() || "._/:@-".contains(one))
+}
+
 /// Which sandbox it is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
