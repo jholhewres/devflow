@@ -327,9 +327,7 @@ fn a_prompt_injection_table_tests_a_message_builder_and_calls_no_model() {
 /// for that reason; one that keeps it in its tool role passes.
 #[test]
 fn a_builder_that_replays_a_tool_output_as_a_system_message_fails_the_table() {
-    let ran = std::process::Command::new("node").arg("--version").output();
-    if !ran.is_ok_and(|out| out.status.success()) {
-        eprintln!("skipped: no node on PATH to run the generated table");
+    if !on_path("node") {
         return;
     }
     let shim = "const results = []; const pending = [];\n\
@@ -399,17 +397,118 @@ fn a_builder_that_replays_a_tool_output_as_a_system_message_fails_the_table() {
         };
         assert_eq!(said, want, "{id}");
     }
+    // A safe builder whose own system prompt says one of a case's markers
+    // passes; one that says a case's only marker is told so.
+    let marker = class
+        .cases
+        .iter()
+        .map(|case| markers(&case.input))
+        .find(|listed| listed.len() > 1)
+        .and_then(|listed| listed.into_iter().next())
+        .expect("a case of two markers");
+    let says_it = format!(
+        "async function build(content, from) {{\n  return [{{ role: 'system', content: 'Be helpful. ' + {} }}, {{ role: from === 'tool' ? 'tool' : 'user', content }}];\n}}\n",
+        serde_json::to_string(&marker).expect("js")
+    );
+    let own = run(&says_it);
+    assert!(own.iter().all(|(_, said)| said == "ok"), "{own:?}");
+    let (alone, only) = class
+        .cases
+        .iter()
+        .map(|case| (case.id.clone(), markers(&case.input)))
+        .find(|(_, listed)| listed.len() == 1)
+        .expect("a case of one marker");
+    let says_only = says_it.replace(
+        &serde_json::to_string(&marker).expect("js"),
+        &serde_json::to_string(&only[0]).expect("js"),
+    );
+    let told = run(&says_only);
+    assert!(
+        told.iter().any(|(id, said)| *id == alone
+            && said == "every marker of the case is in the builder's own messages"),
+        "{told:?}"
+    );
+}
+
+/// Whether `program` runs here; under CI it must, so a table test never
+/// passes there without running.
+fn on_path(program: &str) -> bool {
+    let asked = if program == "go" {
+        "version"
+    } else {
+        "--version"
+    };
+    let ran = std::process::Command::new(program)
+        .arg(asked)
+        .output()
+        .is_ok_and(|out| out.status.success());
+    if !ran {
+        assert!(
+            std::env::var_os("CI").is_none(),
+            "{program} is not on PATH under CI"
+        );
+        eprintln!("skipped: no {program} on PATH to run the generated table");
+    }
+    ran
+}
+
+/// The generated Go table run by `go test`: a builder that replays a tool's
+/// output as a system message fails it for that reason, and one that keeps
+/// it in its tool role passes.
+#[test]
+fn the_go_table_fails_a_builder_for_the_same_reasons() {
+    if !on_path("go") {
+        return;
+    }
+    let class = shipped(PROMPT_INJECTION).expect("prompt-injection");
+    let generated = table(&class, Runner::Go);
+    let stub = "panic(\"devflow payloads: fill in buildPromptInjection() for prompt-injection\")";
+    assert!(generated.contains(stub), "{generated}");
+    let dir = tempfile::tempdir().expect("dir");
+    let run = |body: &str| -> String {
+        let at = dir.path().join("payloads_test.go");
+        std::fs::write(&at, generated.replace(stub, body)).expect("go");
+        let out = std::process::Command::new("go")
+            .args(["test", "-count=1", "-v", "payloads_test.go"])
+            .current_dir(dir.path())
+            .env("GOCACHE", dir.path().join("cache"))
+            .env("GOPATH", dir.path().join("gopath"))
+            .env("GOTOOLCHAIN", "local")
+            .env("GOPROXY", "off")
+            .env("GOFLAGS", "")
+            .output()
+            .expect("go test");
+        String::from_utf8_lossy(&out.stdout).into_owned()
+    };
+    let replays = run("if from == \"tool\" {\n\t\treturn []messagePromptInjection{{\"system\", \"Tool said: \" + content}, {\"user\", \"go on\"}}\n\t}\n\treturn []messagePromptInjection{{\"system\", \"Be helpful.\"}, {\"user\", content}}");
+    for case in &class.cases {
+        let failed = replays.contains(&format!(
+            "--- FAIL: TestPayloadsPromptInjection/{}",
+            case.id
+        ));
+        assert_eq!(
+            failed,
+            case.id.starts_with("tool-"),
+            "{}: {replays}",
+            case.id
+        );
+    }
+    assert!(
+        replays.contains("tool content became a system message"),
+        "{replays}"
+    );
+    let keeps = run("if from == \"tool\" {\n\t\treturn []messagePromptInjection{{\"system\", \"Be helpful.\"}, {\"tool\", content}}\n\t}\n\treturn []messagePromptInjection{{\"system\", \"Be helpful.\"}, {\"user\", content}}");
+    assert!(
+        keeps.contains("--- PASS: TestPayloadsPromptInjection ") && !keeps.contains("FAIL"),
+        "{keeps}"
+    );
 }
 
 /// The generated pytest table run by python, with a stand-in `pytest`: the
 /// same builders fail and pass as under node.
 #[test]
 fn the_pytest_table_fails_a_builder_for_the_same_reasons() {
-    let ran = std::process::Command::new("python3")
-        .arg("--version")
-        .output();
-    if !ran.is_ok_and(|out| out.status.success()) {
-        eprintln!("skipped: no python3 on PATH to run the generated table");
+    if !on_path("python3") {
         return;
     }
     let dir = tempfile::tempdir().expect("dir");
@@ -483,8 +582,28 @@ fn each_prompt_injection_case_has_words_an_escaping_builder_keeps() {
         from: Some("user".to_owned()),
         want: "data".to_owned(),
     };
-    assert!(
-        checked_in(PROMPT_INJECTION, &short).is_err(),
-        "no words a builder keeps"
-    );
+    let why = checked_in(PROMPT_INJECTION, &short).expect_err("no words a builder keeps");
+    assert!(why.contains("words a builder keeps"), "{why}");
+}
+
+/// A file name or a qualified column is not a host, and a namespace is set
+/// aside only where a document declares it.
+#[test]
+fn a_file_name_is_neutral_and_a_namespace_only_where_declared() {
+    for fine in [
+        "src/main.rs and app.py",
+        "SELECT users.id FROM users",
+        "<x xmlns:xi='http://www.w3.org/2001/XInclude'/>",
+        "<x xmlns = \"http://www.w3.org/2001/XInclude\"/>",
+    ] {
+        assert!(neutral(fine).is_ok(), "{fine}: {:?}", neutral(fine));
+    }
+    for named in [
+        "www.evil.rs",
+        "evil-corp.id",
+        "<xi:include href=\"http://www.w3.org/2001/XInclude\"/>",
+        "fetch http://www.w3.org/2001/XInclude",
+    ] {
+        assert!(neutral(named).is_err(), "{named}");
+    }
 }

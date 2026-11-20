@@ -547,12 +547,15 @@ fn payloads(root: &std::path::Path, action: Payloads) -> ExitCode {
                 return failed(format!("the attack report proposes no case `{case}`"));
             };
             let class = proposed["class"].as_str().unwrap_or_default();
-            if !proposed["from"].is_null() {
-                println!(
-                    "written by: {}",
-                    serde_json::to_string(&proposed["from"]).unwrap_or_default()
-                );
+            if !payloads::names().contains(&class) {
+                return failed(format!("the case `{case}` is of no class devflow ships"));
             }
+            // Who wrote it, `user` when the case does not say.
+            println!(
+                "written by: {}",
+                serde_json::to_string(proposed["from"].as_str().unwrap_or("user"))
+                    .unwrap_or_default()
+            );
             println!(
                 "class: {}\ninput: {}\nwant: {}\nwhy: {}",
                 serde_json::to_string(&proposed["class"]).unwrap_or_default(),

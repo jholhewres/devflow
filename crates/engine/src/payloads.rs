@@ -3,9 +3,10 @@
 //! fills in. A project keeps its own cases beside it, in devflow's folder,
 //! and only from a person on a terminal (`devflow payloads add`).
 //!
-//! Neutral: a case names no real host, address or person. Its hosts are
-//! loopback, private, link-local or reserved names, never a cloud's
-//! metadata address, so a table run on any machine reaches nothing.
+//! Neutral: a case names no real host, address or person. A URL's host is
+//! loopback or private on port 1, or a name that resolves nowhere; a bare
+//! address leads inside; no name or e-mail address ends in a real place. A
+//! table run on any machine reaches nothing.
 
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::path::Path;
@@ -193,11 +194,51 @@ const PUBLIC: [&str; 40] = [
     "name", "mobi", "asia", "jobs", "travel", "global",
 ];
 
-/// The XML namespaces a document names without fetching them.
+/// The XML namespaces a document declares without fetching them.
 const NAMESPACES: [&str; 1] = ["http://www.w3.org/2001/XInclude"];
 
-/// Names that are no one's: RFC 2606 and 6761, and the XML namespace a
-/// document names without fetching it.
+/// A source or data file's two-letter extension, read as one before a
+/// country's: `main.rs`, `users.id`.
+const FILE_LABELS: [&str; 14] = [
+    "rs", "py", "go", "js", "ts", "sh", "md", "rb", "pl", "cs", "kt", "id", "db", "so",
+];
+
+/// `text` without the namespaces it declares (`xmlns:xi="…"`): a namespace
+/// named anywhere else is a URL like any other.
+fn without_declared_namespaces(text: &str) -> String {
+    let mut kept = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some((at, namespace)) = NAMESPACES
+        .iter()
+        .filter_map(|namespace| rest.find(namespace).map(|at| (at, *namespace)))
+        .min()
+    {
+        let before = &rest[..at];
+        let declared = before
+            .strip_suffix(['"', '\''])
+            .map(|before| before.trim_end().strip_suffix('=').unwrap_or("x"))
+            .map(str::trim_end)
+            .is_some_and(|attribute| {
+                let name = attribute
+                    .rsplit(|ch: char| ch.is_whitespace() || ch == '<')
+                    .next()
+                    .unwrap_or_default();
+                name == "xmlns"
+                    || name
+                        .strip_prefix("xmlns:")
+                        .is_some_and(|prefix| !prefix.is_empty())
+            });
+        kept.push_str(before);
+        if !declared {
+            kept.push_str(namespace);
+        }
+        rest = &rest[at + namespace.len()..];
+    }
+    kept.push_str(rest);
+    kept
+}
+
+/// Names that are no one's: RFC 2606 and 6761.
 fn reserved_name(host: &str) -> bool {
     let host = host.trim_end_matches('.').to_ascii_lowercase();
     host.is_empty()
@@ -410,9 +451,7 @@ fn bare_address(token: &str) -> Option<bool> {
 /// loopback or private on port 1, or a name that resolves nowhere; a bare
 /// address leads inside; no name or e-mail address ends in a real place.
 pub fn neutral(text: &str) -> Result<(), String> {
-    let text = NAMESPACES.iter().fold(text.to_owned(), |text, namespace| {
-        text.replace(namespace, "")
-    });
+    let text = without_declared_namespaces(text);
     for (host, port, who) in urls(&text) {
         url_host(&host, port.as_deref())?;
         if let Some(who) = who.filter(|who| who.contains('.')) {
@@ -480,7 +519,13 @@ pub fn neutral(text: &str) -> Result<(), String> {
             .next()
             .unwrap_or_default()
             .to_ascii_lowercase();
-        let country = last.len() == 2 && last.chars().all(|ch| ch.is_ascii_alphabetic());
+        let file = place.matches('.').count() == 1
+            && FILE_LABELS.contains(&last.as_str())
+            && place.split('.').next().is_some_and(|name| {
+                name.chars()
+                    .all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+            });
+        let country = !file && last.len() == 2 && last.chars().all(|ch| ch.is_ascii_alphabetic());
         if country || PUBLIC.contains(&last.as_str()) {
             return Err(format!("`{place}` names a real host"));
         }
@@ -618,7 +663,8 @@ const MARKER: usize = 12;
 /// A case's markers: each run of letters, digits and spaces in its text of
 /// at least [`MARKER`] characters and two words. A builder that escapes a
 /// delimiter or a quote still keeps them, and each is followed, so a role
-/// lifted from any part of the text is seen.
+/// lifted from any marker is seen; a shorter or one-word fragment is not
+/// followed. A marker the builder says on its own is its, not the case's.
 pub fn markers(input: &str) -> Vec<String> {
     let mut found: Vec<String> = Vec::new();
     for part in input.split(|ch: char| !(ch.is_alphanumeric() || ch == ' ')) {
@@ -681,18 +727,18 @@ fn builder_table(class: &Class, runner: Runner) -> String {
                 ""
             };
             format!(
-                "{}{import}async function build(content, from) {{\n  throw new Error(\"devflow payloads: fill in build() for {name}\");\n}}\n\nconst cases = [\n{rows}];\n\n// The case's markers a message holds: words a builder that escapes a\n// delimiter still keeps, read as JSON so a list of blocks reads too.\nfunction held(message, markers) {{\n  const said = JSON.stringify(message.content ?? \"\");\n  return markers.filter((marker) => said.includes(marker));\n}}\n\n// A tool's text in its tool role, or only inside tool_result blocks.\nfunction inToolRole(message, markers) {{\n  if (message.role === \"tool\") return true;\n  if (!Array.isArray(message.content)) return false;\n  return message.content.every(\n    (block) => block.type === \"tool_result\" || !markers.some((marker) => JSON.stringify(block).includes(marker)),\n  );\n}}\n\ndescribe(\"payloads: {name}\", () => {{\n  test.each(cases)(\"%s\", async (id, input, from, markers) => {{\n    const holding = (await build(input, from)).filter((message) => held(message, markers).length > 0);\n    if (holding.length === 0) {{\n      throw new Error(`the ${{from}} content is in no message`);\n    }}\n    for (const message of holding) {{\n      if (message.role === \"system\" || message.role === \"developer\") {{\n        throw new Error(`${{from}} content became a ${{message.role}} message`);\n      }}\n      if (message.role === \"assistant\") {{\n        throw new Error(`${{from}} content became the assistant's message`);\n      }}\n      if (from === \"tool\" && !inToolRole(message, held(message, markers))) {{\n        throw new Error(\"tool output reached the model outside its tool role\");\n      }}\n    }}\n  }});\n}});\n",
+                "{}{import}async function build(content, from) {{\n  throw new Error(\"devflow payloads: fill in build() for {name}\");\n}}\n\nconst cases = [\n{rows}];\n\n// The case's markers a message holds: words a builder that escapes a\n// delimiter still keeps, read as JSON so a list of blocks reads too.\nfunction held(message, markers) {{\n  const said = JSON.stringify(message.content ?? \"\");\n  return markers.filter((marker) => said.includes(marker));\n}}\n\n// A tool's text in its tool role, or only inside tool_result blocks.\nfunction inToolRole(message, markers) {{\n  if (message.role === \"tool\") return true;\n  if (!Array.isArray(message.content)) return false;\n  return message.content.every(\n    (block) => block.type === \"tool_result\" || !markers.some((marker) => JSON.stringify(block).includes(marker)),\n  );\n}}\n\ndescribe(\"payloads: {name}\", () => {{\n  test.each(cases)(\"%s\", async (id, input, from, listed) => {{\n    // A marker the builder says on its own is its, not the case's.\n    const own = JSON.stringify(await build(\"x\", from));\n    const markers = listed.filter((marker) => !own.includes(marker));\n    if (markers.length === 0) {{\n      throw new Error(\"every marker of the case is in the builder's own messages\");\n    }}\n    const holding = (await build(input, from)).filter((message) => held(message, markers).length > 0);\n    if (holding.length === 0) {{\n      throw new Error(`the ${{from}} content is in no message`);\n    }}\n    for (const message of holding) {{\n      if (message.role === \"system\" || message.role === \"developer\") {{\n        throw new Error(`${{from}} content became a ${{message.role}} message`);\n      }}\n      if (message.role === \"assistant\") {{\n        throw new Error(`${{from}} content became the assistant's message`);\n      }}\n      if (from === \"tool\" && !inToolRole(message, held(message, markers))) {{\n        throw new Error(\"tool output reached the model outside its tool role\");\n      }}\n    }}\n  }});\n}});\n",
                 comment("//"),
                 rows = rows("  ", "[", "]")
             )
         }
         Runner::Go => format!(
-            "{}package payloads_test\n\nimport (\n\t\"strings\"\n\t\"testing\"\n)\n\n// A message as the builder hands it to a model; a tool_result block is\n// returned as Role \"tool\".\ntype message{title} struct{{ Role, Content string }}\n\nfunc build{title}(content, from string) []message{title} {{\n\tpanic(\"devflow payloads: fill in build{title}() for {name}\")\n}}\n\nfunc TestPayloads{title}(t *testing.T) {{\n\tcases := []struct {{\n\t\tid, input, from string\n\t\tmarkers         []string\n\t}}{{\n{rows}\t}}\n\tfor _, c := range cases {{\n\t\tt.Run(c.id, func(t *testing.T) {{\n\t\t\theld := 0\n\t\t\tfor _, m := range build{title}(c.input, c.from) {{\n\t\t\t\tholds := false\n\t\t\t\tfor _, marker := range c.markers {{\n\t\t\t\t\tholds = holds || strings.Contains(m.Content, marker)\n\t\t\t\t}}\n\t\t\t\tif !holds {{\n\t\t\t\t\tcontinue\n\t\t\t\t}}\n\t\t\t\theld++\n\t\t\t\tswitch m.Role {{\n\t\t\t\tcase \"system\", \"developer\":\n\t\t\t\t\tt.Fatalf(\"%s content became a %s message\", c.from, m.Role)\n\t\t\t\tcase \"assistant\":\n\t\t\t\t\tt.Fatalf(\"%s content became the assistant's message\", c.from)\n\t\t\t\t}}\n\t\t\t\tif c.from == \"tool\" && m.Role != \"tool\" {{\n\t\t\t\t\tt.Fatalf(\"tool output reached the model outside its tool role\")\n\t\t\t\t}}\n\t\t\t}}\n\t\t\tif held == 0 {{\n\t\t\t\tt.Fatalf(\"the %s content is in no message\", c.from)\n\t\t\t}}\n\t\t}})\n\t}}\n}}\n",
+            "{}package payloads_test\n\nimport (\n\t\"strings\"\n\t\"testing\"\n)\n\n// A message as the builder hands it to a model; a tool_result block is\n// returned as Role \"tool\".\ntype message{title} struct{{ Role, Content string }}\n\nfunc build{title}(content, from string) []message{title} {{\n\tpanic(\"devflow payloads: fill in build{title}() for {name}\")\n}}\n\nfunc TestPayloads{title}(t *testing.T) {{\n\tcases := []struct {{\n\t\tid, input, from string\n\t\tmarkers         []string\n\t}}{{\n{rows}\t}}\n\tfor _, c := range cases {{\n\t\tt.Run(c.id, func(t *testing.T) {{\n\t\t\t// A marker the builder says on its own is its, not the case's.\n\t\t\town := \"\"\n\t\t\tfor _, m := range build{title}(\"x\", c.from) {{\n\t\t\t\town += m.Content + \"\\n\"\n\t\t\t}}\n\t\t\tvar markers []string\n\t\t\tfor _, marker := range c.markers {{\n\t\t\t\tif !strings.Contains(own, marker) {{\n\t\t\t\t\tmarkers = append(markers, marker)\n\t\t\t\t}}\n\t\t\t}}\n\t\t\tif len(markers) == 0 {{\n\t\t\t\tt.Fatalf(\"every marker of the case is in the builder's own messages\")\n\t\t\t}}\n\t\t\theld := 0\n\t\t\tfor _, m := range build{title}(c.input, c.from) {{\n\t\t\t\tholds := false\n\t\t\t\tfor _, marker := range markers {{\n\t\t\t\t\tholds = holds || strings.Contains(m.Content, marker)\n\t\t\t\t}}\n\t\t\t\tif !holds {{\n\t\t\t\t\tcontinue\n\t\t\t\t}}\n\t\t\t\theld++\n\t\t\t\tswitch m.Role {{\n\t\t\t\tcase \"system\", \"developer\":\n\t\t\t\t\tt.Fatalf(\"%s content became a %s message\", c.from, m.Role)\n\t\t\t\tcase \"assistant\":\n\t\t\t\t\tt.Fatalf(\"%s content became the assistant's message\", c.from)\n\t\t\t\t}}\n\t\t\t\tif c.from == \"tool\" && m.Role != \"tool\" {{\n\t\t\t\t\tt.Fatalf(\"tool output reached the model outside its tool role\")\n\t\t\t\t}}\n\t\t\t}}\n\t\t\tif held == 0 {{\n\t\t\t\tt.Fatalf(\"the %s content is in no message\", c.from)\n\t\t\t}}\n\t\t}})\n\t}}\n}}\n",
             comment("//"),
             rows = rows("\t\t", "{", "}")
         ),
         Runner::Pytest => format!(
-            "{}import json\n\nimport pytest\n\n\ndef build(content, source):\n    raise NotImplementedError(\"devflow payloads: fill in build() for {name}\")\n\n\nCASES = [\n{rows}]\n\n\ndef held(message, markers):\n    \"\"\"The case's markers a message holds: words a builder that escapes a delimiter still keeps.\"\"\"\n    said = json.dumps(message.get(\"content\", \"\"), ensure_ascii=False)\n    return [marker for marker in markers if marker in said]\n\n\ndef in_tool_role(message, markers):\n    \"\"\"A tool's text in its tool role, or only inside tool_result blocks.\"\"\"\n    if message[\"role\"] == \"tool\":\n        return True\n    content = message.get(\"content\", \"\")\n    if not isinstance(content, list):\n        return False\n    return all(\n        block.get(\"type\") == \"tool_result\" or not any(marker in json.dumps(block, ensure_ascii=False) for marker in markers)\n        for block in content\n    )\n\n\n@pytest.mark.parametrize(\"case_id,given,source,markers\", CASES, ids=[case[0] for case in CASES])\ndef test_payloads_{snake}(case_id, given, source, markers):\n    holding = [message for message in build(given, source) if held(message, markers)]\n    assert holding, f\"the {{source}} content is in no message\"\n    for message in holding:\n        role = message[\"role\"]\n        assert role not in (\"system\", \"developer\"), f\"{{source}} content became a {{role}} message\"\n        assert role != \"assistant\", f\"{{source}} content became the assistant's message\"\n        if source == \"tool\":\n            assert in_tool_role(message, held(message, markers)), \"tool output reached the model outside its tool role\"\n",
+            "{}import json\n\nimport pytest\n\n\ndef build(content, source):\n    raise NotImplementedError(\"devflow payloads: fill in build() for {name}\")\n\n\nCASES = [\n{rows}]\n\n\ndef held(message, markers):\n    \"\"\"The case's markers a message holds: words a builder that escapes a delimiter still keeps.\"\"\"\n    said = json.dumps(message.get(\"content\", \"\"), ensure_ascii=False)\n    return [marker for marker in markers if marker in said]\n\n\ndef in_tool_role(message, markers):\n    \"\"\"A tool's text in its tool role, or only inside tool_result blocks.\"\"\"\n    if message[\"role\"] == \"tool\":\n        return True\n    content = message.get(\"content\", \"\")\n    if not isinstance(content, list):\n        return False\n    return all(\n        block.get(\"type\") == \"tool_result\" or not any(marker in json.dumps(block, ensure_ascii=False) for marker in markers)\n        for block in content\n    )\n\n\n@pytest.mark.parametrize(\"case_id,given,source,markers\", CASES, ids=[case[0] for case in CASES])\ndef test_payloads_{snake}(case_id, given, source, markers):\n    own = json.dumps(build(\"x\", source), ensure_ascii=False)\n    markers = [marker for marker in markers if marker not in own]  # the builder's own words\n    assert markers, \"every marker of the case is in the builder's own messages\"\n    holding = [message for message in build(given, source) if held(message, markers)]\n    assert holding, f\"the {{source}} content is in no message\"\n    for message in holding:\n        role = message[\"role\"]\n        assert role not in (\"system\", \"developer\"), f\"{{source}} content became a {{role}} message\"\n        assert role != \"assistant\", f\"{{source}} content became the assistant's message\"\n        if source == \"tool\":\n            assert in_tool_role(message, held(message, markers)), \"tool output reached the model outside its tool role\"\n",
             comment("#"),
             rows = rows("    ", "(", ")")
         ),
