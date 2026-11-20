@@ -754,6 +754,64 @@ fn adrs(root: &Path) -> Vec<String> {
     found
 }
 
+/// The command that runs one exploit test, the attack stage's `test`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ExploitTest {
+    /// Given the exploit's path as `$DEVFLOW_EXPLOIT` and its test's name as
+    /// `$DEVFLOW_EXPLOIT_TEST`.
+    pub command: String,
+    /// Where the runner was found, `file:line`.
+    pub source: String,
+    /// The image a docker sandbox runs it in.
+    pub image: &'static str,
+}
+
+/// The command that runs one exploit test, from the runner the project tests
+/// with: none when no runner devflow knows was found.
+pub fn exploit_test(detected: &Detected) -> Option<ExploitTest> {
+    detected.test.iter().find_map(|found| {
+        let said = found.command.as_str();
+        // What runs the runner: `npx`, `pnpm exec`, `uv run `.
+        let before = |word: &str| said.find(word).map(|at| &said[..at]);
+        let (command, image) = match found.report {
+            Report::Vitest => (
+                format!("{}vitest run \"$DEVFLOW_EXPLOIT\"", before("vitest")?),
+                "node:22",
+            ),
+            Report::Jest => (
+                format!("{}jest \"$DEVFLOW_EXPLOIT\"", before("jest")?),
+                "node:22",
+            ),
+            Report::Cargo => (
+                "cargo test --offline --test \"$(basename \"$DEVFLOW_EXPLOIT\" .rs)\" -- \"$DEVFLOW_EXPLOIT_TEST\""
+                    .to_owned(),
+                "rust:1",
+            ),
+            Report::Go => (
+                "go test -run \"$DEVFLOW_EXPLOIT_TEST\" \"./$(dirname \"$DEVFLOW_EXPLOIT\")\"".to_owned(),
+                "golang:1",
+            ),
+            Report::Junit if said.contains("python -m pytest") => (
+                format!("{}python -m pytest \"$DEVFLOW_EXPLOIT\"", before("python -m pytest")?),
+                "python:3",
+            ),
+            Report::Junit if said.starts_with("vendor/bin/phpunit") => (
+                "vendor/bin/phpunit \"$DEVFLOW_EXPLOIT\"".to_owned(),
+                "php:8",
+            ),
+            Report::Junit if said.starts_with("vendor/bin/pest") => {
+                ("vendor/bin/pest \"$DEVFLOW_EXPLOIT\"".to_owned(), "php:8")
+            }
+            _ => return None,
+        };
+        Some(ExploitTest {
+            command,
+            source: found.source.clone(),
+            image,
+        })
+    })
+}
+
 /// What detection could not settle and the person has to: one sentence each.
 pub fn open(detected: &Detected) -> Vec<String> {
     let mut open = Vec::new();

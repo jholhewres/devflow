@@ -222,3 +222,83 @@ fn typescript_with_a_tsconfig_and_no_typecheck_script_is_checked_by_tsc() {
         .typecheck
         .is_empty());
 }
+
+/// The command that runs one exploit test, from the runner the project
+/// tests with: given the exploit's path as `$DEVFLOW_EXPLOIT` and its test's
+/// name as `$DEVFLOW_EXPLOIT_TEST`, with the image a docker sandbox runs it in.
+/// A project's files, the exploit command expected, and its image.
+type Case<'a> = (&'a [(&'a str, &'a str)], &'a str, &'a str);
+
+#[test]
+fn the_exploit_test_command_comes_from_the_projects_own_runner() {
+    let cases: [Case; 7] = [
+        (
+            &[(
+                "package.json",
+                "{ \"devDependencies\": { \"jest\": \"29\" } }",
+            )],
+            "npx jest \"$DEVFLOW_EXPLOIT\"",
+            "node:22",
+        ),
+        (
+            &[
+                (
+                    "package.json",
+                    "{ \"devDependencies\": { \"vitest\": \"2\" } }",
+                ),
+                ("pnpm-lock.yaml", ""),
+            ],
+            "pnpm exec vitest run \"$DEVFLOW_EXPLOIT\"",
+            "node:22",
+        ),
+        (
+            &[("Cargo.toml", "[package]\nname = \"x\"\n")],
+            "cargo test --offline --test \"$(basename \"$DEVFLOW_EXPLOIT\" .rs)\" -- \"$DEVFLOW_EXPLOIT_TEST\"",
+            "rust:1",
+        ),
+        (
+            &[("go.mod", "module example.com/x\n")],
+            "go test -run \"$DEVFLOW_EXPLOIT_TEST\" \"./$(dirname \"$DEVFLOW_EXPLOIT\")\"",
+            "golang:1",
+        ),
+        (
+            &[
+                ("pyproject.toml", "[tool.pytest.ini_options]\n"),
+                ("uv.lock", ""),
+            ],
+            "uv run python -m pytest \"$DEVFLOW_EXPLOIT\"",
+            "python:3",
+        ),
+        (
+            &[(
+                "composer.json",
+                "{ \"require-dev\": { \"phpunit/phpunit\": \"10\" } }",
+            )],
+            "vendor/bin/phpunit \"$DEVFLOW_EXPLOIT\"",
+            "php:8",
+        ),
+        // A Makefile's `make test` is the project's, but runs every test:
+        // the runner behind it is the one that runs one exploit.
+        (
+            &[
+                ("Makefile", "test:\n\tcargo test\n"),
+                ("Cargo.toml", "[package]\nname = \"x\"\n"),
+            ],
+            "cargo test --offline --test \"$(basename \"$DEVFLOW_EXPLOIT\" .rs)\" -- \"$DEVFLOW_EXPLOIT_TEST\"",
+            "rust:1",
+        ),
+    ];
+    for (files, command, image) in cases {
+        let dir = project(files);
+        let found = exploit_test(&detected(dir.path(), Machine::default()))
+            .unwrap_or_else(|| panic!("an exploit command for {files:?}"));
+        assert_eq!(found.command, command, "{files:?}");
+        assert_eq!(found.image, image, "{files:?}");
+        assert!(!found.source.is_empty(), "{files:?}");
+    }
+    let dir = project(&[("README.md", "# nothing to run\n")]);
+    assert_eq!(
+        exploit_test(&detected(dir.path(), Machine::default())),
+        None
+    );
+}
