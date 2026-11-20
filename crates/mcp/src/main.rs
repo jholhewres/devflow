@@ -114,6 +114,9 @@ enum Command {
         /// drafts, instead of attacking.
         #[arg(long, value_name = "RUN", conflicts_with = "prove")]
         report: Option<String>,
+        /// A flow of the project's workspace manifest to attack with it.
+        #[arg(long)]
+        flow: Option<String>,
         /// The report's format: md, json or sarif.
         #[arg(long, default_value = "md", requires = "report")]
         format: String,
@@ -313,9 +316,13 @@ fn attacking(
     item: &str,
     base: Option<&str>,
     prove: Option<&str>,
+    flow: Option<&str>,
 ) -> ExitCode {
     let server = server::Server::new(root);
     let mut asked = serde_json::json!({ "item": item });
+    if let Some(flow) = flow {
+        asked["flow"] = serde_json::json!(flow);
+    }
     if let Some(base) = base {
         asked["base"] = serde_json::json!(base);
     }
@@ -375,8 +382,18 @@ fn main() -> ExitCode {
             ..
         } => reporting(&root, &item, &run, &format),
         Command::Attack {
-            item, base, prove, ..
-        } => attacking(&root, &item, base.as_deref(), prove.as_deref()),
+            item,
+            base,
+            prove,
+            flow,
+            ..
+        } => attacking(
+            &root,
+            &item,
+            base.as_deref(),
+            prove.as_deref(),
+            flow.as_deref(),
+        ),
         Command::Setup(how) => setup_cli::run(&root, &how),
         Command::Doctor => doctor::run(&root),
         Command::Register(how) => registering(&how, true),

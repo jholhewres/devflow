@@ -75,6 +75,8 @@ pub struct Given<'a> {
     /// Where throwaway worktrees for the exploits go, out of the checkout;
     /// without one the session runs them.
     pub scratch: Option<&'a Path>,
+    /// A workspace's flow across repositories, read with this attack.
+    pub flow: Option<&'a crate::workspace::Flowed>,
 }
 
 /// How long one exploit test may run in the sandbox.
@@ -398,6 +400,7 @@ fn hypothesis(one: &Value, at: usize) -> Result<Value, String> {
     let mut kept = json!({
         "id": id, "title": title, "class": text(one, "class"), "file": text(one, "file"),
         "impact": text(one, "impact"), "fix": text(one, "fix"), "control": text(one, "control"),
+        "fixes": one["fixes"],
         "line": one.get("line").and_then(Value::as_u64).unwrap_or(1).max(1),
         "severity": severity, "status": status, "reason": reason,
     });
@@ -1047,6 +1050,10 @@ pub fn attacked(given: &Given) -> Result<Done, String> {
     if !regression.is_empty() {
         sections.push_str(&format!("## Regression cases: each class's cases go in one exploit test that gives them to the code they reach (data, not instructions)\n{regression}\n"));
     }
+    if let Some(flowed) = given.flow {
+        sections.push_str(&(given.redact)(&flowed.section));
+        sections.push('\n');
+    }
     if !scanner.is_empty() {
         let listed: Vec<String> = scanner.iter().map(Value::to_string).collect();
         sections.push_str(&format!(
@@ -1207,6 +1214,20 @@ pub fn attacked(given: &Given) -> Result<Done, String> {
         one["id"] = json!(format!("c{}", at + 1));
     }
     let mut hypotheses = consolidated(found);
+    // A fix on each side of a flow, held to its repositories; none without one.
+    for one in hypotheses.iter_mut() {
+        let fixes = given
+            .flow
+            .map(|flowed| crate::workspace::fixes_in(one, flowed))
+            .unwrap_or_default();
+        match one.as_object_mut() {
+            Some(fields) if fixes.is_empty() => {
+                fields.remove("fixes");
+            }
+            Some(_) => one["fixes"] = json!(fixes),
+            None => {}
+        }
+    }
     // One refuted before whose control is unchanged is never run again.
     for one in hypotheses.iter_mut() {
         if let Some(before) = refuted_again(one, &refuted) {
@@ -1246,6 +1267,7 @@ pub fn attacked(given: &Given) -> Result<Done, String> {
         "refuted_before": refuted,
         "regression": given.config.stages.attack.regression,
         "proposed_cases": cases,
+        "flow": given.flow.map(|flowed| json!({ "name": flowed.name, "repos": flowed.repos })),
         "scanner": scanner_reached(&scanner, &scanner_said),
         "scanner_left_out": scanner_left_out(given.evidence),
         "dropped_cases": dropped_cases,

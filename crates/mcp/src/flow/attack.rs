@@ -133,6 +133,7 @@ pub fn on_range(
         },
         retro: super::text(params, "mode").as_deref() == Some("retro"),
         scratch: Some(&project.cache().join("trees")),
+        flow: None,
     });
     drop(detached);
     let done = done?;
@@ -262,6 +263,19 @@ pub fn on_item(
     let env = context_of(project, &item, &targets).environment();
     let evidence = super::gate::newest(&runs, &item.id, "evidence.json");
     let review = super::gate::newest(&runs, &item.id, "findings.json");
+    // A flow across repositories, from the project's workspace manifest.
+    let flowed = match super::text(params, "flow") {
+        Some(name) => {
+            let workspace = devflow_engine::workspace::read(root)?.ok_or_else(|| {
+                format!(
+                    "`flow` names a flow of {}, which this project does not have",
+                    devflow_engine::workspace::MANIFEST
+                )
+            })?;
+            Some(devflow_engine::workspace::flowed(&workspace, &name)?)
+        }
+        None => None,
+    };
     let teams = project.teams();
     let personal = project::personal_reviewers();
     let redacting = |text: &str| redact(text);
@@ -295,6 +309,7 @@ pub fn on_item(
         },
         retro: false,
         scratch: Some(&project.cache().join("trees")),
+        flow: flowed.as_ref(),
     })?;
     signed(project, &item.id, &attack::comment(&done));
     let folder = std::path::PathBuf::from(&done.folder);

@@ -332,6 +332,9 @@ fn shown(one: &Value, payloads: &[String]) -> Value {
         "impact": said("impact"), "fix": said("fix"),
         "test": one["exploit"]["test"].as_str().map(|test| scrub(test, payloads)),
         "verified_by": one["verified"]["by"], "proof": one["proof"],
+        "fixes": one["fixes"].as_array().map(|fixes| fixes.iter().map(|fix| json!({
+            "repo": fix["repo"], "fix": scrub(text(fix, "fix"), payloads),
+        })).collect::<Vec<_>>()),
     })
 }
 
@@ -433,6 +436,29 @@ pub fn markdown(report: &Value, payloads: &[String]) -> String {
                 one["line"].as_u64().unwrap_or(1)
             ));
         }
+    }
+    let across: Vec<String> = report["hypotheses"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|one| {
+            let fixes: Vec<String> = one["fixes"]
+                .as_array()?
+                .iter()
+                .map(|fix| {
+                    format!(
+                        "{}: {}",
+                        text(fix, "repo"),
+                        scrub(text(fix, "fix"), payloads)
+                    )
+                })
+                .collect();
+            (!fixes.is_empty()).then(|| format!("- {}: {}\n", text(one, "id"), fixes.join("; ")))
+        })
+        .collect();
+    if !across.is_empty() {
+        out.push_str("\n## Fixes on each side of the flow\n\n");
+        out.push_str(&across.concat());
     }
     out.push_str("\n| Status | Severity | Where | Hypothesis | Why |\n|---|---|---|---|---|\n");
     for one in report["hypotheses"].as_array().into_iter().flatten() {

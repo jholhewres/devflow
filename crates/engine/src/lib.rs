@@ -60,6 +60,7 @@ pub mod started;
 pub mod vault;
 pub mod verdict;
 pub mod work;
+pub mod workspace;
 
 pub use config::{Config, Invalid};
 pub use dialect::{Assets, Dialect};

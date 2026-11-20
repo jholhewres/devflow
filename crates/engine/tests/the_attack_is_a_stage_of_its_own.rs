@@ -199,6 +199,7 @@ fn the_attack_keeps_each_hypothesis_and_its_exploits_out_of_the_checkout() {
         personas: devflow_engine::review::Personas::default(),
         retro: false,
         scratch: None,
+        flow: None,
     })
     .expect("attacked");
     let report = &done.report;
@@ -511,6 +512,7 @@ fn attacked_with(hypotheses: Value, yaml: &str) -> Value {
         personas: devflow_engine::review::Personas::default(),
         retro: false,
         scratch: Some(&scratch),
+        flow: None,
     })
     .expect("attacked");
     assert_eq!(
@@ -795,6 +797,7 @@ fn a_run_past_the_months_budget_is_refused_before_it_starts() {
         personas: devflow_engine::review::Personas::default(),
         retro: false,
         scratch: None,
+        flow: None,
     })
     .expect_err("past the month's budget");
     assert!(refused.contains("month budget"), "{refused}");
@@ -851,6 +854,7 @@ fn the_months_budget_never_counts_what_it_cannot_read_as_nothing() {
             personas: devflow_engine::review::Personas::default(),
             retro: false,
             scratch: None,
+            flow: None,
         })
     };
     let capped = parsed("version: 1\nstages:\n  attack:\n    run: sensitive\n    budget: { run_usd: 3, month_usd: 40 }\n");
@@ -972,6 +976,7 @@ fn the_attack_reads_the_threat_model_and_keeps_what_it_refuted_refuted() {
         personas: devflow_engine::review::Personas::default(),
         retro: false,
         scratch: None,
+        flow: None,
     })
     .expect("attacked");
     let one = &done.report["hypotheses"][0];
@@ -1064,6 +1069,7 @@ fn a_regression_class_goes_to_every_attack_and_a_proposed_case_waits_for_a_perso
         personas: devflow_engine::review::Personas::default(),
         retro: false,
         scratch: None,
+        flow: None,
     })
     .expect("attacked");
     let prompt = std::fs::read_to_string(bin.join("prompt.txt")).expect("prompt");
@@ -1155,6 +1161,7 @@ fn a_scanner_finding_is_called_reachable_or_not_and_the_reachable_stand_apart() 
         personas: devflow_engine::review::Personas::default(),
         retro: false,
         scratch: None,
+        flow: None,
     })
     .expect("attacked");
     let prompt = std::fs::read_to_string(bin.join("prompt.txt")).expect("prompt");
@@ -1238,6 +1245,7 @@ fn the_attacks_packet_reads_criteria_under_the_projects_headings() {
         personas: devflow_engine::review::Personas::default(),
         retro: false,
         scratch: None,
+        flow: None,
     })
     .expect("attacked");
     let packet = std::fs::read_to_string(std::path::Path::new(&done.folder).join(attack::PACKET))
@@ -1337,6 +1345,7 @@ fn declared_attackers_are_consolidated_and_a_failed_one_is_not_replaced() {
         personas: devflow_engine::review::Personas::default(),
         retro: false,
         scratch: None,
+        flow: None,
     })
     .expect("attacked");
     let hypotheses = done.report["hypotheses"].as_array().expect("hypotheses");
@@ -1362,5 +1371,117 @@ fn declared_attackers_are_consolidated_and_a_failed_one_is_not_replaced() {
         calls.lines().count(),
         2,
         "no other attacker took the failed one's place: {calls}"
+    );
+}
+
+/// An attack given a workspace flow reads both sides and the contract, and
+/// a hole across the repositories names the fix on each side.
+#[cfg(unix)]
+#[test]
+fn an_attack_on_a_flow_reads_both_sides_and_names_each_sides_fix() {
+    use std::time::{Duration, SystemTime};
+    let dir = tempfile::tempdir().expect("dir");
+    let root = dir.path().canonicalize().expect("root");
+    for (repo, file, text) in [
+        (
+            "api",
+            "src/publish.ts",
+            "queue.send({ path: req.query.file })",
+        ),
+        ("api", "schemas/job.json", "{ \"path\": \"string\" }"),
+        ("worker", "src/consume.ts", "fs.readFile(job.path)"),
+    ] {
+        let at = root.join(repo).join(file);
+        std::fs::create_dir_all(at.parent().expect("parent")).expect("dirs");
+        std::fs::create_dir_all(root.join(repo).join(".git")).expect("git");
+        std::fs::write(at, text).expect("file");
+    }
+    let checkout = root.join("api");
+    let manifest = json!({ "root": "..", "repositories": { "api": "api", "worker": "worker" },
+        "flows": [{ "name": "jobs",
+            "writer": { "repo": "api", "path": "src/publish.ts" },
+            "reader": { "repo": "worker", "path": "src/consume.ts" },
+            "contract": { "repo": "api", "path": "schemas/job.json" } }] });
+    let workspace =
+        devflow_engine::workspace::parsed(&checkout, &manifest.to_string()).expect("workspace");
+    let flowed = devflow_engine::workspace::flowed(&workspace, "jobs").expect("flowed");
+    let runs = devflow_engine::runs::Runs {
+        dialect: &Dialect::DEVFLOW,
+        home: root.join("home"),
+        checkout: checkout.clone(),
+    };
+    let bin = root.join("bin");
+    std::fs::create_dir_all(&bin).expect("bin");
+    let claude = fake_claude(
+        &bin,
+        &json!({ "version": 1, "hypotheses": [
+            { "id": "h1", "title": "a job's path reads any file", "class": "traversal", "file": "src/publish.ts", "line": 1,
+              "severity": "high", "status": "refuted", "reason": "shown on paper",
+              "fixes": [
+                  { "repo": "api", "fix": "send the upload's id, never a path" },
+                  { "repo": "worker", "fix": "read only under the jobs folder" },
+                  { "repo": "elsewhere", "fix": "nothing" } ] } ] }),
+    );
+    let reach =
+        move |_: config::Agent| -> Result<String, String> { Ok(claude.display().to_string()) };
+    let redact = |text: &str| text.to_owned();
+    let files = vec!["src/publish.ts".to_owned()];
+    let done = attack::attacked(&attack::Given {
+        root: &checkout,
+        runs: &runs,
+        config: &Config::default(),
+        card: devflow_engine::evidence::Card {
+            id: "card_1",
+            title: "Jobs",
+            body: "",
+        },
+        git: devflow_engine::review::Git {
+            base: "b4se",
+            head: "he4d",
+            files: &files,
+            diff: DIFF,
+        },
+        brief: None,
+        evidence: None,
+        review: None,
+        env: &[],
+        at: SystemTime::UNIX_EPOCH + Duration::from_secs(1_792_000_000),
+        budget: Duration::from_secs(60),
+        reach: &reach,
+        redact: &redact,
+        personas: devflow_engine::review::Personas::default(),
+        retro: false,
+        scratch: None,
+        flow: Some(&flowed),
+    })
+    .expect("attacked");
+    let prompt = std::fs::read_to_string(bin.join("prompt.txt")).expect("prompt");
+    for part in [
+        "### The writer: api/src/publish.ts",
+        "### The reader: worker/src/consume.ts",
+        "fs.readFile(job.path)",
+        "### The contract: api/schemas/job.json",
+    ] {
+        assert!(prompt.contains(part), "{part}");
+    }
+    let fixes = done.report["hypotheses"][0]["fixes"]
+        .as_array()
+        .expect("fixes");
+    let repos: Vec<&str> = fixes
+        .iter()
+        .filter_map(|fix| fix["repo"].as_str())
+        .collect();
+    assert_eq!(repos, ["api", "worker"], "each side, and only the flow's");
+    assert_eq!(done.report["flow"]["name"], "jobs");
+    let markdown = devflow_engine::attack_report::markdown(&done.report, &[]);
+    assert!(
+        markdown.contains("## Fixes on each side of the flow"),
+        "{markdown}"
+    );
+    assert!(
+        markdown.contains(
+            "api: send the upload's id, never a path; worker: read only under the jobs folder"
+        ),
+        "{markdown}"
     );
 }

@@ -140,6 +140,19 @@ spent by stage and model. With the attack stage, `stages.attack.budget`
 (`run_usd`, `month_usd`) caps it, and `devflow status --attack` adds up what
 its runs cost and confirmed.
 
+## A flow across repositories
+
+A hole can start in one repository and land in another: an API writes a
+job, a worker reads it. A workspace manifest, `workspace.json` in devflow's
+folder, names the repositories beside the project and the flows between
+them, each with a writer, a reader and the contract. `attack` with `flow`
+(or `devflow attack <item> --flow <name>`) reads both sides and the contract
+with the change, and a hole across them names the fix on each side. The root
+is the project or the folder above it. Every repository is a git repository
+under it, and every side is a file inside its repository that is never
+hidden and never reached through a link. Any other path is refused. No host
+is needed.
+
 ## Several attackers
 
 `stages.attack.attackers` declares up to four attackers, each an `agent` and
