@@ -407,6 +407,15 @@ pub fn remove_detached(root: &Path, at: &Path) {
     }
 }
 
+/// Whether the commit `ancestor` is in `of`'s history, or is it. Only whole
+/// commit ids are asked: anything else is no.
+pub fn is_ancestor(root: &Path, ancestor: &str, of: &str) -> bool {
+    let whole = |sha: &str| sha.len() == 40 && sha.chars().all(|one| one.is_ascii_hexdigit());
+    whole(ancestor)
+        && whole(of)
+        && run(root, &["merge-base", "--is-ancestor", ancestor, of]).is_ok()
+}
+
 /// The worktrees of the repository, by path.
 pub fn worktrees(root: &Path) -> Result<Vec<String>, GitError> {
     Ok(run(root, &["worktree", "list", "--porcelain"])?

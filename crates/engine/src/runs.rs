@@ -245,6 +245,21 @@ pub fn newest_with(folder: &Path, file: &str) -> Option<String> {
         .max_by(|a, b| order_of(a).cmp(&order_of(b)))
 }
 
+/// The newest `most` runs in `folder` that hold `file`, newest first.
+pub fn newest_all_with(folder: &Path, file: &str, most: usize) -> Vec<String> {
+    let mut runs: Vec<String> = std::fs::read_dir(folder)
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+        .filter_map(|entry| entry.file_name().into_string().ok())
+        .filter(|name| order_of(name).is_some() && folder.join(name).join(file).is_file())
+        .collect();
+    runs.sort_by(|a, b| order_of(b).cmp(&order_of(a)));
+    runs.truncate(most);
+    runs
+}
+
 /// The pictures and videos a check left, moved beside the run's other evidence.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Media {
