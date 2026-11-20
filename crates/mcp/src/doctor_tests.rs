@@ -361,3 +361,78 @@ fn an_attack_with_no_sandbox_here_is_said_to_run_its_exploits_in_the_session() {
         said.what
     );
 }
+
+#[test]
+fn the_persons_yeses_and_what_is_not_asked_again_are_listed() {
+    let home = tempfile::tempdir().unwrap();
+    let root = tempfile::tempdir().unwrap();
+    let consent = Consent::at(&home.path().join("devflow"));
+    assert!(consented(root.path(), &consent).is_empty());
+    let parts = [
+        "test".to_owned(),
+        "sandbox".to_owned(),
+        "run_usd".to_owned(),
+        "targets:sha256:00".to_owned(),
+    ];
+    consent
+        .keep_answer(
+            &Project::at(root.path()).root,
+            &crate::consent::Answered {
+                switched_on: true,
+                targets: None,
+                yeses: &["enabled", "stages.attack"],
+                parts: &parts,
+                how: crate::consent::How::Elicitation,
+                asked_for: "attack",
+                at: std::time::SystemTime::UNIX_EPOCH
+                    + std::time::Duration::from_secs(1_795_000_000),
+            },
+        )
+        .unwrap();
+    let said = consented(root.path(), &consent);
+    assert!(said.iter().all(|one| one.ok));
+    assert!(
+        said[0]
+            .what
+            .contains("enabled to the client's question at 2026"),
+        "{}",
+        said[0].what
+    );
+    assert!(said[0].what.contains("(for attack)"), "{}", said[0].what);
+    assert!(
+        said[1]
+            .what
+            .contains("does not ask again for: targets, test "),
+        "{}",
+        said[1].what
+    );
+    assert!(
+        !said[1].what.contains("run_usd") && !said[1].what.contains("sandbox"),
+        "{}",
+        said[1].what
+    );
+    assert!(
+        said[1].what.contains("devflow setup --attack"),
+        "{}",
+        said[1].what
+    );
+}
+
+#[test]
+fn an_update_lock_left_behind_is_pointed_out() {
+    let dir = tempfile::tempdir().unwrap();
+    let lock = dir.path().join("update.lock");
+    assert!(update_lock(&lock).is_none());
+    fs::write(&lock, std::process::id().to_string()).unwrap();
+    assert!(update_lock(&lock).unwrap().ok, "held by a live update");
+    let mut ended = std::process::Command::new("true").spawn().unwrap();
+    let gone = ended.id();
+    ended.wait().unwrap();
+    fs::write(&lock, gone.to_string()).unwrap();
+    let said = update_lock(&lock).unwrap();
+    assert!(
+        said.optional && said.what.contains("takes it over"),
+        "{}",
+        said.what
+    );
+}

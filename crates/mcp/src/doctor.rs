@@ -153,9 +153,28 @@ pub fn findings(
             "gh is not installed: reviewing and publishing a pull request need it",
         ));
     }
+    if let Some(state) = devflow_engine::home::state_dir() {
+        said.extend(update_lock(&state.join(crate::update::LOCK)));
+    }
     said.extend(project(root, consent));
     said.extend(decisions());
     said
+}
+
+/// devflow's update lock, when one is there: held by an update running now,
+/// or left by one that stopped, which the next update takes over.
+fn update_lock(lock: &Path) -> Option<Said> {
+    if !lock.exists() {
+        return None;
+    }
+    Some(if crate::update::left_behind(lock) {
+        maybe(format!(
+            "{} was left by an update that stopped: the next `devflow update` takes it over",
+            lock.display()
+        ))
+    } else {
+        ok(format!("an update is running now ({})", lock.display()))
+    })
 }
 
 /// The one command that puts devflow's server where every Claude Code
@@ -315,6 +334,7 @@ fn project(root: &Path, consent: &Consent) -> Vec<Said> {
                     layout.file
                 ))),
             }
+            said.extend(consented(&project.root, consent));
             let filled =
                 crate::ready::prefilled(&project.root, consent, config.stages.attack.budget);
             if !filled.is_empty() {
@@ -352,6 +372,50 @@ fn project(root: &Path, consent: &Consent) -> Vec<Said> {
         said.push(bad(format!(
             "{} does not ignore runs/: add the line, or run `devflow setup` again",
             ignore.display()
+        )));
+    }
+    said
+}
+
+/// The person's yeses kept for the project, how and when each came, and the
+/// parts of the attack's question that are not asked again: why a session
+/// is not asked what it was asked before.
+fn consented(root: &Path, consent: &Consent) -> Vec<Said> {
+    let mut said = Vec::new();
+    let given: Vec<String> = consent
+        .given(root)
+        .iter()
+        .map(|one| {
+            let how = match one.how {
+                crate::consent::How::Terminal => "on a terminal",
+                crate::consent::How::Elicitation => "to the client's question",
+            };
+            format!("{} {how} at {} (for {})", one.what, one.at, one.asked_for)
+        })
+        .collect();
+    if !given.is_empty() {
+        said.push(ok(format!("the person's yeses here: {}", given.join("; "))));
+    }
+    let mut parts: Vec<&str> = Vec::new();
+    for part in consent.answered(root) {
+        let part = if part.starts_with("targets:") {
+            "targets"
+        } else {
+            match part.as_str() {
+                "test" => "test",
+                "image" => "image",
+                _ => continue,
+            }
+        };
+        if !parts.contains(&part) {
+            parts.push(part);
+        }
+    }
+    if !parts.is_empty() {
+        said.push(ok(format!(
+            "the attack's question does not ask again for: {} (`{}` asks it all again, on a terminal)",
+            parts.join(", "),
+            crate::ready::COMMAND
         )));
     }
     said
