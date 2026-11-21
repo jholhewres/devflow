@@ -263,7 +263,7 @@ fn the_report_is_written_as_md_json_sarif_and_its_drafts() {
     assert_eq!(files, [MARKDOWN, JSON, SARIF, "drafts/h1.md"]);
     let md = std::fs::read_to_string(folder.join(MARKDOWN)).expect("md");
     assert!(
-        md.contains("| h1 | confirmed | high | ssrf | `src/fetch.ts:45` | red at aaaaaaaa, green at bbbbbbbb |"),
+        md.contains("| h1 | confirmed | high | ssrf | `src/fetch.ts:45` | confirmed by devflow's sandbox | red at aaaaaaaa, green at bbbbbbbb |"),
         "{md}"
     );
     for file in &files {
@@ -414,4 +414,31 @@ fn a_proposed_threat_model_is_named_by_where_the_project_keeps_it_and_nothing_el
         let md = markdown(&report, &none());
         assert!(!md.contains(odd), "{odd}: {md}");
     }
+}
+
+#[test]
+fn confirmed_by_the_sandbox_is_said_apart_from_proven() {
+    let report = json!({
+        "item": "card_1", "run": "r1", "base": "a", "head": "b", "verdict": "request_changes",
+        "counts": { "confirmed": 1, "refuted": 1, "tried": 0, "not_run": 0 },
+        "hypotheses": [
+            { "id": "h1", "status": "confirmed", "severity": "high", "class": "ssrf",
+              "file": "src/fetch.ts", "line": 4, "verified": { "by": "sandbox" } },
+            { "id": "h2", "status": "refuted", "severity": "low", "class": "ssrf",
+              "file": "src/fetch.ts", "line": 9, "verified": { "by": "sandbox" } },
+        ],
+    });
+    let md = markdown(&report, &Known::default());
+    assert!(
+        md.contains("| confirmed by devflow's sandbox | not proven yet: once fixed, `prove` runs it at its base and at HEAD |"),
+        "{md}"
+    );
+    assert!(
+        md.contains("| refuted by devflow's sandbox | not proven by devflow |"),
+        "{md}"
+    );
+    assert!(
+        !md.contains("confirmed by devflow's sandbox | not proven by devflow"),
+        "{md}"
+    );
 }

@@ -535,11 +535,32 @@ fn cell(value: &Value) -> String {
     }
 }
 
-/// A proof as a line says it: red at the base, green at HEAD.
+/// Who ran a hypothesis's exploit and how it ended, apart from its proof:
+/// the sandbox, or the session's run, confirmed or refuted it.
+fn ran_by(one: &Value) -> String {
+    let by = match text(one, "verified_by") {
+        "sandbox" => "devflow's sandbox",
+        "session" => "the session's run",
+        _ => return "not run by devflow".to_owned(),
+    };
+    match text(one, "status") {
+        "confirmed" => format!("confirmed by {by}"),
+        "refuted" => format!("refuted by {by}"),
+        _ => "not run by devflow".to_owned(),
+    }
+}
+
+/// A proof as a line says it: red at the base, green at HEAD. A confirmed
+/// hypothesis not yet proven says so: confirmed is not proven.
 fn proof_said(one: &Value) -> String {
     let proof = &one["proof"];
     if proof.is_null() {
-        return "not proven by devflow".to_owned();
+        return match text(one, "status") {
+            "confirmed" => {
+                "not proven yet: once fixed, `prove` runs it at its base and at HEAD".to_owned()
+            }
+            _ => "not proven by devflow".to_owned(),
+        };
     }
     let at = |side: &Value| {
         format!(
@@ -638,17 +659,18 @@ pub fn markdown(report: &Value, known: &Known) -> String {
         out.push_str(&across.concat());
     }
     out.push_str(
-        "\n| Id | Status | Severity | Class | Where | Proof |\n|---|---|---|---|---|---|\n",
+        "\n| Id | Status | Severity | Class | Where | Ran | Proof |\n|---|---|---|---|---|---|---|\n",
     );
     for one in &shown {
         out.push_str(&format!(
-            "| {} | {} | {} | {} | `{}:{}` | {} |\n",
+            "| {} | {} | {} | {} | `{}:{}` | {} | {} |\n",
             cell(&one["id"]),
             cell(&one["status"]),
             cell(&one["severity"]),
             cell(&one["class"]),
             cell(&one["file"]),
             one["line"],
+            ran_by(one),
             proof_said(one),
         ));
     }
