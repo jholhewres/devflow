@@ -127,8 +127,11 @@ its text and written on a yes:
 - the exploit test command, from the project's runner: `npx jest
   "$DEVFLOW_EXPLOIT"`, `vitest run`, `cargo test --test`, `go test -run`,
   `pytest`, `phpunit`, `pest`;
-- the docker image for that runner (`node:22`, `rust:1`, `golang:1`,
-  `python:3`, `php:8`), when docker is here;
+- the docker image for that runner (`node:22`; `rust:1`, or the version a
+  `rust-toolchain` pins; `golang:1`; `python:3.N`, the version the
+  project's venv was made with; `composer:2` for PHP, since the official
+  `php` image has no `mbstring`, which PHPUnit and Pest need), when docker
+  is here;
 - where the exploits run: bwrap, docker, or nowhere here, with no network.
 
 A field is asked only for what has no safe default: the command when no
@@ -286,8 +289,12 @@ status, severity and class from their own words (a class devflow does not
 name is `other`), the id, the file when the commit attacked has it (any
 other the attack names, an exploit's own path included, shows as `<…>`),
 the line, the run,
-the proof's commits and results, and who confirmed it (devflow's sandbox or
-the session). A field the attack wrote in any other shape shows as `<…>`.
+who ran its exploit and how it ended (confirmed or refuted by devflow's
+sandbox or by the session), and apart from it the proof's commits and
+results: confirmed is not proven, and a confirmed hypothesis with no proof
+yet says so. A field the attack wrote in any other shape shows as `<…>`.
+Its `mode` is `item`, `range` or `retro`, and a range's attack runs on
+`asked`, not an item's `stages.attack.run`.
 What a class of hole lets an attacker do, and what shuts it, is said in
 devflow's words for that class. A scanner finding keeps its tool's names
 and the tool's own fix in plain words; a flow's fixes name only the
@@ -539,9 +546,12 @@ bwrap hides `/run` and your home folder (showing back only the project's
 dependency folders and the toolchains on your `PATH`, read-only), and its
 CPU and memory caps hold per process, with no cap on how many it starts.
 The project's dependency folders (`node_modules`, `vendor`, `.venv` and the
-like) are mounted read-only into each worktree, from the checkout, else from
-the repository's main worktree, so an exploit test never fetches them
-offline, even when the attack reads a detached tree of a range.
+like) are mounted read-only into each worktree where the project keeps
+them, from the checkout, else from the repository's main worktree, so an
+exploit test never fetches them offline, even when the attack reads a
+detached tree of a range. They are mounted, not linked: a runner that
+resolves a link would reach the checkout, which the run never sees (PHP's
+autoloader finds the project's classes beside `vendor`).
 Before the attacker, each exploit an earlier attack left open (confirmed,
 or tried: a red run that did not name its test among them), of the same
 work or of a range whose head this one's history holds, in their eight
@@ -551,16 +561,63 @@ green is refuted (the hole is shut), and one that cannot run stays tried
 with why. The attacker is told how each ended and covers the rest; the
 report counts them as `run_again`, each with where it came from under
 `again`, and keeps its exploit so the next attack runs it again too.
+One hole several runs kept, each attacker naming it its own way (the same
+title of the same file, one class within five lines of one place, or one
+exploit), runs again once: from the run that confirmed it, else the newest.
+The attacker's own account of a hole the run again confirmed is not counted
+twice.
 A red run confirms only when what it printed names the exploit's test, its
 parts joined as the runner joins them (jest's `describe › test`, vitest's
-`describe > test`, `::`), and no harness error: all of it is read, not only
-the end the report keeps.
+and Pest's `describe > test`, pytest's, cargo's and PHPUnit's `::`, Go's
+subtest with `_` for a space), and no harness error says the test never ran
+(a file that does not load, a compile or build failure, a missing module,
+package, test target, fixture or class): all of it is read, not only the
+end the report keeps. A name made from a template (`it.each` with `%s` or
+`$field`) is read with each placeholder standing for one case's words on
+one line. A green run whose runner says no test ran (`no tests to run`,
+`running 0 tests`, `No tests executed`) refutes nothing: its name or place
+matched no test, and it stays tried with why.
 `auto` tries bwrap for real and falls back to docker: bwrap needs
 unprivileged user namespaces, which Ubuntu restricts from 23.10
 (`kernel.apparmor_restrict_unprivileged_userns=1`); `devflow doctor` says
 which one runs here, and why bwrap does not.
 Where neither sandbox works (docker needs the image), or the command is not
 set, the exploit stays `tried` with the reason, and the session runs it.
+
+### Languages
+
+What each language devflow detects needs beyond its dependency folders is
+given read-only, its toolchain held offline. Each row is proven by a
+project of its own whose exploit runs in the docker sandbox: red comes back
+confirmed by the sandbox, green refuted.
+
+| Language | Exploit command | Image | What the run sees besides the worktree |
+|---|---|---|---|
+| Node | `npx jest "$DEVFLOW_EXPLOIT"`, `vitest run` (`pnpm exec`, `yarn`) | `node:22` | `node_modules` |
+| Rust | `cargo test --offline --test <file> -- <name>` | `rust:1`, or the version a `rust-toolchain` pins | `~/.cargo/registry` and `~/.cargo/git` as its `CARGO_HOME`, never its credentials or configuration; `CARGO_NET_OFFLINE`; a target of its own in the worktree, built from scratch |
+| Go | `go test -run <name> ./<folder>` | `golang:1` | the module cache (`go env GOMODCACHE`), `GOPROXY=off`, `GOTOOLCHAIN=local`, a build cache of its own; a committed `vendor/` is used as it is |
+| Python | `python -m pytest "$DEVFLOW_EXPLOIT"` (`uv run`, `poetry run`, `pipenv run`) | `python:3.N`, the venv's | the project's venv (`.venv`, `venv`, or the one poetry or pipenv keeps elsewhere), made the one `python` runs, an editable install pointing at the worktree |
+| PHP | `vendor/bin/phpunit` or `vendor/bin/pest`, also behind `composer test` | `composer:2` | `vendor` |
+
+In the sandbox, `uv run`, `poetry run` or `pipenv run` before the command
+is dropped: the sandbox makes the project's venv the one `python` runs,
+with the interpreter it was made from where the run can see it, else the
+image's of the same version (a run with neither says so and stops). Its
+packages are the venv's, and a path an editable install adds under the
+project is said again under the worktree, so the run imports the code
+attacked. An editable install that maps its packages through an import
+hook of its own (setuptools' finder for some flat layouts) still points at
+the checkout, which the run does not see.
+
+Out for now: Ruby, Java and Kotlin, .NET and every other language. No
+exploit command is detected for them; set `stages.attack.test` and
+`stages.attack.image` yourself and the sandbox runs it, with the
+dependency folders above but no cache of that language's own.
+Known limits: a Rust project builds its dependencies in each exploit's
+worktree from scratch, under the exploit's five minutes; a pinned nightly
+or an extra target is fetched, so it does not run offline; a project whose
+tests need an extension or a library the image lacks (`pdo_mysql`, `intl`)
+names an image that has it in `stages.attack.image`.
 
 ## Limits today
 

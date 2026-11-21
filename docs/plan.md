@@ -434,6 +434,15 @@ HEAD. The details, and how to read the report: [security.md](security.md).
   earlier attacks left open, of the same work or of a range its history
   holds, and tells the attacker how each ended (`attack::open_before`,
   `run_again`, each hypothesis's `again`).
+- 0.6.7: Node, Rust, Go, Python and PHP run their exploits in the sandbox,
+  offline: dependency folders mounted where the project keeps them,
+  cargo's registry and Go's module cache read-only, a Python venv made over
+  the project's own, `composer:2` for PHP; a templated test's name
+  (`it.each`) is read case by case, each runner's harness errors are never
+  the hole, and a green run that ran no test refutes nothing; one hole
+  several runs kept runs again once; the markdown report says who ran an
+  exploit apart from its proof; a range's report says `mode: range` and
+  `run_on: asked`.
 
 **What a host sees change**
 
@@ -482,6 +491,12 @@ HEAD. The details, and how to read the report: [security.md](security.md).
 - 0.6.6 adds `attack::open_before`, `runs::newest_all_with` and `git::is_ancestor`; an attack's
   report gains `run_again`, and a hypothesis run again carries `again`
   (`item`, `run`, `id`, `was`).
+- 0.6.7: `sandbox::Tree::deps` and `sandbox::Seen::deps` are `sandbox::Mount`s
+  (`from`, `to` inside the tree), and `Seen` gains `caches`, `writable`,
+  `env` and `prelude`, filled by `sandbox::language`; `sandbox::Ran` gains
+  `none_ran` (`attack::none_ran`); `detect::ExploitTest::image` is a
+  `String`, and `detect::exploit_test_at` reads the project's venv, its
+  `rust-toolchain` and a `composer test` script's runner.
 
 ## Release
 
