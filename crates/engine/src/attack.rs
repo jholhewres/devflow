@@ -427,6 +427,28 @@ fn left_open(one: &Value, run_folder: &Path, label: &str, run: &str) -> Option<V
     }))
 }
 
+/// What the attack read: a range already in production (`retro`), another
+/// range (`range`), or a work item's change (`item`).
+fn mode_of(given: &Given) -> &'static str {
+    if given.retro {
+        "retro"
+    } else if range_label(given.card.id) {
+        "range"
+    } else {
+        "item"
+    }
+}
+
+/// Why it ran: a range's attack is asked by name (`asked`); an item's runs
+/// as `stages.attack.run` says.
+fn run_on(given: &Given) -> &'static str {
+    if range_label(given.card.id) {
+        "asked"
+    } else {
+        models::attack_run(given.config).word()
+    }
+}
+
 /// A range's name for its runs: its base and head, twelve characters each.
 fn range_label(name: &str) -> bool {
     name.split_once('-').is_some_and(|(base, head)| {
@@ -1709,9 +1731,9 @@ pub fn attacked(given: &Given) -> Result<Done, String> {
         "item": given.card.id,
         "base": given.git.base,
         "head": given.git.head,
-        "mode": if given.retro { "retro" } else { "item" },
+        "mode": mode_of(given),
         "run": stamp,
-        "run_on": models::attack_run(given.config).word(),
+        "run_on": run_on(given),
         "attackers": attackers,
         "started_from": started.len(),
         "not_tried_again": refuted.len(),

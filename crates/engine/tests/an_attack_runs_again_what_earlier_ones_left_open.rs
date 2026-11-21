@@ -205,6 +205,8 @@ fn an_exploit_left_open_is_run_again_and_the_attacker_told_without_a_sandbox() {
     // The attacker finds nothing this time.
     let (report, prompt) = project.attack(card, &project.first, &project.second, yaml, json!([]));
     assert_eq!(report["run_again"], 1, "{report:#}");
+    assert_eq!(report["mode"], "item");
+    assert_eq!(report["run_on"], "sensitive");
     let hypotheses = report["hypotheses"].as_array().expect("hypotheses");
     assert_eq!(
         hypotheses.len(),
@@ -328,6 +330,9 @@ fn a_range_runs_again_what_a_range_its_history_holds_left_open() {
         .collect();
     assert_eq!(titles, ["a cookie signed with any key is accepted"]);
     assert_eq!(report["hypotheses"][0]["again"]["item"], earlier.as_str());
+    // A range's attack is asked by name: no item's run policy said it.
+    assert_eq!(report["mode"], "range");
+    assert_eq!(report["run_on"], "asked");
 }
 
 /// Where a sandbox is (bwrap, or docker with `DEVFLOW_SANDBOX_IMAGE`), the
