@@ -1,6 +1,8 @@
 //! The engine's sandbox for an exploit test: a throwaway worktree of the
-//! commit, the project's dependencies linked in read-only, and the test run
-//! in bwrap with a network namespace of its own (loopback alone) or in
+//! commit, the project's dependencies mounted in read-only where it keeps
+//! them, its language's caches read-only (cargo's registry, Go's modules)
+//! with the toolchain held offline, a Python venv made over the project's
+//! own, and the test run in bwrap with a network namespace of its own (loopback alone) or in
 //! docker with no network, under time, CPU and memory limits and `nice`.
 //! The checkout is never written; a cloud's metadata service and every host
 //! outside are unreachable, as is any third party.
@@ -15,12 +17,12 @@ use crate::config::SandboxChoice;
 
 /// Folders of installed dependencies a worktree lacks, linked in from the
 /// checkout, read-only.
-pub const DEPENDENCIES: [&str; 6] = [
+/// Never `.bundle`: Bundler keeps its credentials there.
+pub const DEPENDENCIES: [&str; 5] = [
     "node_modules",
     "vendor",
     ".venv",
     "venv",
-    ".bundle",
     "bower_components",
 ];
 /// The variable the exploit's path reaches the test command through.
@@ -202,20 +204,36 @@ pub fn dependencies(checkout: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
+/// A folder of this machine a run sees, read-only, at `to`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Mount {
+    pub from: PathBuf,
+    pub to: PathBuf,
+}
+
 /// What a run sees of this machine besides its worktree: the dependency
-/// folders linked into it, read-only; and under bwrap the home folder that
-/// is hidden, with the toolchains under it shown again read-only.
+/// folders, read-only, where the project keeps them in the worktree; its
+/// language's caches, read-only, and the variables that point the toolchain
+/// at them and keep it offline; under bwrap, the home folder that is
+/// hidden, with the toolchains under it shown again read-only; and the
+/// lines run before the test command.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Seen {
-    pub deps: Vec<PathBuf>,
+    pub deps: Vec<Mount>,
     pub home: Option<PathBuf>,
     pub tools: Vec<PathBuf>,
+    pub caches: Vec<Mount>,
+    /// Folders made empty and writable for the run, before the caches
+    /// mounted into them: a toolchain's home, its lock and build cache.
+    pub writable: Vec<PathBuf>,
+    pub env: Vec<(String, String)>,
+    pub prelude: Option<String>,
 }
 
 /// The toolchains the test command reaches through `path` that live under
 /// `home`, each shown read-only: a `PATH` folder, or its parent when that
-/// holds the toolchain's `lib` (a node install); for `~/.cargo/bin`, the
-/// registry and `~/.rustup` too, never `~/.cargo`'s credentials.
+/// holds the toolchain's `lib` (a node install); for `~/.cargo/bin`,
+/// `~/.rustup` too, never `~/.cargo`'s credentials.
 pub fn tools(home: &Path, path: &OsStr) -> Vec<PathBuf> {
     let mut tools: Vec<PathBuf> = Vec::new();
     let mut add = |at: PathBuf| {
@@ -228,7 +246,6 @@ pub fn tools(home: &Path, path: &OsStr) -> Vec<PathBuf> {
         match parent {
             Some(parent) if parent == home.join(".cargo") => {
                 add(entry.clone());
-                add(parent.join("registry"));
                 add(home.join(".rustup"));
             }
             Some(parent) if parent != home.join(".local") && parent.join("lib").is_dir() => {
@@ -238,6 +255,354 @@ pub fn tools(home: &Path, path: &OsStr) -> Vec<PathBuf> {
         }
     }
     tools
+}
+
+/// Where a run sees cargo's registry and git checkouts, read-only, as its
+/// `CARGO_HOME`: never the person's credentials or configuration.
+pub const CARGO_HOME: &str = "/tmp/devflow-cargo";
+/// Where a run sees Go's module cache, read-only, and keeps its build cache.
+pub const GO_HOME: &str = "/tmp/devflow-go";
+/// Where a run's Python venv is made over the project's own.
+pub const PYTHON_HOME: &str = "/tmp/devflow-python";
+/// What runs a Python command in the project's venv: the sandbox makes that
+/// venv the one `python` runs, offline, so it is dropped.
+const PYTHON_RUNNERS: [&str; 3] = ["uv run ", "poetry run ", "pipenv run "];
+
+/// What a project's language needs in the sandbox beyond its dependency
+/// folders.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Language {
+    pub caches: Vec<Mount>,
+    pub writable: Vec<PathBuf>,
+    pub env: Vec<(String, String)>,
+    pub prelude: Option<String>,
+    /// Under bwrap, folders under the home to show again: a toolchain the
+    /// language needs that `PATH` does not name.
+    pub tools: Vec<PathBuf>,
+}
+
+/// An environment variable of the engine's that names an absolute path.
+fn absolute_var(name: &str) -> Option<PathBuf> {
+    std::env::var_os(name)
+        .map(PathBuf::from)
+        .filter(|at| at.is_absolute())
+}
+
+/// What the project in `tree` needs of its language, for `kind`, `home`
+/// and `path` being the engine's: Rust's registry and Go's module cache
+/// read-only, each toolchain kept offline; a Python venv made the one
+/// `python` runs, with the project's own packages.
+pub fn language(tree: &Tree, kind: Kind, home: Option<&Path>, path: &OsStr) -> Language {
+    language_with(tree, kind, home, path, &absolute_var)
+}
+
+/// [`language`], the engine's variables read through `var`.
+fn language_with(
+    tree: &Tree,
+    kind: Kind,
+    home: Option<&Path>,
+    path: &OsStr,
+    var: &dyn Fn(&str) -> Option<PathBuf>,
+) -> Language {
+    let mut out = Language::default();
+    let set = |out: &mut Language, name: &str, value: String| {
+        out.env.push((name.to_owned(), value));
+    };
+    if tree.at.join("Cargo.toml").is_file() {
+        let cargo = var("CARGO_HOME").or_else(|| home.map(|home| home.join(".cargo")));
+        for part in ["registry", "git"] {
+            if let Some(from) = cargo.as_ref().map(|cargo| cargo.join(part)) {
+                if from.is_dir() {
+                    out.caches.push(Mount {
+                        from,
+                        to: Path::new(CARGO_HOME).join(part),
+                    });
+                }
+            }
+        }
+        out.writable.push(PathBuf::from(CARGO_HOME));
+        set(&mut out, "CARGO_HOME", CARGO_HOME.to_owned());
+        set(&mut out, "CARGO_NET_OFFLINE", "true".to_owned());
+        // Docker's image brings its own toolchain; bwrap shows the person's.
+        if kind == Kind::Bwrap {
+            let rustup = var("RUSTUP_HOME")
+                .or_else(|| home.map(|home| home.join(".rustup")))
+                .filter(|at| at.is_dir());
+            if let Some(rustup) = rustup {
+                set(&mut out, "RUSTUP_HOME", rustup.display().to_string());
+                out.tools.push(rustup);
+            }
+        }
+    }
+    if tree.at.join("go.mod").is_file() {
+        let go = Path::new(GO_HOME);
+        out.writable.push(go.to_path_buf());
+        if let Some(from) = go_mod_cache(home, path, var).filter(|at| at.is_dir()) {
+            out.caches.push(Mount {
+                from,
+                to: go.join("mod"),
+            });
+            set(&mut out, "GOMODCACHE", go.join("mod").display().to_string());
+        }
+        set(&mut out, "GOCACHE", go.join("cache").display().to_string());
+        set(&mut out, "GOTMPDIR", go.display().to_string());
+        set(&mut out, "GOPROXY", "off".to_owned());
+        set(&mut out, "GOTOOLCHAIN", "local".to_owned());
+        set(&mut out, "GOFLAGS", "-buildvcs=false".to_owned());
+    }
+    if let Some(venv) = tree.deps.iter().find(|dep| venv(&dep.from)) {
+        if let Some(version) = python_version(&venv.from) {
+            let base = venv_base(&venv.from);
+            if kind == Kind::Bwrap {
+                // A Python uv or pyenv installed under the home: its own
+                // install, holding its standard library, never `~/.local`
+                // whole (the person's other files are there).
+                let install = base.as_deref().and_then(Path::parent);
+                if let (Some(install), Some(home)) = (install, home) {
+                    if install.starts_with(home)
+                        && install != home
+                        && !home.join(".local").starts_with(install)
+                        && install != home.join(".local")
+                        && install.join("lib").join(&version).is_dir()
+                    {
+                        out.tools.push(install.to_path_buf());
+                    }
+                }
+            }
+            let mut roots: Vec<PathBuf> = [venv.from.parent(), Some(tree.root.as_path())]
+                .into_iter()
+                .flatten()
+                .map(Path::to_path_buf)
+                .collect();
+            for root in roots.clone() {
+                if let Ok(real) = root.canonicalize() {
+                    roots.push(real);
+                }
+            }
+            let mapped = editable_paths(&venv.from, &version, &roots, &tree.at);
+            out.prelude = Some(python_prelude(
+                Path::new(PYTHON_HOME),
+                &venv.to,
+                &version,
+                base.as_deref(),
+                &mapped,
+            ));
+        }
+    }
+    out
+}
+
+/// The command a run gives the shell: a Python runner before it dropped
+/// once the sandbox made the venv the one `python` runs.
+pub fn unwrapped<'a>(command: &'a str, language: &Language) -> &'a str {
+    if language.prelude.is_none() {
+        return command;
+    }
+    let trimmed = command.trim_start();
+    PYTHON_RUNNERS
+        .iter()
+        .find_map(|runner| trimmed.strip_prefix(runner))
+        .unwrap_or(command)
+}
+
+/// Go's module cache on this machine, as `go env` says it or, without go,
+/// as its variables and default do.
+fn go_mod_cache(
+    home: Option<&Path>,
+    path: &OsStr,
+    var: &dyn Fn(&str) -> Option<PathBuf>,
+) -> Option<PathBuf> {
+    let said = crate::env::found_on(path, OsStr::new("go")).and_then(|go| {
+        // Out of any module, its toolchain line never fetches another.
+        asked(
+            &go,
+            &["env", "GOMODCACHE"],
+            Path::new("/"),
+            &[("GOTOOLCHAIN", "local")],
+        )
+    });
+    said.map(PathBuf::from)
+        .filter(|at| at.is_absolute())
+        .or_else(|| var("GOMODCACHE"))
+        .or_else(|| {
+            var("GOPATH")
+                .and_then(|all| std::env::split_paths(&all).next())
+                .filter(|at| at.is_absolute())
+                .map(|at| at.join("pkg/mod"))
+        })
+        .or_else(|| home.map(|home| home.join("go/pkg/mod")))
+}
+
+/// Whether `dir` is a Python venv.
+fn venv(dir: &Path) -> bool {
+    dir.join("pyvenv.cfg").is_file()
+}
+
+/// The `pythonX.Y` a venv was made with, as its `lib` folder names it.
+fn python_version(venv: &Path) -> Option<String> {
+    let mut found: Vec<String> = std::fs::read_dir(venv.join("lib"))
+        .ok()?
+        .flatten()
+        .filter_map(|entry| entry.file_name().into_string().ok())
+        .filter(|name| {
+            name.strip_prefix("python3.").is_some_and(|minor| {
+                !minor.is_empty() && minor.chars().all(|one| one.is_ascii_digit())
+            })
+        })
+        .collect();
+    found.sort();
+    found.into_iter().next()
+}
+
+/// The folder of the interpreter a venv was made from: its `pyvenv.cfg`'s
+/// `home`.
+fn venv_base(venv: &Path) -> Option<PathBuf> {
+    let said = std::fs::read_to_string(venv.join("pyvenv.cfg")).ok()?;
+    said.lines().find_map(|line| {
+        let (key, value) = line.split_once('=')?;
+        (key.trim() == "home")
+            .then(|| PathBuf::from(value.trim()))
+            .filter(|at| at.is_absolute())
+    })
+}
+
+/// The paths a venv's `.pth` files add under one of `roots` (an editable
+/// install of the project), said again under `tree`: the run imports the
+/// worktree's code, never the checkout's.
+fn editable_paths(venv: &Path, version: &str, roots: &[PathBuf], tree: &Path) -> Vec<String> {
+    let site = venv.join("lib").join(version).join("site-packages");
+    let mut out: Vec<String> = Vec::new();
+    let Ok(entries) = std::fs::read_dir(&site) else {
+        return out;
+    };
+    for entry in entries.flatten().take(2_000) {
+        let is_pth = entry
+            .file_name()
+            .to_str()
+            .is_some_and(|name| name.ends_with(".pth"));
+        let small = entry
+            .metadata()
+            .is_ok_and(|meta| meta.is_file() && meta.len() <= 64 * 1024);
+        if !is_pth || !small {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(entry.path()) else {
+            continue;
+        };
+        for line in text.lines().map(str::trim) {
+            if line.is_empty() || line.starts_with('#') || line.starts_with("import") {
+                continue;
+            }
+            let rest = roots
+                .iter()
+                .filter(|root| root.is_absolute() && root.parent().is_some())
+                .find_map(|root| Path::new(line).strip_prefix(root).ok());
+            if let Some(rest) = rest {
+                let mapped = tree.join(rest).display().to_string();
+                if !out.contains(&mapped) {
+                    out.push(mapped);
+                }
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
+/// `text` as one word of `sh`.
+fn quoted(text: &str) -> String {
+    format!("'{}'", text.replace('\'', "'\\''"))
+}
+
+/// The lines that make a venv at `at` over the project's own (`venv`, as
+/// the run sees it) the one `python` runs: its interpreter is the base the project
+/// made it with when the sandbox has it, else the sandbox's `pythonX.Y` of
+/// the same version; its packages are the project's, and an editable
+/// install points at the worktree. Without that version, the run says so
+/// and stops.
+fn python_prelude(
+    at: &Path,
+    venv: &Path,
+    version: &str,
+    base: Option<&Path>,
+    mapped: &[String],
+) -> String {
+    let site = venv.join("lib").join(version).join("site-packages");
+    let site = serde_json::to_string(&site.display().to_string()).unwrap_or_default();
+    // The worktree's code first: where the checkout is in sight, its own
+    // editable path, which the venv's packages add, comes after.
+    let mut lines: Vec<String> = mapped.iter().map(|one| quoted(one)).collect();
+    lines.push(quoted(&format!("import site; site.addsitedir({site})")));
+    let from_base = base
+        .map(|base| quoted(&base.join(version).display().to_string()))
+        .unwrap_or_default();
+    let home = quoted(&at.display().to_string());
+    format!(
+        "devflow_py=\n\
+         for one in {from_base} \"$(command -v {version})\"; do if [ -n \"$one\" ] && [ -x \"$one\" ]; then devflow_py=$one; break; fi; done\n\
+         if [ -z \"$devflow_py\" ]; then echo 'devflow: the sandbox has no {version}, the Python the project venv was made with' >&2; exit 127; fi\n\
+         mkdir -p {home}/bin {home}/lib/{version}/site-packages\n\
+         for one in python python3 {version}; do ln -sf \"$devflow_py\" {home}/bin/$one; done\n\
+         printf 'home = %s\\ninclude-system-site-packages = false\\n' \"${{devflow_py%/*}}\" > {home}/pyvenv.cfg\n\
+         printf '%s\\n' {lines} > {home}/lib/{version}/site-packages/00-devflow.pth\n\
+         PATH={home}/bin:$PATH VIRTUAL_ENV={home}\n\
+         export PATH VIRTUAL_ENV\n",
+        lines = lines.join(" "),
+    )
+}
+
+/// What `program` prints on its standard output, run in `cwd` with `env`
+/// added, once it ends well within a while; `None` otherwise.
+fn asked(program: &Path, args: &[&str], cwd: &Path, env: &[(&str, &str)]) -> Option<String> {
+    let mut child = Command::new(program);
+    child
+        .args(args)
+        .current_dir(cwd)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    for (name, value) in env {
+        child.env(name, value);
+    }
+    let mut child = child.spawn().ok()?;
+    let out = child.stdout.take().map(drained);
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                let said = out?.join().ok()?;
+                return status
+                    .success()
+                    .then(|| String::from_utf8_lossy(&said).trim().to_owned())
+                    .filter(|said| !said.is_empty());
+            }
+            Ok(None) if Instant::now() >= deadline => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+            Ok(None) => std::thread::sleep(Duration::from_millis(50)),
+            Err(_) => return None,
+        }
+    }
+}
+
+/// The venv a project's Python tool keeps out of its folder, when it has
+/// none of its own: poetry's or pipenv's, asked of the tool in `roots` in
+/// turn. Asking writes nothing.
+fn venv_elsewhere(roots: &[PathBuf], path: &OsStr) -> Option<PathBuf> {
+    let tool = |name: &str| crate::env::found_on(path, OsStr::new(name));
+    roots.iter().find_map(|root| {
+        let said = if root.join("poetry.lock").is_file() {
+            tool("poetry").and_then(|poetry| asked(&poetry, &["env", "info", "--path"], root, &[]))
+        } else if root.join("Pipfile").is_file() {
+            tool("pipenv").and_then(|pipenv| asked(&pipenv, &["--venv"], root, &[]))
+        } else {
+            None
+        };
+        said.map(PathBuf::from)
+            .filter(|at| at.is_absolute() && venv(at))
+    })
 }
 
 /// The program and arguments that run `command` in `tree` inside the
@@ -281,17 +646,21 @@ pub fn argv(
             if let Some(home) = &seen.home {
                 argv.extend(["--tmpfs".into(), shown(home)]);
             }
-            for at in seen.deps.iter().chain(&seen.tools) {
+            for at in &seen.tools {
                 argv.extend(["--ro-bind".into(), shown(at), shown(at)]);
             }
-            argv.extend([
-                "--bind".into(),
-                tree.clone(),
-                tree.clone(),
-                "--chdir".into(),
-                tree,
-                "--".into(),
-            ]);
+            argv.extend(["--bind".into(), tree.clone(), tree.clone()]);
+            for at in &seen.writable {
+                argv.extend(["--tmpfs".into(), shown(at)]);
+            }
+            // Over the tree: its dependency folders, where the project keeps them.
+            for mount in seen.deps.iter().chain(&seen.caches) {
+                argv.extend(["--ro-bind".into(), shown(&mount.from), shown(&mount.to)]);
+            }
+            for (name, value) in &seen.env {
+                argv.extend(["--setenv".into(), name.clone(), value.clone()]);
+            }
+            argv.extend(["--chdir".into(), tree, "--".into()]);
             if let Some(prlimit) = &sandbox.prlimit {
                 argv.extend([
                     prlimit.display().to_string(),
@@ -300,7 +669,7 @@ pub fn argv(
                     "--".into(),
                 ]);
             }
-            argv.extend(["sh".into(), "-c".into(), command.to_owned()]);
+            argv.extend(["sh".into(), "-c".into(), with_prelude(seen, command)]);
             argv
         }
         Kind::Docker => {
@@ -333,13 +702,21 @@ pub fn argv(
                 "-v".into(),
                 format!("{tree}:{tree}"),
             ];
-            for dep in &seen.deps {
-                argv.extend(["-v".into(), format!("{}:{}:ro", shown(dep), shown(dep))]);
+            for at in &seen.writable {
+                // Docker's tmpfs is noexec unless said: Go runs its test
+                // binary from its work folder.
+                argv.extend(["--tmpfs".into(), format!("{}:exec,mode=1777", shown(at))]);
+            }
+            for mount in seen.deps.iter().chain(&seen.caches) {
+                argv.extend([
+                    "-v".into(),
+                    format!("{}:{}:ro", shown(&mount.from), shown(&mount.to)),
+                ]);
             }
             for name in [EXPLOIT, EXPLOIT_TEST] {
                 argv.extend(["-e".into(), name.to_owned()]);
             }
-            for (name, value) in &sandbox.env {
+            for (name, value) in sandbox.env.iter().chain(&seen.env) {
                 argv.extend(["-e".into(), format!("{name}={value}")]);
             }
             argv.extend([
@@ -350,10 +727,18 @@ pub fn argv(
                 sandbox.image.clone().unwrap_or_default(),
                 "sh".into(),
                 "-c".into(),
-                command.to_owned(),
+                with_prelude(seen, command),
             ]);
             argv
         }
+    }
+}
+
+/// `command` after the lines [`Seen`] runs before it.
+fn with_prelude(seen: &Seen, command: &str) -> String {
+    match &seen.prelude {
+        Some(prelude) => format!("{prelude}{command}"),
+        None => command.to_owned(),
     }
 }
 
@@ -370,15 +755,7 @@ fn userns_restricted() -> bool {
 /// without the main worktree's an exploit test would fetch them, offline.
 pub fn dependencies_for(checkout: &Path) -> Vec<PathBuf> {
     let mut found = dependencies(checkout);
-    let main = crate::git::worktrees(checkout)
-        .ok()
-        .and_then(|all| all.into_iter().next())
-        .map(PathBuf::from);
-    let same = |a: &Path, b: &Path| match (a.canonicalize(), b.canonicalize()) {
-        (Ok(a), Ok(b)) => a == b,
-        _ => a == b,
-    };
-    if let Some(main) = main.filter(|main| !same(main, checkout)) {
+    if let Some(main) = main_worktree(checkout) {
         for dep in dependencies(&main) {
             if !found.iter().any(|one| one.file_name() == dep.file_name()) {
                 found.push(dep);
@@ -388,12 +765,25 @@ pub fn dependencies_for(checkout: &Path) -> Vec<PathBuf> {
     found
 }
 
+/// The repository's main worktree, when `checkout` is another.
+fn main_worktree(checkout: &Path) -> Option<PathBuf> {
+    let same = |a: &Path, b: &Path| match (a.canonicalize(), b.canonicalize()) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => a == b,
+    };
+    crate::git::worktrees(checkout)
+        .ok()
+        .and_then(|all| all.into_iter().next())
+        .map(PathBuf::from)
+        .filter(|main| !same(main, checkout))
+}
+
 /// A throwaway worktree of a commit, removed when dropped, and the
-/// checkout's dependency folders linked into it.
+/// checkout's dependency folders a run mounts into it.
 pub struct Tree {
     pub root: PathBuf,
     pub at: PathBuf,
-    pub deps: Vec<PathBuf>,
+    pub deps: Vec<Mount>,
 }
 
 impl Drop for Tree {
@@ -403,9 +793,13 @@ impl Drop for Tree {
 }
 
 /// A worktree of `commit` at `at`, with the checkout's dependency folders
-/// linked in ([`dependencies_for`]), removed when the returned [`Tree`] is
-/// dropped. Only the links made here are the run's dependencies: one the
-/// commit itself holds is never mounted.
+/// ([`dependencies_for`]) to mount where the project keeps them, removed
+/// when the returned [`Tree`] is dropped. A project with no venv of its own
+/// gets the one its poetry or pipenv keeps elsewhere, as `.venv`. Only the
+/// folders found here are the run's dependencies: one the commit itself
+/// holds is never mounted over. Each is mounted, not linked: a runner that
+/// resolves a link would reach the checkout instead, which the run never
+/// sees (PHP's autoloader finds the project's classes beside `vendor`).
 pub fn tree_at(checkout: &Path, commit: &str, at: &Path) -> Result<Tree, String> {
     if let Some(parent) = at.parent() {
         std::fs::create_dir_all(parent).map_err(|err| format!("{}: {err}", parent.display()))?;
@@ -416,16 +810,23 @@ pub fn tree_at(checkout: &Path, commit: &str, at: &Path) -> Result<Tree, String>
         at: at.to_path_buf(),
         deps: Vec::new(),
     };
-    for dep in dependencies_for(checkout) {
-        let Some(name) = dep.file_name() else {
-            continue;
-        };
-        let link = at.join(name);
-        if std::fs::symlink_metadata(&link).is_err() {
-            #[cfg(unix)]
-            std::os::unix::fs::symlink(&dep, &link)
-                .map_err(|err| format!("{}: {err}", link.display()))?;
-            tree.deps.push(dep);
+    let mut wanted: Vec<(std::ffi::OsString, PathBuf)> = dependencies_for(checkout)
+        .into_iter()
+        .filter_map(|dep| Some((dep.file_name()?.to_owned(), dep)))
+        .collect();
+    if !wanted.iter().any(|(_, dep)| venv(dep)) {
+        let mut roots = vec![checkout.to_path_buf()];
+        roots.extend(main_worktree(checkout));
+        let path = std::env::var_os("PATH").unwrap_or_default();
+        if let Some(elsewhere) = venv_elsewhere(&roots, &path) {
+            wanted.push((".venv".into(), elsewhere));
+        }
+    }
+    for (name, from) in wanted {
+        let to = at.join(&name);
+        if std::fs::symlink_metadata(&to).is_err() {
+            std::fs::create_dir(&to).map_err(|err| format!("{}: {err}", to.display()))?;
+            tree.deps.push(Mount { from, to });
         }
     }
     Ok(tree)
@@ -496,7 +897,9 @@ pub fn run(
     let began = Instant::now();
     let path = std::env::var_os("PATH").unwrap_or_default();
     let home = std::env::var_os("HOME").map(PathBuf::from);
-    let seen = Seen {
+    let language = language(tree, sandbox.kind, home.as_deref(), &path);
+    let command = unwrapped(command, &language);
+    let mut seen = Seen {
         deps: tree.deps.clone(),
         tools: home
             .as_deref()
@@ -504,7 +907,16 @@ pub fn run(
         home: home
             .clone()
             .filter(|home| home.is_absolute() && home != Path::new("/")),
+        caches: language.caches,
+        writable: language.writable,
+        env: language.env,
+        prelude: language.prelude,
     };
+    for tool in language.tools {
+        if !seen.tools.contains(&tool) {
+            seen.tools.push(tool);
+        }
+    }
     let name = format!(
         "devflow-exploit-{}-{}",
         std::process::id(),

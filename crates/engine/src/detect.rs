@@ -763,7 +763,7 @@ pub struct ExploitTest {
     /// Where the runner was found, `file:line`.
     pub source: String,
     /// The image a docker sandbox runs it in.
-    pub image: &'static str,
+    pub image: String,
 }
 
 /// The command that runs one exploit test, from the runner the project tests
@@ -797,19 +797,123 @@ pub fn exploit_test(detected: &Detected) -> Option<ExploitTest> {
             ),
             Report::Junit if said.starts_with("vendor/bin/phpunit") => (
                 "vendor/bin/phpunit \"$DEVFLOW_EXPLOIT\"".to_owned(),
-                "php:8",
+                "composer:2",
             ),
+            // The official php image has no mbstring, which PHPUnit and
+            // Pest require; Composer's has it.
             Report::Junit if said.starts_with("vendor/bin/pest") => {
-                ("vendor/bin/pest \"$DEVFLOW_EXPLOIT\"".to_owned(), "php:8")
+                ("vendor/bin/pest \"$DEVFLOW_EXPLOIT\"".to_owned(), "composer:2")
             }
             _ => return None,
         };
         Some(ExploitTest {
             command,
             source: found.source.clone(),
-            image,
+            image: image.to_owned(),
         })
     })
+}
+
+/// [`exploit_test`], from what the project at `root` keeps too: behind a
+/// `composer test` script, the PHPUnit or Pest it requires; for Python, the
+/// image of the version its venv was made with; for Rust, the image of the
+/// version its `rust-toolchain` pins, which a sandbox has no network to
+/// fetch.
+pub fn exploit_test_at(root: &Path, detected: &Detected) -> Option<ExploitTest> {
+    let files = Files {
+        root,
+        report: String::new(),
+    };
+    let mut found = exploit_test(detected).or_else(|| {
+        detected
+            .test
+            .iter()
+            .any(|found| found.command == "composer test")
+            .then(|| composer_runner(&files))
+            .flatten()
+    })?;
+    if found.image == "python:3" {
+        if let Some(version) = venv_python(root) {
+            found.image = format!("python:{version}");
+        }
+    }
+    if found.image == "rust:1" {
+        if let Some(version) = pinned_rust(&files) {
+            found.image = format!("rust:{version}");
+        }
+    }
+    Some(found)
+}
+
+/// The exploit test a composer project's PHPUnit or Pest runs.
+fn composer_runner(files: &Files) -> Option<ExploitTest> {
+    const FILE: &str = "composer.json";
+    let text = files.read(FILE)?;
+    let composer = serde_json::from_str::<serde_json::Value>(&text).ok()?;
+    let has = |name: &str| {
+        ["require", "require-dev"]
+            .iter()
+            .any(|deps| composer.get(deps).and_then(|deps| deps.get(name)).is_some())
+    };
+    let (runner, package) = if has("pestphp/pest") {
+        ("pest", "pestphp/pest")
+    } else if has("phpunit/phpunit") {
+        ("phpunit", "phpunit/phpunit")
+    } else {
+        return None;
+    };
+    Some(ExploitTest {
+        command: format!("vendor/bin/{runner} \"$DEVFLOW_EXPLOIT\""),
+        source: format!("{FILE}:{}", line_of(&text, &format!("\"{package}\""))),
+        image: "composer:2".to_owned(),
+    })
+}
+
+/// The `3.N` of the venv the project at `root` keeps, `.venv` or `venv`.
+fn venv_python(root: &Path) -> Option<String> {
+    [".venv", "venv"].iter().find_map(|name| {
+        let lib = crate::fsguard::resolve(root, &format!("{name}/lib")).ok()?;
+        if !crate::fsguard::resolve(root, &format!("{name}/pyvenv.cfg"))
+            .is_ok_and(|at| at.is_file())
+        {
+            return None;
+        }
+        let mut found: Vec<String> = std::fs::read_dir(lib)
+            .ok()?
+            .flatten()
+            .filter_map(|entry| entry.file_name().into_string().ok())
+            .filter_map(|name| name.strip_prefix("python").map(str::to_owned))
+            .filter(|version| {
+                version.split_once('.').is_some_and(|(major, minor)| {
+                    major == "3"
+                        && !minor.is_empty()
+                        && minor.chars().all(|one| one.is_ascii_digit())
+                })
+            })
+            .collect();
+        found.sort();
+        found.into_iter().next()
+    })
+}
+
+/// The Rust version a `rust-toolchain.toml` or `rust-toolchain` pins, as
+/// numbers (`1.82.0`); a channel such as `stable` pins none.
+fn pinned_rust(files: &Files) -> Option<String> {
+    let said = files
+        .read("rust-toolchain.toml")
+        .or_else(|| files.read("rust-toolchain"))?;
+    let channel = said
+        .lines()
+        .find_map(|line| {
+            let (key, value) = line.split_once('=')?;
+            (key.trim() == "channel").then(|| value.trim().trim_matches('"').to_owned())
+        })
+        .unwrap_or_else(|| said.trim().to_owned());
+    let numbers = channel.split('.').count() >= 2
+        && channel
+            .split('.')
+            .all(|part| !part.is_empty() && part.chars().all(|one| one.is_ascii_digit()));
+    numbers.then_some(channel)
 }
 
 /// What detection could not settle and the person has to: one sentence each.

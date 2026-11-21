@@ -275,7 +275,7 @@ fn the_exploit_test_command_comes_from_the_projects_own_runner() {
                 "{ \"require-dev\": { \"phpunit/phpunit\": \"10\" } }",
             )],
             "vendor/bin/phpunit \"$DEVFLOW_EXPLOIT\"",
-            "php:8",
+            "composer:2",
         ),
         // A Makefile's `make test` is the project's, but runs every test:
         // the runner behind it is the one that runs one exploit.
@@ -301,4 +301,62 @@ fn the_exploit_test_command_comes_from_the_projects_own_runner() {
         exploit_test(&detected(dir.path(), Machine::default())),
         None
     );
+}
+
+#[test]
+fn the_project_says_more_of_its_exploit_test_than_its_test_command() {
+    // A composer `test` script runs everything; its PHPUnit runs one test.
+    let php = project(&[(
+        "composer.json",
+        "{ \"scripts\": { \"test\": \"phpunit\" }, \"require-dev\": { \"phpunit/phpunit\": \"11\" } }",
+    )]);
+    let detected = detected(php.path(), Machine::default());
+    assert_eq!(exploit_test(&detected), None);
+    let found = exploit_test_at(php.path(), &detected).expect("phpunit");
+    assert_eq!(found.command, "vendor/bin/phpunit \"$DEVFLOW_EXPLOIT\"");
+    assert_eq!(found.image, "composer:2");
+    assert!(
+        found.source.starts_with("composer.json:"),
+        "{}",
+        found.source
+    );
+    let pest = project(&[(
+        "composer.json",
+        "{ \"scripts\": { \"test\": \"pest\" }, \"require-dev\": { \"pestphp/pest\": \"3\" } }",
+    )]);
+    assert_eq!(
+        exploit_test_at(pest.path(), &detected_at(pest.path()))
+            .expect("pest")
+            .command,
+        "vendor/bin/pest \"$DEVFLOW_EXPLOIT\""
+    );
+    // Python: the image of the version its venv was made with.
+    let python = project(&[
+        ("pyproject.toml", "[tool.pytest.ini_options]\n"),
+        (".venv/pyvenv.cfg", "home = /usr/bin\n"),
+        (".venv/lib/python3.11/site-packages/x.py", ""),
+    ]);
+    let found = exploit_test_at(python.path(), &detected_at(python.path())).expect("pytest");
+    assert_eq!(found.image, "python:3.11");
+    assert_eq!(found.command, "python -m pytest \"$DEVFLOW_EXPLOIT\"");
+    // Rust: the version its toolchain file pins, never a channel's name.
+    for (pin, image) in [
+        ("[toolchain]\nchannel = \"1.82.0\"\n", "rust:1.82.0"),
+        ("[toolchain]\nchannel = \"stable\"\n", "rust:1"),
+    ] {
+        let rust = project(&[
+            ("Cargo.toml", "[package]\nname = \"x\"\n"),
+            ("rust-toolchain.toml", pin),
+        ]);
+        assert_eq!(
+            exploit_test_at(rust.path(), &detected_at(rust.path()))
+                .expect("cargo")
+                .image,
+            image
+        );
+    }
+}
+
+fn detected_at(root: &std::path::Path) -> Detected {
+    detected(root, Machine::default())
 }

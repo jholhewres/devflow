@@ -67,18 +67,30 @@ fn the_sandbox_has_no_network_a_read_only_root_and_limits() {
         env: Vec::new(),
     };
     let seen = Seen {
-        deps: vec![PathBuf::from("/home/u/shop/node_modules")],
+        deps: vec![Mount {
+            from: PathBuf::from("/home/u/shop/node_modules"),
+            to: PathBuf::from("/home/u/.cache/t1/node_modules"),
+        }],
         home: Some(PathBuf::from("/home/u")),
         tools: vec![PathBuf::from("/home/u/.nvm/versions/node/v22")],
+        caches: vec![Mount {
+            from: PathBuf::from("/home/u/.cargo/registry"),
+            to: PathBuf::from("/tmp/devflow-cargo/registry"),
+        }],
+        writable: vec![PathBuf::from("/tmp/devflow-cargo")],
+        env: vec![("CARGO_HOME".to_owned(), "/tmp/devflow-cargo".to_owned())],
+        prelude: Some("export A=1\n".to_owned()),
     };
     let tree = Path::new("/home/u/.cache/t1");
     let said = argv(&bwrap, tree, &seen, "npx jest", limits, "n").join(" ");
     for part in [
         "--tmpfs /run",
         "--tmpfs /home/u",
-        "--ro-bind /home/u/shop/node_modules /home/u/shop/node_modules",
+        "--ro-bind /home/u/shop/node_modules /home/u/.cache/t1/node_modules",
         "--ro-bind /home/u/.nvm/versions/node/v22 /home/u/.nvm/versions/node/v22",
         "--bind /home/u/.cache/t1 /home/u/.cache/t1",
+        "--ro-bind /home/u/.cargo/registry /tmp/devflow-cargo/registry",
+        "--setenv CARGO_HOME /tmp/devflow-cargo",
     ] {
         assert!(said.contains(part), "{part}: {said}");
     }
@@ -87,12 +99,20 @@ fn the_sandbox_has_no_network_a_read_only_root_and_limits() {
         at("--tmpfs /home/u") < at("--bind /home/u/.cache/t1"),
         "the home hidden, then the tree shown"
     );
+    assert!(
+        at("--bind /home/u/.cache/t1") < at("--ro-bind /home/u/shop/node_modules"),
+        "the tree, then its dependencies over it"
+    );
+    assert!(said.ends_with("sh -c export A=1\nnpx jest"), "{said}");
+    assert!(
+        at("--tmpfs /tmp/devflow-cargo") < at("--ro-bind /home/u/.cargo/registry"),
+        "a toolchain's home made writable, then its cache mounted in it"
+    );
     for part in [
         "--unshare-net",
         "--ro-bind / /",
         "--cpu=120",
         "--data=536870912",
-        "sh -c npx jest",
     ] {
         assert!(said.contains(part), "{part}: {said}");
     }
@@ -105,7 +125,16 @@ fn the_sandbox_has_no_network_a_read_only_root_and_limits() {
         env: Vec::new(),
     };
     let seen = Seen {
-        deps: vec![PathBuf::from("/c/node_modules")],
+        deps: vec![Mount {
+            from: PathBuf::from("/c/node_modules"),
+            to: PathBuf::from("/w/tree/node_modules"),
+        }],
+        caches: vec![Mount {
+            from: PathBuf::from("/c/go/pkg/mod"),
+            to: PathBuf::from("/tmp/devflow-go/mod"),
+        }],
+        writable: vec![PathBuf::from("/tmp/devflow-go")],
+        env: vec![("GOPROXY".to_owned(), "off".to_owned())],
         ..Seen::default()
     };
     let said = argv(
@@ -124,7 +153,10 @@ fn the_sandbox_has_no_network_a_read_only_root_and_limits() {
         "--memory 512m",
         "--cpus 2",
         "--cap-drop ALL",
-        "-v /c/node_modules:/c/node_modules:ro",
+        "-v /c/node_modules:/w/tree/node_modules:ro",
+        "-v /c/go/pkg/mod:/tmp/devflow-go/mod:ro",
+        "--tmpfs /tmp/devflow-go:exec,mode=1777",
+        "-e GOPROXY=off",
         "node:22 sh -c npx jest",
     ] {
         assert!(said.contains(part), "{part}: {said}");
@@ -171,7 +203,11 @@ fn an_exploit_runs_red_or_green_in_a_throwaway_worktree_and_reaches_no_network()
     };
     {
         let tree = tree_at(&root, &head, &at).expect("tree");
-        assert!(tree.at.join("node_modules").is_symlink(), "deps linked in");
+        assert!(
+            tree.at.join("node_modules").is_dir(),
+            "a place to mount deps"
+        );
+        assert_eq!(tree.deps[0].to, tree.at.join("node_modules"));
         place(&tree.at, "tests/red.sh", "exit 1").expect("placed");
         let red = run(
             &sandbox,
@@ -250,14 +286,20 @@ fn the_toolchains_under_home_are_shown_and_its_secrets_are_not() {
     let shown = tools(home, &path);
     for want in [
         ".cargo/bin",
-        ".cargo/registry",
         ".rustup",
         ".nvm/versions/node/v22",
         ".local/bin",
     ] {
         assert!(shown.contains(&home.join(want)), "{want}: {shown:?}");
     }
-    for never in [".cargo", ".local", ".local/share/keyrings", ""] {
+    // The registry is a Rust project's alone, seen as its CARGO_HOME.
+    for never in [
+        ".cargo",
+        ".cargo/registry",
+        ".local",
+        ".local/share/keyrings",
+        "",
+    ] {
         assert!(!shown.contains(&home.join(never)), "{never}: {shown:?}");
     }
 }
@@ -330,8 +372,12 @@ fn a_tree_of_a_detached_review_tree_gets_the_main_checkouts_dependencies() {
     );
     let at = dir.path().join("exploit-tree");
     let tree = tree_at(&review, &head, &at).expect("tree");
-    assert!(at.join("node_modules/lib").is_dir(), "linked in");
     assert_eq!(tree.deps.len(), 1);
+    assert_eq!(tree.deps[0].to, at.join("node_modules"));
+    assert_eq!(
+        tree.deps[0].from.canonicalize().unwrap(),
+        root.join("node_modules").canonicalize().unwrap()
+    );
     drop(tree);
     crate::git::remove_detached(&root, &review);
 }
@@ -352,4 +398,235 @@ fn a_test_named_before_the_end_of_a_long_red_run_is_still_reached() {
         "the end alone does not name it"
     );
     assert!(reached);
+}
+
+/// A tree of nothing but `files`, for what a language needs.
+fn tree_of(dir: &Path, files: &[&str]) -> Tree {
+    let at = dir.join("tree");
+    std::fs::create_dir_all(&at).expect("tree");
+    for file in files {
+        std::fs::write(at.join(file), "").expect("file");
+    }
+    Tree {
+        root: dir.join("checkout"),
+        at,
+        deps: Vec::new(),
+    }
+}
+
+#[test]
+fn rust_sees_its_registry_and_go_its_modules_read_only_and_offline() {
+    let dir = tempfile::tempdir().expect("dir");
+    let home = dir.path().join("home");
+    for folder in [".cargo/registry", ".cargo/git", "go/pkg/mod", ".rustup"] {
+        std::fs::create_dir_all(home.join(folder)).expect("folder");
+    }
+    std::fs::write(home.join(".cargo/credentials.toml"), "token").expect("secret");
+    let none = |_: &str| None;
+    let empty = std::ffi::OsString::new();
+    let rust = tree_of(dir.path(), &["Cargo.toml"]);
+    let said = language_with(&rust, Kind::Docker, Some(&home), &empty, &none);
+    assert_eq!(
+        said.caches,
+        vec![
+            Mount {
+                from: home.join(".cargo/registry"),
+                to: PathBuf::from("/tmp/devflow-cargo/registry"),
+            },
+            Mount {
+                from: home.join(".cargo/git"),
+                to: PathBuf::from("/tmp/devflow-cargo/git"),
+            },
+        ],
+        "never the credentials"
+    );
+    let env = |said: &Language, name: &str| {
+        said.env
+            .iter()
+            .find(|(key, _)| key == name)
+            .map(|(_, value)| value.clone())
+    };
+    assert_eq!(env(&said, "CARGO_HOME").as_deref(), Some(CARGO_HOME));
+    assert_eq!(env(&said, "CARGO_NET_OFFLINE").as_deref(), Some("true"));
+    assert_eq!(env(&said, "RUSTUP_HOME"), None, "docker brings its own");
+    let bwrap = language_with(&rust, Kind::Bwrap, Some(&home), &empty, &none);
+    assert_eq!(
+        env(&bwrap, "RUSTUP_HOME"),
+        Some(home.join(".rustup").display().to_string())
+    );
+    let other = tempfile::tempdir().expect("dir");
+    let go = tree_of(other.path(), &["go.mod"]);
+    let said = language_with(&go, Kind::Docker, Some(&home), &empty, &none);
+    assert_eq!(
+        said.caches,
+        vec![Mount {
+            from: home.join("go/pkg/mod"),
+            to: PathBuf::from("/tmp/devflow-go/mod"),
+        }]
+    );
+    for (name, value) in [
+        ("GOPROXY", "off"),
+        ("GOTOOLCHAIN", "local"),
+        ("GOMODCACHE", "/tmp/devflow-go/mod"),
+    ] {
+        assert_eq!(env(&said, name).as_deref(), Some(value), "{name}");
+    }
+    let node = tempfile::tempdir().expect("dir");
+    let node = tree_of(node.path(), &["package.json"]);
+    assert_eq!(
+        language_with(&node, Kind::Docker, Some(&home), &empty, &none),
+        Language::default(),
+        "a project sees no other language's caches"
+    );
+}
+
+/// A venv as `python -m venv` leaves it, for `version`, with an editable
+/// install of the project at `root`.
+fn venv_at(at: &Path, version: &str, base: &str, root: &Path) -> PathBuf {
+    let site = at.join("lib").join(version).join("site-packages");
+    std::fs::create_dir_all(&site).expect("site");
+    std::fs::write(
+        at.join("pyvenv.cfg"),
+        format!("home = {base}\ninclude-system-site-packages = false\n"),
+    )
+    .expect("cfg");
+    std::fs::write(
+        site.join("__editable__.shop-1.0.pth"),
+        format!("{}\n", root.join("src").display()),
+    )
+    .expect("pth");
+    std::fs::write(site.join("distutils-precedence.pth"), "import os\n").expect("pth");
+    site
+}
+
+#[test]
+fn a_python_venv_is_made_the_one_python_runs_with_the_worktrees_own_code() {
+    let dir = tempfile::tempdir().expect("dir");
+    let checkout = dir.path().join("checkout");
+    let venv = checkout.join(".venv");
+    venv_at(&venv, "python3.12", "/usr/bin", &checkout);
+    let mut tree = tree_of(dir.path(), &["pyproject.toml"]);
+    tree.root = checkout.clone();
+    tree.deps.push(Mount {
+        from: venv.clone(),
+        to: tree.at.join(".venv"),
+    });
+    let empty = std::ffi::OsString::new();
+    let said = language_with(&tree, Kind::Docker, None, &empty, &|_: &str| None);
+    let prelude = said.prelude.clone().expect("a prelude");
+    for part in [
+        "command -v python3.12",
+        "'/usr/bin/python3.12'",
+        &format!(
+            "site.addsitedir(\"{}\")",
+            tree.at.join(".venv/lib/python3.12/site-packages").display()
+        ),
+        &format!("'{}'", tree.at.join("src").display()),
+        "export PATH VIRTUAL_ENV",
+    ] {
+        assert!(prelude.contains(part), "{part}: {prelude}");
+    }
+    assert!(
+        !prelude.contains(&format!("'{}'", checkout.join("src").display())),
+        "never the checkout's code: {prelude}"
+    );
+    assert_eq!(
+        unwrapped("uv run python -m pytest \"$DEVFLOW_EXPLOIT\"", &said),
+        "python -m pytest \"$DEVFLOW_EXPLOIT\""
+    );
+    assert_eq!(
+        unwrapped("uv run python -m pytest", &Language::default()),
+        "uv run python -m pytest",
+        "only once the venv is made"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn the_venv_made_runs_the_projects_packages_and_the_worktrees_code() {
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    let Some(python) = crate::env::found_on(&path, OsStr::new("python3")) else {
+        return;
+    };
+    let version = Command::new(&python)
+        .args([
+            "-c",
+            "import sys; print(f'python{sys.version_info[0]}.{sys.version_info[1]}')",
+        ])
+        .output()
+        .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_owned())
+        .unwrap_or_default();
+    let dir = tempfile::tempdir().expect("dir");
+    let checkout = dir.path().join("checkout");
+    let venv = checkout.join(".venv");
+    let base = python.parent().expect("bin").display().to_string();
+    let site = venv_at(&venv, &version, &base, &checkout);
+    std::fs::write(site.join("shoplib.py"), "WHO = 'the venv'\n").expect("package");
+    let tree = dir.path().join("tree");
+    std::fs::create_dir_all(tree.join("src")).expect("src");
+    std::fs::write(tree.join("src/shop.py"), "WHO = 'the worktree'\n").expect("code");
+    std::fs::create_dir_all(checkout.join("src")).expect("src");
+    std::fs::write(checkout.join("src/shop.py"), "WHO = 'the checkout'\n").expect("code");
+    let made = dir.path().join("made");
+    let roots = [checkout.clone()];
+    let prelude = python_prelude(
+        &made,
+        &venv,
+        &version,
+        Some(python.parent().expect("bin")),
+        &editable_paths(&venv, &version, &roots, &tree),
+    );
+    let said = Command::new("sh")
+        .args([
+            "-c",
+            &format!(
+                "{prelude}python -c 'import shoplib, shop, sys; print(shoplib.WHO, \"/\", shop.WHO, \"/\", sys.prefix)'"
+            ),
+        ])
+        .env_clear()
+        .env("PATH", "/usr/bin:/bin")
+        .output()
+        .expect("sh");
+    let out = String::from_utf8_lossy(&said.stdout);
+    assert!(
+        out.contains("the venv / the worktree"),
+        "{out} {}",
+        String::from_utf8_lossy(&said.stderr)
+    );
+    assert!(out.contains(&made.display().to_string()), "{out}");
+}
+
+#[test]
+fn under_bwrap_a_venvs_python_under_the_home_is_shown_but_never_local_whole() {
+    let dir = tempfile::tempdir().expect("dir");
+    let home = dir.path().join("home");
+    let uv = home.join(".local/share/uv/python/cpython-3.12/bin");
+    std::fs::create_dir_all(&uv).expect("uv");
+    std::fs::create_dir_all(home.join(".local/share/uv/python/cpython-3.12/lib/python3.12"))
+        .expect("stdlib");
+    std::fs::create_dir_all(home.join(".local/lib/python3.12")).expect("user site");
+    let empty = std::ffi::OsString::new();
+    for (base, shown) in [
+        (
+            uv.clone(),
+            Some(home.join(".local/share/uv/python/cpython-3.12")),
+        ),
+        (home.join(".local/bin"), None),
+    ] {
+        let checkout = dir.path().join("checkout");
+        let venv = checkout.join(".venv");
+        let _ = std::fs::remove_dir_all(&venv);
+        venv_at(&venv, "python3.12", &base.display().to_string(), &checkout);
+        let mut tree = tree_of(dir.path(), &["pyproject.toml"]);
+        tree.deps.push(Mount {
+            from: venv,
+            to: tree.at.join(".venv"),
+        });
+        let said = language_with(&tree, Kind::Bwrap, Some(&home), &empty, &|_: &str| None);
+        assert_eq!(
+            said.tools,
+            shown.into_iter().collect::<Vec<_>>(),
+            "{base:?}"
+        );
+    }
 }

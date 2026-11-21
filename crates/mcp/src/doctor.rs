@@ -435,6 +435,16 @@ fn sandbox(attack: &devflow_engine::config::Attack, path: &std::ffi::OsStr) -> S
                     what.push_str(&format!(", not bwrap: {why}"));
                 }
             }
+            // What 0.6.4 to 0.6.6 set for PHP: that image has no mbstring.
+            let php = attack.test.as_deref().is_some_and(|test| {
+                test.contains("vendor/bin/phpunit") || test.contains("vendor/bin/pest")
+            });
+            if found.kind == Kind::Docker && php && found.image.as_deref() == Some("php:8") {
+                return maybe(format!(
+                    "{what}, in php:8: that image has no mbstring, and PHPUnit and Pest need it: \
+                     `devflow config set stages.attack.image composer:2`"
+                ));
+            }
             ok(what)
         }
         Err(why) => maybe(format!(

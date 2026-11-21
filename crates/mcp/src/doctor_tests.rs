@@ -362,6 +362,35 @@ fn an_attack_with_no_sandbox_here_is_said_to_run_its_exploits_in_the_session() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn a_php_project_left_on_php_8_is_told_its_image_has_no_mbstring() {
+    use std::os::unix::fs::PermissionsExt;
+    let bin = tempfile::tempdir().unwrap();
+    let docker = bin.path().join("docker");
+    fs::write(&docker, "#!/bin/sh\nexit 0\n").unwrap();
+    fs::set_permissions(&docker, fs::Permissions::from_mode(0o755)).unwrap();
+    let attack = devflow_engine::config::Attack {
+        sandbox: Some(devflow_engine::config::SandboxChoice::Docker),
+        image: Some("php:8".to_owned()),
+        test: Some("vendor/bin/phpunit \"$DEVFLOW_EXPLOIT\"".to_owned()),
+        ..Default::default()
+    };
+    let said = sandbox(&attack, bin.path().as_os_str());
+    assert!(!said.ok && said.optional, "{}", said.what);
+    assert!(
+        said.what
+            .contains("devflow config set stages.attack.image composer:2"),
+        "{}",
+        said.what
+    );
+    let fine = devflow_engine::config::Attack {
+        image: Some("composer:2".to_owned()),
+        ..attack
+    };
+    assert!(sandbox(&fine, bin.path().as_os_str()).ok);
+}
+
 #[test]
 fn the_persons_yeses_and_what_is_not_asked_again_are_listed() {
     let home = tempfile::tempdir().unwrap();

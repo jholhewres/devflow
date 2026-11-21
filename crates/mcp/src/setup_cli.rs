@@ -110,7 +110,7 @@ fn attack(
             .test
             .clone()
             .flatten()
-            .map_or("", |found| found.image);
+            .map_or_else(String::new, |found| found.image);
         wanted.test = Some(Some(devflow_engine::detect::ExploitTest {
             command: command.clone(),
             source: "--test".to_owned(),

@@ -242,10 +242,10 @@ pub fn wanted(
         }
     };
     let attack = &config.stages.attack;
-    let exploit = detect::exploit_test(&detected);
+    let exploit = detect::exploit_test_at(root, &detected);
     let docker = devflow_engine::env::found_on(path, OsStr::new("docker")).is_some();
-    let suggested = exploit.as_ref().map(|found| found.image);
-    let here = match sandbox::found(SandboxChoice::Auto, suggested, path) {
+    let suggested = exploit.as_ref().map(|found| found.image.clone());
+    let here = match sandbox::found(SandboxChoice::Auto, suggested.as_deref(), path) {
         Ok(found) => found.kind.word(),
         // docker, short of an image: the one thing then asked.
         Err(_) if docker => "docker",
@@ -280,7 +280,7 @@ pub fn wanted(
             .to_owned(),
         ),
         image: (attack.image.is_none() && docker && open("image"))
-            .then(|| suggested.unwrap_or_default().to_owned()),
+            .then(|| suggested.unwrap_or_default()),
         targets: if open(&targets_part) {
             targets
         } else {
