@@ -359,20 +359,40 @@ pub fn open_before(runs: &crate::runs::Runs, card: &str, root: &Path, head: &str
                     return again;
                 }
                 if let Some(found) = left_open(one, &run_folder, &label, &run) {
-                    let same = |had: &Value| {
-                        same_hypothesis(had, &found)
-                            || (had["exploit"]["path"] == found["exploit"]["path"]
-                                && had["exploit"]["test"] == found["exploit"]["test"])
-                    };
-                    // The newest run that kept it speaks for it.
-                    if !again.iter().any(same) {
-                        again.push(found);
+                    // The newest run that kept it speaks for it, unless an
+                    // older one confirmed it: that exploit showed the hole.
+                    match again.iter_mut().find(|had| same_hole(had, &found)) {
+                        Some(had)
+                            if had["again"]["was"] != "confirmed"
+                                && found["again"]["was"] == "confirmed" =>
+                        {
+                            *had = found;
+                        }
+                        Some(_) => {}
+                        None => again.push(found),
                     }
                 }
             }
         }
     }
     again
+}
+
+/// Whether two hypotheses are one hole: the same title of the same file,
+/// one class at one place (five lines apart at most, as attackers' are
+/// merged), or one exploit, by its path and test or by its code. Attackers
+/// of different runs name one hole their own way.
+fn same_hole(one: &Value, other: &Value) -> bool {
+    fn code(one: &Value) -> &str {
+        one["exploit"]["code"].as_str().map_or("", str::trim)
+    }
+    same_hypothesis(one, other)
+        || same_place(one, other)
+        || (one["exploit"]["path"].is_string()
+            && one["exploit"]["test"].is_string()
+            && one["exploit"]["path"] == other["exploit"]["path"]
+            && one["exploit"]["test"] == other["exploit"]["test"])
+        || (!code(one).is_empty() && code(one) == code(other))
 }
 
 /// A hypothesis an earlier run left open, with its exploit's code read back
@@ -1662,7 +1682,7 @@ pub fn attacked(given: &Given) -> Result<Done, String> {
     hypotheses.retain(|one| {
         !again
             .iter()
-            .any(|had| had["status"] == "confirmed" && same_hypothesis(had, one))
+            .any(|had| had["status"] == "confirmed" && same_hole(had, one))
     });
     for (at, one) in hypotheses.iter_mut().enumerate() {
         one["id"] = json!(format!("h{}", at + 1));

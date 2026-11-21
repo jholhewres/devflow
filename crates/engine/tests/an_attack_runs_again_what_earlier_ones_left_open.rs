@@ -399,3 +399,71 @@ fn a_red_run_filed_not_run_is_run_again_past_a_later_run_that_wrote_nothing() {
     assert_eq!(report["run_again"], 1, "{report:#}");
     assert_eq!(report["hypotheses"][0]["again"]["run"], red_run.as_str());
 }
+
+/// One hole earlier runs each named their own way, with an exploit of
+/// their own, is run again once: from the run that confirmed it.
+#[test]
+fn one_hole_several_runs_kept_is_run_again_once() {
+    let project = project();
+    let card = "card_1";
+    let at = |title: &str, line: u64, status: &str, test: &str| {
+        json!({ "title": title, "class": "tls", "file": SESSION, "line": line,
+            "severity": "high", "status": status, "reason": "the server certificate is not checked",
+            "exploit": { "path": format!("tests/security/{test}.test.ts"), "test": test } })
+    };
+    let confirmed = project.earlier_at(
+        card,
+        &project.first,
+        &[(
+            at("database TLS skips verification", 3, "confirmed", "verify"),
+            JEST_RED,
+        )],
+        1_789_000_000,
+    );
+    project.earlier_at(
+        card,
+        &project.first,
+        &[(
+            at("Postgres accepts any certificate", 5, "tried", "any cert"),
+            "exit 2",
+        )],
+        1_790_000_000,
+    );
+    project.earlier_at(
+        card,
+        &project.first,
+        &[
+            (
+                at("rejectUnauthorized is false", 1, "tried", "unauthorized"),
+                "exit 3",
+            ),
+            // Another class at the same place is another hole.
+            (
+                json!({ "title": "the password is logged", "class": "secrets", "file": SESSION,
+                    "line": 2, "severity": "medium", "status": "tried",
+                    "exploit": { "path": "tests/security/log.test.ts", "test": "log" } }),
+                "exit 4",
+            ),
+        ],
+        1_791_000_000,
+    );
+    let yaml = "version: 1\nstages:\n  attack: { run: sensitive, test: 'sh \"$DEVFLOW_EXPLOIT\"', sandbox: off }\n";
+    let (report, _) = project.attack(card, &project.first, &project.second, yaml, json!([]));
+    let again: Vec<(&str, &str)> = report["hypotheses"]
+        .as_array()
+        .expect("hypotheses")
+        .iter()
+        .map(|one| {
+            (
+                one["class"].as_str().unwrap_or_default(),
+                one["again"]["run"].as_str().unwrap_or_default(),
+            )
+        })
+        .collect();
+    assert_eq!(report["run_again"], 2, "{report:#}");
+    assert!(again.contains(&("tls", confirmed.as_str())), "{again:?}");
+    assert!(
+        again.iter().any(|(class, _)| *class == "secrets"),
+        "{again:?}"
+    );
+}
