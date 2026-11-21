@@ -119,6 +119,9 @@ pub struct Ran {
     /// with no harness error ([`crate::attack::reached`]): a red run that
     /// does reached its assertion.
     pub reached: bool,
+    /// Whether all it printed says no test ran ([`crate::attack::none_ran`]):
+    /// a green run that does refutes nothing.
+    pub none_ran: bool,
     pub duration_ms: u64,
 }
 
@@ -552,6 +555,7 @@ pub fn run(
         exit: None,
         tail: String::new(),
         reached: false,
+        none_ran: false,
         duration_ms: began.elapsed().as_millis() as u64,
     };
     let mut child = match child.spawn() {
@@ -588,7 +592,7 @@ pub fn run(
         said.extend(reading.join().unwrap_or_default());
     }
     let said = String::from_utf8_lossy(&said);
-    let (tail, reached) = judged(&said, exploit.1);
+    let (tail, reached, none_ran) = judged(&said, exploit.1);
     let (outcome, exit) = match status {
         None => (Outcome::TimedOut, None),
         Some(status) if status.success() => (Outcome::Green, status.code()),
@@ -599,17 +603,23 @@ pub fn run(
         exit,
         tail,
         reached,
+        none_ran,
         duration_ms: began.elapsed().as_millis() as u64,
     }
 }
 
 /// What a run printed, as its report keeps it (its end) and as it is judged
-/// (all of it): whether it names `test`. A runner prints the failing test's
-/// name first and its stack after, so the end alone may not name it.
-fn judged(said: &str, test: &str) -> (String, bool) {
+/// (all of it): whether it names `test`, and whether it says no test ran. A
+/// runner prints the failing test's name first and its stack after, so the
+/// end alone may not name it.
+fn judged(said: &str, test: &str) -> (String, bool, bool) {
     let chars: Vec<char> = said.chars().collect();
     let tail = chars[chars.len().saturating_sub(TAIL)..].iter().collect();
-    (tail, crate::attack::reached(said, test))
+    (
+        tail,
+        crate::attack::reached(said, test),
+        crate::attack::none_ran(said),
+    )
 }
 
 #[cfg(test)]

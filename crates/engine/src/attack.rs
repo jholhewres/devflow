@@ -718,6 +718,11 @@ fn proven(given: &Given, stamp: &str, hypotheses: &mut [Value]) {
                 "not_run",
                 "it failed before its assertion: the output names no failing test of it, or a harness error".to_owned(),
             ),
+            Outcome::Green if ran.none_ran => (
+                "tried",
+                "not_run",
+                "green, but the output says no test ran: its name or place matched none of the runner's".to_owned(),
+            ),
             Outcome::Green => (
                 "refuted",
                 "refuted",
@@ -744,36 +749,158 @@ fn proven(given: &Given, stamp: &str, hypotheses: &mut [Value]) {
 }
 
 /// What a harness says when a test never ran to its assertion: a file that
-/// does not load, a module or package not found, a compile error.
-const NOT_REACHED: [&str; 9] = [
+/// does not load, a module or package not found, a compile error, a build or
+/// a collection that failed before any test began.
+const NOT_REACHED: [&str; 17] = [
     "SyntaxError",
     "Cannot find module",
     "ModuleNotFoundError",
     "ImportError",
+    "ERROR collecting",
+    "errors during collection",
     "error[E",
+    "error: could not compile",
+    "no test target named",
     "cannot find package",
+    "[build failed]",
+    "[setup failed]",
+    "PHP Parse error",
+    "PHP Fatal error",
     "command not found",
     "No tests found",
     "no tests to run",
 ];
 
+/// What a runner prints when it ran no test at all: green then shows
+/// nothing, for the exploit's name or place matched none.
+const NONE_RAN: [&str; 8] = [
+    "no tests to run",
+    "[no test files]",
+    "running 0 tests",
+    "No tests executed",
+    "No tests found",
+    "No test files found",
+    "no tests ran",
+    "collected 0 items",
+];
+
 /// Whether a red run reached its test: the output names it, and no harness
 /// error says the file never ran.
-pub fn reached(tail: &str, test: &str) -> bool {
-    let test = spoken(test);
-    !test.is_empty()
-        && spoken(tail).contains(&test)
-        && !NOT_REACHED.iter().any(|said| tail.contains(said))
+pub fn reached(said: &str, test: &str) -> bool {
+    named(said, test) && !harness_error(said)
+}
+
+/// Whether a run's output says it ran no test: a green one shows nothing.
+pub fn none_ran(said: &str) -> bool {
+    NONE_RAN.iter().any(|marker| said.contains(marker))
+}
+
+/// Whether the output says the test broke before it began: one of
+/// [`NOT_REACHED`], a class the autoloader did not find (PHPUnit reports it
+/// as the test's error), or a fixture that is not there (pytest's `ERROR`).
+fn harness_error(said: &str) -> bool {
+    NOT_REACHED.iter().any(|marker| said.contains(marker))
+        || said.lines().any(|line| {
+            let line = line.trim();
+            let between = |open: &str, close: &str| {
+                line.find(open)
+                    .is_some_and(|at| line[at + open.len()..].contains(close))
+            };
+            between("Class \"", "\" not found")
+                || between("Class '", "' not found")
+                || between("fixture '", "' not found")
+                || (line.starts_with("ERROR ") && line.contains("::"))
+        })
+}
+
+/// Stands for a placeholder of a templated test's name while it is spoken.
+const ANY: char = '\u{0}';
+
+/// Whether `said` names `test`. A name made from a template (jest's and
+/// vitest's `it.each`, with `%s` or `$field`) names each case its own way:
+/// each placeholder then stands for a run of characters within one line.
+fn named(said: &str, test: &str) -> bool {
+    let wanted = spoken(&placeheld(test));
+    let literal: usize = wanted
+        .split(ANY)
+        .map(|part| part.chars().filter(|one| !one.is_whitespace()).count())
+        .sum();
+    if !wanted.contains(ANY) || literal < 3 {
+        // As written, or with `%%` as the `%` a template prints.
+        let said = spoken(said);
+        return [spoken(test), wanted]
+            .iter()
+            .any(|one| !one.is_empty() && !one.contains(ANY) && said.contains(one.as_str()));
+    }
+    let parts: Vec<&str> = wanted.split(ANY).collect();
+    said.lines().any(|line| fits(&spoken(line), &parts))
+}
+
+/// A test's name with each template placeholder as [`ANY`]: `%s`, `%d`,
+/// `%i`, `%f`, `%j`, `%o`, `%O`, `%p`, `%#` and `$field` (`$a.b`); `%%` is a
+/// percent sign.
+fn placeheld(test: &str) -> String {
+    let mut out = String::with_capacity(test.len());
+    let mut chars = test.chars().peekable();
+    while let Some(one) = chars.next() {
+        match (one, chars.peek().copied()) {
+            ('%', Some('%')) => {
+                chars.next();
+                out.push('%');
+            }
+            ('%', Some(kind)) if "sdifjoOp#".contains(kind) => {
+                chars.next();
+                out.push(ANY);
+            }
+            ('$', Some(first)) if first.is_ascii_alphabetic() || first == '_' => {
+                while chars
+                    .peek()
+                    .is_some_and(|next| next.is_ascii_alphanumeric() || "_.".contains(*next))
+                {
+                    chars.next();
+                }
+                out.push(ANY);
+            }
+            _ => out.push(one),
+        }
+    }
+    out
+}
+
+/// Whether `line` holds `parts` in order, a placeholder between each two
+/// (and before the first or after the last when empty) standing for at
+/// least one character.
+fn fits(line: &str, parts: &[&str]) -> bool {
+    let past_one = |at: usize| line[at..].chars().next().map(|one| at + one.len_utf8());
+    let mut from = 0;
+    for (at, part) in parts.iter().enumerate() {
+        if at > 0 {
+            let Some(next) = past_one(from) else {
+                return false;
+            };
+            from = next;
+        }
+        if part.is_empty() {
+            continue;
+        }
+        let Some(start) = line[from..].find(part) else {
+            return false;
+        };
+        from += start + part.len();
+    }
+    true
 }
 
 /// A test's name as runners print it, its parts joined by one space: jest
-/// joins a describe and its test with ` › `, vitest with ` > `, pytest and
-/// cargo with `::`. A name the attacker gave as `describe test` and a runner
-/// printed as `describe › test` are the same test.
+/// joins a describe and its test with ` › `, vitest and pest with ` > `,
+/// pytest, cargo and PHPUnit with `::`. Go prints a subtest's spaces as
+/// `_`. A name the attacker gave as `describe test` and a runner printed as
+/// `describe › test` are the same test.
 fn spoken(text: &str) -> String {
     text.replace('›', " ")
         .replace(" > ", " ")
         .replace("::", " ")
+        .replace('_', " ")
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ")
@@ -1662,6 +1789,7 @@ fn side(
     let ran = sandbox::run(found, &tree, command, (path, test), limits);
     match ran.outcome {
         Outcome::Red if ran.reached => ("red", "red, naming its test".to_owned()),
+        Outcome::Green if ran.none_ran => ("error", "green, but no test ran".to_owned()),
         Outcome::Green => ("green", "green".to_owned()),
         Outcome::Red => ("error", "it failed before its assertion".to_owned()),
         Outcome::TimedOut => ("error", "it ran past its time".to_owned()),

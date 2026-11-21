@@ -489,3 +489,108 @@ fn a_later_attackers_own_hypotheses_stay_apart() {
     assert_eq!(merged_once[1]["title"], "dns rebinding");
     assert_eq!(merged_once[1]["found_by"], json!(["codex/default"]));
 }
+
+#[test]
+fn a_test_made_from_a_template_is_reached_by_any_of_its_cases() {
+    let jest = "  \u{25cf} forged sessions \u{203a} accepts a cookie signed with admin\n\n    Expected: false\n";
+    for named in [
+        "forged sessions accepts a cookie signed with %s",
+        "forged sessions \u{203a} accepts a cookie signed with $role",
+        "accepts a cookie signed with $user.role",
+        "accepts a %s signed with %s",
+    ] {
+        assert!(reached(jest, named), "{named}");
+    }
+    for not in [
+        "forged sessions refuses a cookie signed with %s",
+        // A placeholder stands for something, never for nothing.
+        "accepts a cookie signed with admin%s",
+        // Its text on two lines is no case of it.
+        "forged sessions %s Expected: false",
+    ] {
+        assert!(!reached(jest, not), "{not}");
+    }
+    assert!(reached(
+        "  \u{2715} costs 100% off (3 ms)",
+        "costs 100%% off"
+    ));
+}
+
+/// What each runner prints when an exploit fails on its own assertion, and
+/// the name the attacker gave it.
+const RED: [(&str, &str, &str); 5] = [
+    (
+        "go",
+        "--- FAIL: TestSessionForgery (0.00s)\n    --- FAIL: TestSessionForgery/any_key_is_accepted (0.00s)\n        exploit_test.go:14: forged cookie accepted\nFAIL\nFAIL\texample.test/shop/session\t0.004s\n",
+        "TestSessionForgery/any key is accepted",
+    ),
+    (
+        "cargo",
+        "running 1 test\ntest forged_cookie_is_accepted ... FAILED\n\nfailures:\n\n---- forged_cookie_is_accepted stdout ----\nthread 'forged_cookie_is_accepted' panicked at tests/exploit.rs:9:5\n\ntest result: FAILED. 0 passed; 1 failed\n",
+        "forged_cookie_is_accepted",
+    ),
+    (
+        "pytest",
+        "____ TestSession.test_forged_cookie[admin] ____\nE   assert True is False\n=== short test summary info ===\nFAILED tests/test_exploit.py::TestSession::test_forged_cookie[admin] - assert True is False\n",
+        "TestSession::test_forged_cookie",
+    ),
+    (
+        "phpunit",
+        "There was 1 failure:\n\n1) Tests\\Security\\ExploitTest::testForgedCookie with data set #0 ('admin')\nFailed asserting that true is false.\n",
+        "ExploitTest::testForgedCookie",
+    ),
+    (
+        "pest",
+        "   FAIL  Tests\\Feature\\ExploitTest\n  \u{2a2f} it accepts a forged cookie\n   FAILED  Tests\\Feature\\ExploitTest > it accepts a forged cookie\n  Failed asserting that true is false.\n",
+        "it accepts a forged cookie",
+    ),
+];
+
+#[test]
+fn each_runner_devflow_supports_names_its_red_test() {
+    for (runner, said, test) in RED {
+        assert!(reached(said, test), "{runner}: {test}");
+        assert!(!none_ran(said), "{runner}");
+    }
+    assert!(reached(RED[3].1, "testForgedCookie with data set #0"));
+    assert!(reached(
+        RED[2].1,
+        "tests/test_exploit.py::TestSession::test_forged_cookie"
+    ));
+}
+
+#[test]
+fn a_harness_error_of_any_runner_is_never_the_hole() {
+    let test = "TestSessionForgery";
+    for said in [
+        // go: the exploit does not compile.
+        "# example.test/shop/session [example.test/shop/session.test]\n./exploit_test.go:9:2: undefined: Forge in TestSessionForgery\nFAIL\texample.test/shop/session [build failed]\n",
+        // cargo: no test target of that name.
+        "error: no test target named `TestSessionForgery` in default-run packages\n",
+        // pytest: a fixture that is not there.
+        "ERROR tests/test_exploit.py::TestSessionForgery - fixture 'db' not found\n",
+        "E       fixture 'db' not found\nFAILED tests/test_exploit.py::TestSessionForgery\n",
+        // PHPUnit: the autoloader did not find a class.
+        "There was 1 error:\n\n1) Tests\\ExploitTest::TestSessionForgery\nError: Class \"App\\Session\\Forger\" not found\n",
+        "PHP Fatal error:  Uncaught Error in TestSessionForgery\n",
+    ] {
+        assert!(!reached(said, test), "{said}");
+    }
+}
+
+#[test]
+fn a_green_run_that_ran_no_test_refutes_nothing() {
+    for said in [
+        "testing: warning: no tests to run\nPASS\nok  \texample.test/shop\t0.002s [no tests to run]\n",
+        "?   \texample.test/shop/session\t[no test files]\n",
+        "running 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out\n",
+        "No tests executed!\n",
+        "collected 0 items\n\n=== no tests ran in 0.01s ===\n",
+    ] {
+        assert!(none_ran(said), "{said}");
+    }
+    assert!(!none_ran(
+        "running 10 tests\ntest result: ok. 10 passed; 0 failed\n"
+    ));
+    assert!(!none_ran("ok  \texample.test/shop\t0.002s\n"));
+}
