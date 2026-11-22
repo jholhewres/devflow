@@ -42,7 +42,10 @@ crates/
   mcp      devflow-mcp, the `devflow` binary: the MCP server over stdio and
            the person's commands (setup, register, config, jev setup, doctor,
            status), and the hooks' entry points
-xtask      version-sync
+xtask      version-sync (VERSION into every manifest) and plugin-sync (the
+           plugin's files from flow/)
+flow/      what the engine embeds: skills, personas, rubrics, schemas,
+           payloads, hosts and publish
 .claude-plugin/, skills/, commands/, agents/, hooks/
            the Claude Code plugin, at the repository's root
 gemini-extension.json, GEMINI.md
@@ -71,7 +74,7 @@ install.sh the one-line install
 
 ## The MCP tools
 
-The twelve devpit offers, without devpit's prefix, and what replaces its
+devpit's, without its prefix, the attack, and what replaces devpit's
 board:
 
 | Tool | Does |
@@ -82,6 +85,7 @@ board:
 | `brief`, `plan` | the epic and its slices, as work items |
 | `evidence` | the checks run, their reports kept as a run |
 | `review`, `publish` | reviewers headless on the person's own CLIs; a PR review drafted and posted after a yes |
+| `attack` | the attack stage on an item or a range: exploits run in the sandbox, `verified` and `prove` |
 | `gate`, `stage` | whether the work may be called done; an own stage's gate |
 | `next` | the next work item by its blockers (autopilot's pure half) |
 | `item`, `items`, `comment`, `start`, `finish`, `handoff` | the work items, in place of devpit's cards |

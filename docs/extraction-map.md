@@ -29,7 +29,7 @@ nothing, and any own stage's gate passed.
 | Ad hoc review | A pull request, a commit range or a worktree reviewed without an item; `retro` mode for merged ranges | `adhoc` |
 | Publish | A review drafted for its pull request (`publish.json`) and posted only after the person's yes | `publish` |
 | Autopilot | Approved plan → items in the order their blockers allow | `autopilot` |
-| Skills and plugin | Seven skills resolved project → personal → built-in; a Claude Code plugin and Codex hooks | `skills`, `plugin` |
+| Skills and plugin | Seven skills at that commit (devflow adds `devflow-attack`, eight today) resolved project → personal → built-in; a Claude Code plugin and Codex hooks | `skills`, `plugin` |
 
 ## `crates/devflow` (about 20.6k lines with tests, 10.5k without)
 
@@ -87,6 +87,6 @@ nothing, and any own stage's gate passed.
 | Hooks, plugin | the Claude Code plugin at the repository's root (skills, commands, reviewer agents, Stop and SessionStart hooks calling `devflow hook …`); the Gemini extension; ready configs for the rest | `install.sh` / `devflow register` | devpit's launch line |
 | Decisions | `Judge`: rubric and state in, answer out | off; OpenRouter opt-in, as in devpit, the key in `OPENROUTER_API_KEY` or `$XDG_CONFIG_HOME/devflow/credentials` (0600) | devpit's provider and log |
 | Home, runs | `devflow.yaml` or `.devflow/`; `.devflow/runs/` ignored by git; `.devflow/lock`; personal layer in `$XDG_CONFIG_HOME/devflow/`; team cache in `$XDG_CACHE_HOME/devflow/` | | devpit passes its home and keeps its runs |
-| `devpit_devflow_*` tools | `devflow mcp` (stdio): `status`, `setup`, `set`, `skill`, `brief`, `plan`, `evidence`, `review`, `gate`, `stage`, `publish`, `next`, and `item`, `items`, `comment`, `start`, `finish`, `handoff` for the work items | | devpit proxies its names |
+| `devpit_devflow_*` tools | `devflow mcp` (stdio): `status`, `setup`, `set`, `skill`, `brief`, `plan`, `evidence`, `review`, `gate`, `stage`, `publish`, `next`, `attack` (devflow's own), and `item`, `items`, `comment`, `start`, `finish`, `handoff` for the work items | | devpit proxies its names |
 | The person's click | a terminal command with a confirmation (`devflow config set enabled true`, `devflow jev setup`, pinning a team layer), or `apply` after the person's yes; the MCP tool answers with the command to run | | the click in the window |
 | Autopilot | the `next` tool: the next item by its blockers | | devpit launches the sessions |

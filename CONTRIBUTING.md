@@ -1,8 +1,9 @@
 # Contributing
 
-Thanks for looking. The project is early: the engine is being extracted from
-devpit (see [docs/plan.md](docs/plan.md)), so the most useful thing to do
-before writing code is to open an issue saying what you want to change.
+Thanks for looking. devflow is a standalone engine and MCP server, released
+as 0.x (see [docs/plan.md](docs/plan.md) for its shape and history). The
+most useful thing to do before writing code is to open an issue saying what
+you want to change.
 
 ## Getting set up
 
@@ -14,8 +15,11 @@ make check     # rustfmt --check, clippy with warnings as errors, the tests
 make fmt       # after any Rust edit
 ```
 
-CI runs `make lint` and `make test` on Linux and macOS, nothing else, so what
-passes locally passes there.
+CI runs three jobs: `make lint` and `make test` on Linux and on macOS, and
+`manifests`, which checks that every manifest agrees with `VERSION`
+(`cargo xtask version-sync --check`), that the plugin's files are the
+flow's (`cargo xtask plugin-sync --check`) and that `install.sh` parses
+(`sh -n`). Run those too and what passes locally passes there.
 
 ## Rules that have teeth
 
