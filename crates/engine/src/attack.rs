@@ -656,8 +656,10 @@ pub fn failed(report: &Value) -> Option<String> {
 
 /// Each tried exploit run in the engine's sandbox at HEAD, in a throwaway
 /// worktree: red that names its test confirms it, green refutes it. One it
-/// could not run keeps `tried`, with why under `ran`, for the session.
-fn proven(given: &Given, stamp: &str, hypotheses: &mut [Value]) {
+/// could not run keeps `tried`, with why under `ran`, for the session. A
+/// Rust project's exploits start from one build of HEAD per attack, `warm`,
+/// made once two or more are to run ([`sandbox::warmed`]).
+fn proven(given: &Given, stamp: &str, hypotheses: &mut [Value], warm: &mut Option<sandbox::Tree>) {
     let tried: Vec<usize> = (0..hypotheses.len())
         .filter(|at| {
             hypotheses[*at]["status"] == "tried" && hypotheses[*at]["exploit"]["code"].is_string()
@@ -710,6 +712,20 @@ fn proven(given: &Given, stamp: &str, hypotheses: &mut [Value]) {
         ..sandbox::Limits::default()
     };
     let head: String = given.git.head.chars().take(12).collect();
+    // Its dependencies built once, not again for each exploit: offline in
+    // the sandbox, from HEAD with no exploit in it.
+    if warm.is_none() && tried.len() >= 2 && command.contains("cargo ") {
+        if let Ok(tree) = sandbox::tree_at(
+            given.root,
+            given.git.head,
+            &scratch.join(stamp).join("warm"),
+        ) {
+            if sandbox::warmed(&found, &tree, limits).is_some() {
+                *warm = Some(tree);
+            }
+        }
+    }
+    let from_warm = warm.as_ref().map(|tree| tree.at.join("target"));
     for at in tried {
         let one = &mut hypotheses[at];
         let id = plain_id(one["id"].as_str().unwrap_or("h"));
@@ -727,7 +743,7 @@ fn proven(given: &Given, stamp: &str, hypotheses: &mut [Value]) {
             .to_owned();
         // A worktree of its own, dropped whole: nothing one exploit leaves
         // reaches the next, and nothing in it is removed file by file.
-        let tree =
+        let mut tree =
             match sandbox::tree_at(given.root, given.git.head, &scratch.join(stamp).join(&id)) {
                 Ok(tree) => tree,
                 Err(why) => {
@@ -735,6 +751,7 @@ fn proven(given: &Given, stamp: &str, hypotheses: &mut [Value]) {
                     continue;
                 }
             };
+        tree.warm = from_warm.clone();
         if let Err(why) = sandbox::place(&tree.at, &exploit_at, &code) {
             one["ran"] = json!({ "result": "not_run", "reason": why });
             continue;
@@ -1527,11 +1544,14 @@ pub fn attacked(given: &Given) -> Result<Done, String> {
         .and_then(|name| name.to_str())
         .unwrap_or_default()
         .to_owned();
+    // A Rust project's build of HEAD, made once for all this attack's
+    // exploits and removed with it.
+    let mut warm: Option<sandbox::Tree> = None;
     if !again.is_empty() {
         for (at, one) in again.iter_mut().enumerate() {
             one["id"] = json!(format!("again-{}", at + 1));
         }
-        proven(given, &stamp, &mut again);
+        proven(given, &stamp, &mut again, &mut warm);
         // Why each now stands is devflow's to say, never the earlier words.
         for one in again.iter_mut() {
             let ran = text(&one["ran"], "reason");
@@ -1742,7 +1762,7 @@ pub fn attacked(given: &Given) -> Result<Done, String> {
     for (at, one) in hypotheses.iter_mut().enumerate() {
         one["id"] = json!(format!("h{}", at + 1));
     }
-    proven(given, &stamp, &mut hypotheses);
+    proven(given, &stamp, &mut hypotheses, &mut warm);
     let run_again = again.len();
     for one in again {
         let mut one = one;

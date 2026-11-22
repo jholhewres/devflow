@@ -411,7 +411,63 @@ fn tree_of(dir: &Path, files: &[&str]) -> Tree {
         root: dir.join("checkout"),
         at,
         deps: Vec::new(),
+        warm: None,
     }
+}
+
+#[test]
+fn a_rust_run_starts_from_its_attacks_warm_build_read_only() {
+    let dir = tempfile::tempdir().expect("dir");
+    let warm = dir.path().join("warm/target");
+    std::fs::create_dir_all(&warm).expect("warm");
+    let mut tree = tree_of(dir.path(), &["Cargo.toml"]);
+    let mut none = Language::default();
+    from_warm(&mut none, &tree);
+    assert_eq!(none, Language::default(), "no warm build, nothing changes");
+    tree.warm = Some(warm.clone());
+    let mut rust = Language::default();
+    from_warm(&mut rust, &tree);
+    assert_eq!(
+        rust.caches,
+        [Mount {
+            from: warm.clone(),
+            to: PathBuf::from(CARGO_WARM)
+        }]
+    );
+    let prelude = rust.prelude.expect("a prelude");
+    assert!(
+        prelude.contains("cp -a /tmp/devflow-cargo-warm/. target/")
+            && prelude.contains("|| rm -rf target"),
+        "{prelude}"
+    );
+    let seen = Seen {
+        caches: rust.caches.clone(),
+        ..Seen::default()
+    };
+    let docker = Sandbox {
+        kind: Kind::Docker,
+        program: "/usr/bin/docker".into(),
+        image: Some("rust:1".into()),
+        prlimit: None,
+        network: None,
+        env: Vec::new(),
+    };
+    let argv = argv(
+        &docker,
+        &tree.at,
+        &seen,
+        "cargo test",
+        Limits::default(),
+        "n",
+    );
+    assert!(
+        argv.contains(&format!("{}:{CARGO_WARM}:ro", warm.display())),
+        "{argv:?}"
+    );
+    std::fs::remove_file(tree.at.join("Cargo.toml")).expect("not rust");
+    let mut other = Language::default();
+    from_warm(&mut other, &tree);
+    assert_eq!(other, Language::default(), "only a Rust project");
 }
 
 #[test]

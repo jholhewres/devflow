@@ -2,7 +2,8 @@
 //! commit, the project's dependencies mounted in read-only where it keeps
 //! them, its language's caches read-only (cargo's registry, Go's modules)
 //! with the toolchain held offline, a Python venv made over the project's
-//! own, and the test run in bwrap with a network namespace of its own (loopback alone) or in
+//! own (its editable installs leading to the worktree), a Rust project's
+//! one build of HEAD per attack copied in, and the test run in bwrap with a network namespace of its own (loopback alone) or in
 //! docker with no network, under time, CPU and memory limits and `nice`.
 //! The checkout is never written; a cloud's metadata service and every host
 //! outside are unreachable, as is any third party.
@@ -264,6 +265,11 @@ pub const CARGO_HOME: &str = "/tmp/devflow-cargo";
 pub const GO_HOME: &str = "/tmp/devflow-go";
 /// Where a run's Python venv is made over the project's own.
 pub const PYTHON_HOME: &str = "/tmp/devflow-python";
+/// Where a Rust run sees its attack's warm build, read-only: copied into
+/// its own `target` before its test, so only its own code is compiled.
+pub const CARGO_WARM: &str = "/tmp/devflow-cargo-warm";
+/// What builds a Rust project's tests, its dependencies first, and runs none.
+const CARGO_WARM_UP: &str = "cargo test --offline --no-run";
 /// What runs a Python command in the project's venv: the sandbox makes that
 /// venv the one `python` runs, offline, so it is dropped.
 const PYTHON_RUNNERS: [&str; 3] = ["uv run ", "poetry run ", "pipenv run "];
@@ -905,6 +911,8 @@ pub struct Tree {
     pub root: PathBuf,
     pub at: PathBuf,
     pub deps: Vec<Mount>,
+    /// A Rust run's warm build ([`warmed`]), the `target` it starts from.
+    pub warm: Option<PathBuf>,
 }
 
 impl Drop for Tree {
@@ -930,6 +938,7 @@ pub fn tree_at(checkout: &Path, commit: &str, at: &Path) -> Result<Tree, String>
         root: checkout.to_path_buf(),
         at: at.to_path_buf(),
         deps: Vec::new(),
+        warm: None,
     };
     let mut wanted: Vec<(std::ffi::OsString, PathBuf)> = dependencies_for(checkout)
         .into_iter()
@@ -951,6 +960,43 @@ pub fn tree_at(checkout: &Path, commit: &str, at: &Path) -> Result<Tree, String>
         }
     }
     Ok(tree)
+}
+
+/// A Rust run started from its attack's warm build ([`Tree::warm`]): that
+/// build mounted read-only at [`CARGO_WARM`], and copied first as the
+/// worktree's own `target`, or no `target` at all when the copy fails.
+fn from_warm(language: &mut Language, tree: &Tree) {
+    let Some(warm) = tree
+        .warm
+        .as_ref()
+        .filter(|warm| warm.is_dir() && tree.at.join("Cargo.toml").is_file())
+    else {
+        return;
+    };
+    language.caches.push(Mount {
+        from: warm.clone(),
+        to: PathBuf::from(CARGO_WARM),
+    });
+    language.prelude = Some(format!(
+        "if [ -d {CARGO_WARM} ] && [ ! -e target ]; then mkdir target && cp -a {CARGO_WARM}/. target/ 2>/dev/null || rm -rf target; fi\n{}",
+        language.prelude.take().unwrap_or_default()
+    ));
+}
+
+/// A Rust project's build in `tree`, made once for an attack's exploits:
+/// its tests built offline in `sandbox` and none run, as each exploit's own
+/// run would build them. The `target` it leaves, its dependencies above
+/// all, even when the project's own code did not compile, is each exploit's
+/// to start from ([`Tree::warm`]): mounted read-only and copied into its own
+/// worktree, so nothing one exploit leaves reaches the next. `None` for a
+/// project that is not Rust, or when nothing was built.
+pub fn warmed(sandbox: &Sandbox, tree: &Tree, limits: Limits) -> Option<PathBuf> {
+    if !tree.at.join("Cargo.toml").is_file() {
+        return None;
+    }
+    let _ = run(sandbox, tree, CARGO_WARM_UP, ("", ""), limits);
+    let target = tree.at.join("target");
+    target.is_dir().then_some(target)
 }
 
 /// Writes an exploit at `relative` inside `tree` as a new file, refusing a
@@ -1018,8 +1064,9 @@ pub fn run(
     let began = Instant::now();
     let path = std::env::var_os("PATH").unwrap_or_default();
     let home = std::env::var_os("HOME").map(PathBuf::from);
-    let language = language(tree, sandbox.kind, home.as_deref(), &path);
+    let mut language = language(tree, sandbox.kind, home.as_deref(), &path);
     let command = unwrapped(command, &language);
+    from_warm(&mut language, tree);
     let mut seen = Seen {
         deps: tree.deps.clone(),
         tools: home
