@@ -668,50 +668,28 @@ fn proven(given: &Given, stamp: &str, hypotheses: &mut [Value], warm: &mut Optio
     if tried.is_empty() {
         return;
     }
-    let left = |hypotheses: &mut [Value], why: &str| {
-        for at in &tried {
-            hypotheses[*at]["ran"] =
-                json!({ "result": "not_run", "reason": format!("{why}: the session runs it") });
-        }
-    };
-    let attack = &given.config.stages.attack;
-    let Some(command) = attack
-        .test
-        .as_deref()
-        .filter(|test| !test.trim().is_empty())
-    else {
-        return left(
-            hypotheses,
-            "stages.attack.test is not set, the command that runs one exploit",
-        );
-    };
-    let path = std::env::var_os("PATH").unwrap_or_default();
-    let choice = sandbox_for(attack.sandbox, given.stack.is_some());
-    let found = match sandbox::found(choice, attack.image.as_deref(), &path) {
+    // Why none runs, in the order it is asked: the command, the sandbox, a
+    // folder for the worktrees.
+    let found = sandboxes(given).and_then(|found| {
+        given
+            .scratch
+            .map(|scratch| (scratch, found))
+            .ok_or_else(|| "no folder for a throwaway worktree".to_owned())
+    });
+    let (scratch, (command, found, stacked)) = match found {
         Ok(found) => found,
-        Err(why) => return left(hypotheses, &why),
-    };
-    // An exploit that says which of the stack's targets it reaches runs on
-    // the stack's internal network; every other one has no network at all.
-    let mut stacked = found.clone();
-    if let Some(stack) = given.stack {
-        if found.kind != sandbox::Kind::Docker {
-            return left(
-                hypotheses,
-                "a stack is reached only from the docker sandbox",
-            );
+        Err(why) => {
+            for at in &tried {
+                hypotheses[*at]["ran"] =
+                    json!({ "result": "not_run", "reason": format!("{why}: the session runs it") });
+            }
+            return;
         }
-        stacked.network = Some(stack.network.clone());
-        stacked.env = crate::security::environment(&stack.targets);
-    }
-    let Some(scratch) = given.scratch else {
-        return left(hypotheses, "no folder for a throwaway worktree");
     };
     let limits = sandbox::Limits {
         time: EXPLOIT_TIME,
         ..sandbox::Limits::default()
     };
-    let head: String = given.git.head.chars().take(12).collect();
     // Its dependencies built once, not again for each exploit: offline in
     // the sandbox, from HEAD with no exploit in it.
     if warm.is_none() && tried.len() >= 2 && command.contains("cargo ") {
@@ -725,87 +703,137 @@ fn proven(given: &Given, stamp: &str, hypotheses: &mut [Value], warm: &mut Optio
             }
         }
     }
-    let from_warm = warm.as_ref().map(|tree| tree.at.join("target"));
+    let runner = Exploits {
+        given,
+        trees: scratch.join(stamp),
+        command,
+        found,
+        stacked,
+        warm: warm.as_ref().map(|tree| tree.at.join("target")),
+        limits,
+        head: given.git.head.chars().take(12).collect(),
+    };
     for at in tried {
-        let one = &mut hypotheses[at];
+        runner.run(&mut hypotheses[at]);
+    }
+}
+
+/// The command that runs one exploit, the sandbox it runs in, and the one
+/// an exploit of the stack runs in: on the stack's internal network, where
+/// every other has no network at all. Why there is none, when not.
+fn sandboxes<'a>(
+    given: &Given<'a>,
+) -> Result<(&'a str, sandbox::Sandbox, sandbox::Sandbox), String> {
+    let attack = &given.config.stages.attack;
+    let command = attack
+        .test
+        .as_deref()
+        .filter(|test| !test.trim().is_empty())
+        .ok_or("stages.attack.test is not set, the command that runs one exploit")?;
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    let choice = sandbox_for(attack.sandbox, given.stack.is_some());
+    let found = sandbox::found(choice, attack.image.as_deref(), &path)?;
+    let mut stacked = found.clone();
+    if let Some(stack) = given.stack {
+        if found.kind != sandbox::Kind::Docker {
+            return Err("a stack is reached only from the docker sandbox".to_owned());
+        }
+        stacked.network = Some(stack.network.clone());
+        stacked.env = crate::security::environment(&stack.targets);
+    }
+    Ok((command, found, stacked))
+}
+
+/// What runs an attack's exploits in the sandbox, each in a worktree of its
+/// own under `trees`.
+struct Exploits<'a> {
+    given: &'a Given<'a>,
+    trees: PathBuf,
+    command: &'a str,
+    found: sandbox::Sandbox,
+    stacked: sandbox::Sandbox,
+    warm: Option<PathBuf>,
+    limits: sandbox::Limits,
+    head: String,
+}
+
+impl Exploits<'_> {
+    /// One hypothesis's exploit run, and what it showed kept on it.
+    fn run(&self, one: &mut Value) {
         let id = plain_id(one["id"].as_str().unwrap_or("h"));
-        let exploit_at = one["exploit"]["path"]
-            .as_str()
-            .unwrap_or_default()
-            .to_owned();
-        let test = one["exploit"]["test"]
-            .as_str()
-            .unwrap_or_default()
-            .to_owned();
-        let code = one["exploit"]["code"]
-            .as_str()
-            .unwrap_or_default()
-            .to_owned();
+        let said = |key: &str| one["exploit"][key].as_str().unwrap_or_default().to_owned();
+        let (exploit_at, test, code) = (said("path"), said("test"), said("code"));
         // A worktree of its own, dropped whole: nothing one exploit leaves
         // reaches the next, and nothing in it is removed file by file.
-        let mut tree =
-            match sandbox::tree_at(given.root, given.git.head, &scratch.join(stamp).join(&id)) {
-                Ok(tree) => tree,
-                Err(why) => {
-                    one["ran"] = json!({ "result": "not_run", "reason": why });
-                    continue;
-                }
-            };
-        tree.warm = from_warm.clone();
+        let given = self.given;
+        let mut tree = match sandbox::tree_at(given.root, given.git.head, &self.trees.join(&id)) {
+            Ok(tree) => tree,
+            Err(why) => {
+                one["ran"] = json!({ "result": "not_run", "reason": why });
+                return;
+            }
+        };
+        tree.warm = self.warm.clone();
         if let Err(why) = sandbox::place(&tree.at, &exploit_at, &code) {
             one["ran"] = json!({ "result": "not_run", "reason": why });
-            continue;
+            return;
         }
         let on_stack = on_stack(given.stack.map(|stack| stack.targets.as_slice()), one);
         let ran = sandbox::run(
-            if on_stack { &stacked } else { &found },
+            if on_stack { &self.stacked } else { &self.found },
             &tree,
-            command,
+            self.command,
             (&exploit_at, &test),
-            limits,
+            self.limits,
         );
         drop(tree);
         let said: Vec<char> = ran.tail.chars().collect();
         let tail: String = said[said.len().saturating_sub(MOST_TAIL)..]
             .iter()
             .collect();
-        let (status, result, why) = match &ran.outcome {
-            Outcome::Red if ran.reached => {
-                ("confirmed", "confirmed", "red, naming its test".to_owned())
-            }
-            Outcome::Red => (
-                "tried",
-                "not_run",
-                "it failed before its assertion: the output names no failing test of it, or a harness error".to_owned(),
-            ),
-            Outcome::Green if ran.none_ran => (
-                "tried",
-                "not_run",
-                "green, but the output says no test ran: its name or place matched none of the runner's".to_owned(),
-            ),
-            Outcome::Green => (
-                "refuted",
-                "refuted",
-                "green: the hole is not there".to_owned(),
-            ),
-            Outcome::TimedOut => ("tried", "not_run", "it ran past its time".to_owned()),
-            Outcome::Failed(why) => ("tried", "not_run", why.clone()),
-        };
+        let (status, result, why) = ended(&ran);
+        let (by, head) = (self.found.kind.word(), &self.head);
         one["status"] = json!(status);
         one["ran"] = json!({
-            "by": found.kind.word(), "at": head, "result": result, "reason": why,
+            "by": by, "at": head, "result": result, "reason": why,
             "exit": ran.exit, "duration_ms": ran.duration_ms, "tail": (given.redact)(&tail),
         });
         if result != "not_run" {
             // The test it ran, as the session's `verified` names its own.
             one["verified"] = json!({
                 "result": result, "by": "sandbox", "test": test, "path": exploit_at,
-                "evidence": format!("{} at {head}: {why}", found.kind.word()),
+                "evidence": format!("{by} at {head}: {why}"),
             });
             if on_stack {
                 one["verified"]["stack"] = json!(true);
             }
         }
+    }
+}
+
+/// How an exploit's run ends its hypothesis: its status, its run's result
+/// and why. Red that names its test confirms; green that ran a test refutes;
+/// anything else is not run, for the session.
+fn ended(ran: &sandbox::Ran) -> (&'static str, &'static str, String) {
+    match &ran.outcome {
+        Outcome::Red if ran.reached => ("confirmed", "confirmed", "red, naming its test".to_owned()),
+        Outcome::Red => (
+            "tried",
+            "not_run",
+            "it failed before its assertion: the output names no failing test of it, or a harness error".to_owned(),
+        ),
+        Outcome::Green if ran.none_ran => (
+            "tried",
+            "not_run",
+            "green, but the output says no test ran: its name or place matched none of the runner's".to_owned(),
+        ),
+        Outcome::Green => (
+            "refuted",
+            "refuted",
+            "green: the hole is not there".to_owned(),
+        ),
+        Outcome::TimedOut => ("tried", "not_run", "it ran past its time".to_owned()),
+        Outcome::Failed(why) => ("tried", "not_run", why.clone()),
     }
 }
 
