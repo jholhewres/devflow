@@ -1305,32 +1305,121 @@ fn criteria_of(body: &str, config: &Config) -> Vec<String> {
         .collect()
 }
 
-/// A new review: a fresh run, its packet, and every reviewer at once.
-fn reviewed_anew(given: &Given) -> Result<(String, PathBuf, Record), String> {
-    let git = given
-        .git
-        .ok_or("no BASE and HEAD to review between: is this checkout a git repository?")?;
-    if git.files.is_empty() || git.diff.trim().is_empty() {
-        return Err(format!(
-            "nothing to review: the diff from BASE {} is empty",
-            git.base
-        ));
+/// An answer that is not findings keeps what was said: "invalid JSON" with
+/// nothing to read was every review of the first real project.
+type Unread = (String, Option<reviewing::Reviewed>);
+/// A reader's answer with what its turn said, or why there is none.
+type Read = Result<(Value, reviewing::Reviewed), Unread>;
+/// A reader's last outcome, with each failed try before it.
+type Tried = (Read, Vec<Unread>);
+
+/// What each reader of a new review reads: the change's packet, kept in
+/// the run at `packet_at`.
+struct Reading<'a> {
+    given: &'a Given<'a>,
+    git: Git<'a>,
+    packet: String,
+    packet_at: String,
+}
+
+impl Reading<'_> {
+    /// One reader's turn on the packet, held to the findings schema and, in
+    /// a retro, to what a retro follows up.
+    fn read(&self, reader: &Reader, deadline: Duration) -> Read {
+        let given = self.given;
+        let dialect = given.personas.dialect;
+        let reviewer = &reader.reviewer;
+        let persona = effective_persona(given.root, given.personas, &reviewer.persona)
+            .map_err(|why| (why, None))?
+            .text;
+        let agent = reviewer.agent.word();
+        let attack = reader.stage == models::ATTACK;
+        let asked = if attack {
+            attack_prompt(&persona, &self.packet, agent)
+        } else {
+            prompt(&persona, &self.packet, agent, &reviewer.persona)
+        };
+        let env = env_of_in(
+            dialect,
+            given.env,
+            self.git,
+            &self.packet_at,
+            &reviewer.persona,
+        );
+        let said = turn_in(
+            dialect,
+            &Turn {
+                agent: reviewer.agent,
+                model: reviewer.model.as_deref(),
+                reach: given.reach,
+                prompt: &asked,
+                cwd: given.root,
+                env: &env,
+                deadline,
+            },
+        )
+        .map_err(|why| (why, None))?;
+        match findings::read_signed(&said.text, agent, &reviewer.persona)
+            .and_then(|answer| held_to_retro(answer, given.retro))
+        {
+            Ok(mut answer) => {
+                if attack {
+                    findings::from_attack(&mut answer);
+                }
+                Ok((answer, said))
+            }
+            Err(why) => Err((why, Some(said))),
+        }
     }
-    let path = given.runs.fresh(given.card.id, given.at)?;
-    let criteria = criteria_of(given.card.body, given.config);
-    let touched = given.previous.map(|_| findings::touched(git.diff));
-    let blocked: Vec<Value> = given.previous.map_or_else(Vec::new, |previous| {
+
+    /// One reader's turn, asked again after a pause when it failed or ran
+    /// out of time, while the review has time for a try; each failed try is
+    /// kept with its reason.
+    fn tried(&self, reader: &Reader, deadline: Duration, started: Instant) -> Tried {
+        let mut failed: Vec<Unread> = Vec::new();
+        let mut outcome = self.read(reader, first_try(deadline));
+        for pause in RETRY_PAUSES {
+            match &outcome {
+                Err((why, _)) if asked_again(why) => {}
+                _ => break,
+            }
+            if deadline.saturating_sub(started.elapsed() + pause) < LEAST_TRY {
+                break;
+            }
+            if let Err(unread) = outcome {
+                failed.push(unread);
+            }
+            std::thread::sleep(pause);
+            outcome = self.read(reader, deadline.saturating_sub(started.elapsed()));
+        }
+        (outcome, failed)
+    }
+}
+
+/// A re-review's findings that still block, which its packet carries.
+fn blocked_before(given: &Given, touched: Option<&findings::Touched>) -> Vec<Value> {
+    given.previous.map_or_else(Vec::new, |previous| {
         findings::rechecked(
             &previous.findings,
             &given.config.review.block_on,
             given.config.review.verify,
-            touched.as_ref().unwrap_or(&findings::Touched::new()),
+            touched.unwrap_or(&findings::Touched::new()),
         )
         .into_iter()
         .cloned()
         .collect()
-    });
+    })
+}
+
+/// The new review's packet, kept in the run beside the findings schema.
+fn review_packet(
+    given: &Given,
+    git: Git,
+    path: &Path,
+    blocked: &[Value],
+) -> Result<String, String> {
     let dialect = given.personas.dialect;
+    let criteria = criteria_of(given.card.body, given.config);
     let packet = (given.redact)(&packet(&Packet {
         dialect,
         card: Card {
@@ -1345,77 +1434,27 @@ fn reviewed_anew(given: &Given) -> Result<(String, PathBuf, Record), String> {
         evidence: given.evidence,
         previous: given
             .previous
-            .map(|previous| (previous.run.as_str(), blocked.as_slice())),
+            .map(|previous| (previous.run.as_str(), blocked)),
         retro: given.retro,
     }));
-    let packet = whole_diff(packet, &path, git.diff, given.redact)?;
-    write(&path, PACKET, &packet)?;
-    write(&path, SCHEMA, dialect.assets.schema)?;
-    let packet_at = path.join(PACKET).display().to_string();
-    let deadline = given.budget.saturating_sub(PASS);
-    // An answer that is not findings keeps what was said: "invalid JSON" with
-    // nothing to read was every review of the first real project.
-    type Unread = (String, Option<reviewing::Reviewed>);
-    let one =
-        |reader: &Reader, deadline: Duration| -> Result<(Value, reviewing::Reviewed), Unread> {
-            let reviewer = &reader.reviewer;
-            let persona = effective_persona(given.root, given.personas, &reviewer.persona)
-                .map_err(|why| (why, None))?
-                .text;
-            let agent = reviewer.agent.word();
-            let attack = reader.stage == models::ATTACK;
-            let asked = if attack {
-                attack_prompt(&persona, &packet, agent)
-            } else {
-                prompt(&persona, &packet, agent, &reviewer.persona)
-            };
-            let env = env_of_in(dialect, given.env, git, &packet_at, &reviewer.persona);
-            let said = turn_in(
-                dialect,
-                &Turn {
-                    agent: reviewer.agent,
-                    model: reviewer.model.as_deref(),
-                    reach: given.reach,
-                    prompt: &asked,
-                    cwd: given.root,
-                    env: &env,
-                    deadline,
-                },
-            )
-            .map_err(|why| (why, None))?;
-            match findings::read_signed(&said.text, agent, &reviewer.persona)
-                .and_then(|answer| held_to_retro(answer, given.retro))
-            {
-                Ok(mut answer) => {
-                    if attack {
-                        findings::from_attack(&mut answer);
-                    }
-                    Ok((answer, said))
-                }
-                Err(why) => Err((why, Some(said))),
-            }
-        };
-    let scale = scale::chosen(
-        &given.config.review,
-        given.previous.map(|previous| previous.run.as_str()),
-        git.files,
-        git.diff,
-    );
-    let readers = readers_in(
-        models::readers(
-            given.config,
-            scale.as_ref().is_some_and(|scale| scale.one),
-            git.files,
-            git.diff,
-        ),
-        &given.asked.axes,
-    );
-    // With a project's overlay, what each reader read, by digest: the run
-    // can be read again as it was.
+    let packet = whole_diff(packet, path, git.diff, given.redact)?;
+    write(path, PACKET, &packet)?;
+    write(path, SCHEMA, dialect.assets.schema)?;
+    Ok(packet)
+}
+
+/// With a project's overlay, what each reader read, by digest, written
+/// under the packet: the run can be read again as it was. The headless
+/// readers', and the axes' the session may review itself: never when a
+/// reader reads every axis.
+fn personas_read(
+    given: &Given,
+    readers: &[Reader],
+    path: &Path,
+    packet: &str,
+) -> Result<(), String> {
     let mut read: Vec<String> = Vec::new();
     let mut overlaid = false;
-    // The headless readers', and the axes' the session may review itself:
-    // never when a reader reads every axis.
     let all_read = readers
         .iter()
         .any(|reader| reader.reviewer.persona == scale::ALL_AXES);
@@ -1440,33 +1479,126 @@ fn reviewed_anew(given: &Given) -> Result<(String, PathBuf, Record), String> {
     }
     if overlaid {
         write(
-            &path,
+            path,
             PACKET,
             &format!("{packet}\n## Personas\n{}\n", read.join("\n")),
         )?;
     }
-    // A reader that failed or ran out of time is asked again after a pause,
-    // while the review has time for a try; each try's reason is kept.
-    let started = std::time::Instant::now();
-    let tried = |reader: &Reader| {
-        let mut failed: Vec<Unread> = Vec::new();
-        let mut outcome = one(reader, first_try(deadline));
-        for pause in RETRY_PAUSES {
-            match &outcome {
-                Err((why, _)) if asked_again(why) => {}
-                _ => break,
-            }
-            if deadline.saturating_sub(started.elapsed() + pause) < LEAST_TRY {
-                break;
-            }
-            if let Err(unread) = outcome {
-                failed.push(unread);
-            }
-            std::thread::sleep(pause);
-            outcome = one(reader, deadline.saturating_sub(started.elapsed()));
-        }
-        (outcome, failed)
+    Ok(())
+}
+
+/// A reader's answer, or why there is none, kept on `record`: its findings
+/// in a file of its own, what an unread answer said in a raw file, and each
+/// failed try with what it spent and said (a paid try counts though it was
+/// asked again).
+fn kept_reading(
+    given: &Given,
+    path: &Path,
+    reader: &Reader,
+    outcome: Option<Tried>,
+    record: &mut Record,
+) -> Result<(), String> {
+    let reviewer = &reader.reviewer;
+    let mut ran = Ran {
+        agent: reviewer.agent.word().to_owned(),
+        persona: reviewer.persona.clone(),
+        model: reviewer.model.clone(),
+        by: given.personas.dialect.product.to_owned(),
+        duration_ms: None,
+        cost_usd: None,
+        file: None,
+        findings: 0,
+        reason: None,
+        stage: (reader.stage != "review").then(|| reader.stage.to_owned()),
+        tokens: None,
+        tries: Vec::new(),
     };
+    let (outcome, failed) = outcome.unwrap_or_else(|| {
+        (
+            Err(("its turn stopped before it answered".to_owned(), None)),
+            Vec::new(),
+        )
+    });
+    let mut spent = Spent::default();
+    for (at, (why, said)) in failed.into_iter().enumerate() {
+        let mut entry = json!({ "reason": why });
+        if let Some(said) = said {
+            let file = raw_try_for(&ran.agent, &ran.persona, at + 1);
+            write(path, &file, &(given.redact)(&said.text))?;
+            entry["file"] = json!(file);
+            entry["duration_ms"] = json!(said.duration_ms);
+            entry["cost_usd"] = json!(said.cost_usd);
+            spent.add(&said);
+        }
+        ran.tries.push(entry);
+    }
+    match outcome {
+        Ok((answer, said)) => {
+            let taken: Vec<String> = record.ran.iter().filter_map(|r| r.file.clone()).collect();
+            let file = file_for(&taken, &ran.agent, &ran.persona);
+            write(path, &file, &pretty(&answer))?;
+            spent.add(&said);
+            spent.onto(&mut ran);
+            ran.findings = answer["findings"].as_array().map_or(0, Vec::len);
+            ran.file = Some(file);
+            record.answers.push(answer);
+        }
+        Err((why, None)) => {
+            spent.onto(&mut ran);
+            ran.reason = Some(why);
+        }
+        Err((why, Some(said))) => {
+            let file = raw_file_for(&ran.agent, &ran.persona);
+            write(path, &file, &(given.redact)(&said.text))?;
+            spent.add(&said);
+            spent.onto(&mut ran);
+            ran.reason = Some(format!("{why}; what it said is in {file}"));
+        }
+    }
+    record.ran.push(ran);
+    Ok(())
+}
+
+/// A new review: a fresh run, its packet, and every reviewer at once.
+fn reviewed_anew(given: &Given) -> Result<(String, PathBuf, Record), String> {
+    let git = given
+        .git
+        .ok_or("no BASE and HEAD to review between: is this checkout a git repository?")?;
+    if git.files.is_empty() || git.diff.trim().is_empty() {
+        return Err(format!(
+            "nothing to review: the diff from BASE {} is empty",
+            git.base
+        ));
+    }
+    let path = given.runs.fresh(given.card.id, given.at)?;
+    let touched = given.previous.map(|_| findings::touched(git.diff));
+    let blocked = blocked_before(given, touched.as_ref());
+    let packet = review_packet(given, git, &path, &blocked)?;
+    let reading = Reading {
+        given,
+        git,
+        packet_at: path.join(PACKET).display().to_string(),
+        packet,
+    };
+    let deadline = given.budget.saturating_sub(PASS);
+    let scale = scale::chosen(
+        &given.config.review,
+        given.previous.map(|previous| previous.run.as_str()),
+        git.files,
+        git.diff,
+    );
+    let readers = readers_in(
+        models::readers(
+            given.config,
+            scale.as_ref().is_some_and(|scale| scale.one),
+            git.files,
+            git.diff,
+        ),
+        &given.asked.axes,
+    );
+    personas_read(given, &readers, &path, &reading.packet)?;
+    let started = Instant::now();
+    let tried = |reader: &Reader| reading.tried(reader, deadline, started);
     let outcomes = in_parallel(&readers, &tried);
     let mut record = Record {
         base: git.base.to_owned(),
@@ -1491,67 +1623,7 @@ fn reviewed_anew(given: &Given) -> Result<(String, PathBuf, Record), String> {
         axes: given.asked.axes.clone(),
     };
     for (reader, outcome) in readers.iter().zip(outcomes) {
-        let reviewer = &reader.reviewer;
-        let mut ran = Ran {
-            agent: reviewer.agent.word().to_owned(),
-            persona: reviewer.persona.clone(),
-            model: reviewer.model.clone(),
-            by: dialect.product.to_owned(),
-            duration_ms: None,
-            cost_usd: None,
-            file: None,
-            findings: 0,
-            reason: None,
-            stage: (reader.stage != "review").then(|| reader.stage.to_owned()),
-            tokens: None,
-            tries: Vec::new(),
-        };
-        let (outcome, failed) = match outcome {
-            Some((outcome, failed)) => (outcome, failed),
-            None => (
-                Err(("its turn stopped before it answered".to_owned(), None)),
-                Vec::new(),
-            ),
-        };
-        // Each failed try is kept with what it spent and said: a paid try
-        // counts though it was asked again.
-        let mut spent = Spent::default();
-        for (at, (why, said)) in failed.into_iter().enumerate() {
-            let mut entry = json!({ "reason": why });
-            if let Some(said) = said {
-                let file = raw_try_for(&ran.agent, &ran.persona, at + 1);
-                write(&path, &file, &(given.redact)(&said.text))?;
-                entry["file"] = json!(file);
-                entry["duration_ms"] = json!(said.duration_ms);
-                entry["cost_usd"] = json!(said.cost_usd);
-                spent.add(&said);
-            }
-            ran.tries.push(entry);
-        }
-        match outcome {
-            Ok((answer, said)) => {
-                let taken: Vec<String> = record.ran.iter().filter_map(|r| r.file.clone()).collect();
-                let file = file_for(&taken, &ran.agent, &ran.persona);
-                write(&path, &file, &pretty(&answer))?;
-                spent.add(&said);
-                spent.onto(&mut ran);
-                ran.findings = answer["findings"].as_array().map_or(0, Vec::len);
-                ran.file = Some(file);
-                record.answers.push(answer);
-            }
-            Err((why, None)) => {
-                spent.onto(&mut ran);
-                ran.reason = Some(why);
-            }
-            Err((why, Some(said))) => {
-                let file = raw_file_for(&ran.agent, &ran.persona);
-                write(&path, &file, &(given.redact)(&said.text))?;
-                spent.add(&said);
-                spent.onto(&mut ran);
-                ran.reason = Some(format!("{why}; what it said is in {file}"));
-            }
-        }
-        record.ran.push(ran);
+        kept_reading(given, &path, reader, outcome, &mut record)?;
     }
     let stamp = path
         .file_name()
