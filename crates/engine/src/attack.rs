@@ -444,12 +444,12 @@ pub fn open_before(runs: &crate::runs::Runs, card: &str, root: &Path, head: &str
                 continue;
             }
             for one in report["hypotheses"].as_array().into_iter().flatten() {
-                if again.len() >= MOST_AGAIN {
-                    return again;
-                }
                 if let Some(found) = left_open(one, &run_folder, &label, &run) {
                     // The newest run that kept it speaks for it, unless an
                     // older one confirmed it: that exploit showed the hole.
+                    // One of a hole already kept is taken in, past the most
+                    // run again, so what each took in is never lost.
+                    let room = again.len() < MOST_AGAIN;
                     match again.iter_mut().find(|had| same_hole(had, &found)) {
                         Some(had)
                             if had["again"]["was"] != "confirmed"
@@ -459,7 +459,8 @@ pub fn open_before(runs: &crate::runs::Runs, card: &str, root: &Path, head: &str
                             merge_into(had, &gone);
                         }
                         Some(had) => merge_into(had, &found),
-                        None => again.push(found),
+                        None if room => again.push(found),
+                        None => {}
                     }
                 }
             }
@@ -503,11 +504,29 @@ fn runs_named(hypotheses: &mut [Value], stamp: &str) {
 }
 
 /// `gone` kept on `kept`'s `merged` as one hole with it, with what `gone`
-/// had merged before.
+/// had merged before; one already there by its run and id, or `kept`
+/// itself, is not said twice.
 fn merge_into(kept: &mut Value, gone: &Value) {
+    let named = |one: &Value| {
+        let (id, run) = (&one["id"], &one["run"]);
+        (!id.is_null() && !run.is_null()).then(|| (id.clone(), run.clone()))
+    };
+    let itself = named(&trail(kept));
     let mut merged = kept["merged"].as_array().cloned().unwrap_or_default();
-    merged.extend(gone["merged"].as_array().cloned().unwrap_or_default());
-    merged.push(trail(gone));
+    let incoming = gone["merged"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .chain([trail(gone)]);
+    for one in incoming {
+        let said = named(&one);
+        let twice =
+            said.is_some() && (said == itself || merged.iter().any(|had| named(had) == said));
+        if !twice {
+            merged.push(one);
+        }
+    }
     kept["merged"] = json!(merged);
 }
 
@@ -562,10 +581,25 @@ fn left_open(one: &Value, run_folder: &Path, label: &str, run: &str) -> Option<V
         "reason": one["reason"], "exploit": exploit,
         "again": { "item": label, "run": run, "id": one["id"], "was": one["status"] },
     });
-    for key in ["near", "cause", "root"] {
+    for key in ["near", "cause", "root", "impact", "fix"] {
         if one[key].is_string() {
             found[key] = one[key].clone();
         }
+    }
+    // What it had taken in by then comes back with it, each named by the
+    // run that kept it.
+    if let Some(merged) = one["merged"].as_array().filter(|merged| !merged.is_empty()) {
+        let merged: Vec<Value> = merged
+            .iter()
+            .cloned()
+            .map(|mut gone| {
+                if gone["run"].is_null() {
+                    gone["run"] = json!(run);
+                }
+                gone
+            })
+            .collect();
+        found["merged"] = json!(merged);
     }
     Some(found)
 }

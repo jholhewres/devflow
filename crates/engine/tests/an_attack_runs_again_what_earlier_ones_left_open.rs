@@ -752,3 +752,55 @@ fn what_was_refuted_is_not_refuted_again_without_new_code_in_its_path() {
     );
     assert_eq!(report["counts"]["refuted"], 1);
 }
+
+/// A hypothesis run again keeps what it took in by then, each named by the
+/// run that kept it; a hole an older run kept that it had already taken in
+/// is not said twice.
+#[test]
+fn a_hypothesis_run_again_keeps_what_it_took_in() {
+    let project = project();
+    let card = "card_1";
+    let hole = |title: &str, status: &str, test: &str| {
+        json!({ "title": title, "class": "tls", "file": SESSION, "line": 3, "severity": "low",
+            "status": status, "reason": "the certificate is not checked",
+            "exploit": { "path": format!("tests/security/{test}.test.ts"), "test": test } })
+    };
+    let older = project.earlier_at(
+        card,
+        &project.first,
+        &[(
+            hole("Postgres accepts any certificate", "tried", "any cert"),
+            "exit 2\n",
+        )],
+        1_789_000_000,
+    );
+    let mut kept = hole("database TLS skips verification", "confirmed", "verify");
+    kept["merged"] = json!([
+        { "id": "h1", "run": older, "class": "tls", "file": SESSION, "line": 3,
+          "title": "Postgres accepts any certificate" },
+        { "id": "h4", "run": null, "class": "ssl", "file": SESSION, "line": 4,
+          "title": "pg ssl off", "found_by": ["codex/default"] },
+    ]);
+    let newer = project.earlier_at(card, &project.first, &[(kept, JEST_RED)], 1_790_000_000);
+    let yaml = "version: 1\nstages:\n  attack: { run: sensitive, test: 'sh \"$DEVFLOW_EXPLOIT\"', sandbox: off }\n";
+    let (report, _) = project.attack(card, &project.first, &project.second, yaml, json!([]));
+    assert_eq!(report["run_again"], 1, "{report:#}");
+    let again = &report["hypotheses"][0];
+    assert_eq!(again["again"]["run"], newer.as_str());
+    let merged: Vec<(&str, &str)> = again["merged"]
+        .as_array()
+        .expect("merged kept")
+        .iter()
+        .map(|one| {
+            (
+                one["id"].as_str().unwrap_or("-"),
+                one["run"].as_str().unwrap_or("-"),
+            )
+        })
+        .collect();
+    assert_eq!(
+        merged,
+        [("h1", older.as_str()), ("h4", newer.as_str())],
+        "{again:#}"
+    );
+}
