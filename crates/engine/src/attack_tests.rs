@@ -848,6 +848,16 @@ fn a_count_proof_takes_in_the_timing_proof_it_confirms() {
     clocked["exploit"]["timing"] = json!(true);
     assert!(!rewrites_timing(&timed, &clocked), "only a proof by count");
 
+    let mut other = count.clone();
+    other["title"] = json!("a deep JSON body overflows the stack");
+    other["line"] = json!(12);
+    other["status"] = json!("confirmed");
+    let mut near = vec![other];
+    assert_eq!(
+        timing_taken_in(&mut near, vec![timed.clone()]).len(),
+        1,
+        "another hole a few lines on takes nothing in"
+    );
     let mut ran = vec![count.clone()];
     ran[0]["status"] = json!("refuted");
     let kept = timing_taken_in(&mut ran, vec![timed.clone()]);

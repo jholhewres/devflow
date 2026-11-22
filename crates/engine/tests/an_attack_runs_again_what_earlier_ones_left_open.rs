@@ -735,12 +735,23 @@ fn what_was_refuted_is_not_refuted_again_without_new_code_in_its_path() {
     );
     assert_eq!(report["counts"]["refuted"], 0);
 
-    // New code in its path: it is tried again.
+    // New code in its path, not committed yet: it is tried again.
     std::fs::write(
         project.checkout.join(SESSION),
         "fn a() {}\nfn b() {}\nfn c() {}\n",
     )
     .expect("code");
+    let (report, _) = project.attack(
+        card,
+        &project.first,
+        &project.second,
+        yaml,
+        answered.clone(),
+    );
+    assert_eq!(report["not_tried_again"], 0, "{report:#}");
+    assert_eq!(report["counts"]["refuted"], 1);
+
+    // Committed, it is still tried again.
     git(&project.checkout, &["commit", "-q", "-am", "third"]);
     let third = git(&project.checkout, &["rev-parse", "HEAD"]);
     let (report, prompt) = project.attack(card, &project.first, &third, yaml, answered);

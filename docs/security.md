@@ -273,7 +273,8 @@ Its `verified` keeps how many ran and were red, and the report and its
 draft mark the proof `timing`, which is less sure than an assertion. One an
 earlier run proved by timing is listed apart for the next attacker, which
 is asked to write it again by count; its count proof runs as its own, and
-once it confirms the hole it takes the timing proof in.
+once it confirms the hole, under its title and file, it takes the timing
+proof in.
 
 A hypothesis's `severity` is how bad the hole would be were it there. A
 refuted one ends at `info`, and the attacker's severity is kept apart as
@@ -640,7 +641,8 @@ report counts them as `run_again`, each with where it came from under
 so the next attack runs it again too. The attacker names, by each one's id,
 the cause of those that have none (`causes`).
 What the newest earlier attack refuted, and what it carried as refuted, is
-read against the files whose code changed since its head: one stands while
+read against the files whose code changed since its head, work not
+committed yet included: one stands while
 neither its file nor its control changed (one with no control named, only
 while nothing did), so an attack run again on the same range refutes
 nothing again. When that head cannot be read, the change's own files

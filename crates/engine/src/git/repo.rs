@@ -281,7 +281,7 @@ pub fn code_changed_between(root: &Path, from: &str, to: &str) -> Result<bool, G
 }
 
 /// The files whose code changed from `from` to `to`, devflow's folders
-/// aside ([`code_changed_between`]).
+/// aside ([`code_changed_between`]); a renamed file by both its paths.
 pub fn files_changed_between(root: &Path, from: &str, to: &str) -> Result<Vec<String>, GitError> {
     for revision in [from, to] {
         if !super::plain_revision(revision) {
@@ -293,6 +293,7 @@ pub fn files_changed_between(root: &Path, from: &str, to: &str) -> Result<Vec<St
         &[
             "diff",
             "--name-only",
+            "--no-renames",
             from,
             to,
             "--",

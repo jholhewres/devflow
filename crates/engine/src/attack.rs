@@ -268,13 +268,17 @@ pub fn not_run_before(earlier: Option<&Value>) -> Vec<Value> {
 }
 
 /// The files whose code changed since the earlier attack's head, read in
-/// `root`; `None` when that head is not said or cannot be read there.
+/// `root`, work not committed yet included; `None` when that head is not
+/// said or what changed cannot be read there.
 fn changed_since_earlier(root: &Path, earlier: Option<&Value>, head: &str) -> Option<Vec<String>> {
     let before = earlier?["head"].as_str()?;
-    if before == head {
-        return Some(Vec::new());
-    }
-    crate::git::files_changed_between(root, before, head).ok()
+    let mut changed = if before == head {
+        Vec::new()
+    } else {
+        crate::git::files_changed_between(root, before, head).ok()?
+    };
+    changed.extend(crate::git::dirty(root).ok()?);
+    Some(changed)
 }
 
 /// What one an attacker names again from an earlier attack's list said
@@ -1997,8 +2001,9 @@ fn rewrites_timing(had: &Value, one: &Value) -> bool {
 }
 
 /// What ran again, past the attackers' own hypotheses: a timing proof whose
-/// hole an attacker's count proof confirmed is taken in by it, the count
-/// standing for it; the rest are kept, in order.
+/// hole an attacker's count proof confirmed, written under its title and
+/// file as asked, is taken in by it, the count standing for it; the rest
+/// are kept, in order. Another hole near it takes nothing in.
 fn timing_taken_in(hypotheses: &mut [Value], again: Vec<Value>) -> Vec<Value> {
     let mut kept = Vec::new();
     for one in again {
@@ -2007,7 +2012,7 @@ fn timing_taken_in(hypotheses: &mut [Value], again: Vec<Value>) -> Vec<Value> {
                 hypotheses.iter_mut().find(|own| {
                     own["status"] == "confirmed"
                         && own["exploit"]["timing"] != true
-                        && same_hole(own, &one)
+                        && same_hypothesis(own, &one)
                 })
             })
             .flatten();
