@@ -83,10 +83,13 @@ and one the attacker names again is kept there, not counted anew. One an
 earlier attack did not run, named again, carries `again`. One an earlier
 attack left open (confirmed, or tried with an exploit kept), of this work or
 of a range this one's history holds, is run again at HEAD in the sandbox
-before the attacker, with what it had taken in (`merged`), and the attacker
-is told how each ended so it covers the rest: a hole once shown is shown
-again whether or not this attacker finds it. One proven only by `timing` is
-asked again as a proof by count.
+while the attacker works, with what it had taken in (`merged`), and the
+attacker is told each so it covers the rest: a hole once shown is shown
+again whether or not this attacker finds it. At most twelve run again, the
+most severe first; the rest, a confirmed one whose exploit is gone, and one
+not run before that the attacker does not name again are `carried` to the
+next run, each saying why: hand them on as open, never as fixed. One proven
+only by `timing` is asked again as a proof by count.
 
 `stages.attack.regression` names payload classes (`devflow payloads list`)
 whose generic cases every attack is given to run again. A case the attacker

@@ -511,6 +511,22 @@ HEAD. The details, and how to read the report: [security.md](security.md).
   `content-spoofing`, `origin-confusion` and their like are `integrity`, and
   a class devflow does not name keeps its own name, said in the words of
   the class its attacker says is nearest (`near`).
+- 0.7.3, what the 0.7.2 validation found: no confirmed hole leaves the
+  lineage. Every hole earlier runs left open is read, at most twelve run
+  again (the most severe first, confirmed before tried, then the one
+  longest not run) and the rest are carried to the next run, said so
+  (`run_again_cap`, `run_again_capped`, `carried`), with a confirmed one
+  whose exploit is gone and a not-run one the attacker does not name again;
+  a carried hole runs first among its severity next time, and one past the
+  cap holds at `block_on`. The runs again go beside the attacker's turn,
+  not before it, and `profile` says where the run's time went; an attack of
+  a head nothing changed since is told so, and the threat model is written
+  again only when it should change. An attacker's own hypothesis merged in
+  its run keeps the number it gave it (`said_as`), listed under "Merged in
+  this run" apart from the report's ids; `merged` is said once, each named
+  by its run and id; a count proof that takes in a timing one carries its
+  `again`; a lone draft says its cause's fix; a family draft lists its
+  variants by line; attack.json keeps the class by devflow's name.
 
 **What a host sees change**
 
@@ -597,6 +613,16 @@ HEAD. The details, and how to read the report: [security.md](security.md).
   families `cause`, `impact` and `timing`, holding only confirmed variants;
   the drafts are one per family (`f1`…), with `variants`, then one per
   confirmed hypothesis no family holds.
+- 0.7.3: attack.json gains `run_again_cap`, `run_again_capped`, `carried`
+  (each with `carried`, `status`, `again` and, but for a not-run one, its
+  exploit's `saved`) and `profile`; `counts` gains `carried`; a hypothesis
+  may carry `class_said`, its `class` now devflow's name; a `merged` entry
+  of an attacker's own has `said_as` instead of `id`. attack-report.json
+  gains `run_again`, `run_again_cap`, `run_again_capped`, `carried` and
+  `profile`, a `merged` entry `said_as` and `by`; the metrics gain
+  `wall_ms`; the SARIF keeps a carried confirmed hole, marked `carried`.
+  `attack::CARRIED` names why a hole is carried; `attack::not_run_before`
+  lists what was carried not run.
 
 ## The engine as a library: 0.7.0
 

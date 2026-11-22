@@ -310,7 +310,12 @@ them out, and `devflow config set stages.attack.budget null` takes them
 out. An amount the person changed holds as written.
 
 Each run's numbers are kept on its report and in the project's ledger,
-beside its runs and never in the repository. `devflow status --attack` adds
+beside its runs and never in the repository. `metrics.duration_ms` is the
+attackers' turns; `profile` says where the whole run's time went:
+`prepare_ms` before the attackers, `attackers_ms` their turns,
+`run_again_ms` the runs again (beside those turns), `proof_ms` the proofs
+of what they wrote, `timing_ms` the runs past the first of a proof by time,
+and `total_ms` (the ledger's `wall_ms`); the markdown says it in one line. `devflow status --attack` adds
 them up: runs, cost, what was confirmed, what the review's security reader
 missed, and the run mode those numbers suggest.
 
@@ -337,7 +342,11 @@ sandbox or by the session), whether its proof is an assertion or `timing`,
 a refuted one's `estimated_severity`, and apart from it the proof's commits
 and results: confirmed is not proven, and a confirmed hypothesis with no
 proof yet says so. What it took in (`merged`) is listed by each one's id and
-run, and the markdown gives each hypothesis that took others in one line. A
+run, or the number an attacker gave it (`said_as`) and its agent, and the
+markdown gives each hypothesis that took others in one line, under "From
+earlier runs" or "Merged in this run". attack.json keeps the class by the
+same name (`class`), the attacker's own word beside it (`class_said`) when
+it differs. A
 field the attack wrote in any other shape shows as `<…>`.
 Its `mode` is `item`, `range` or `retro`, the markdown's first line says
 it, and a range's attack runs on `asked`, not an item's
@@ -346,7 +355,8 @@ What a class of hole lets an attacker do, and what shuts it, is said in
 devflow's words for that class (`info-disclosure` is one, said
 `information-disclosure`, `info-leak` or `user-enumeration` too), and only a
 confirmed hypothesis is said to be there: a refuted one says it was refuted,
-with nothing to fix, and one not confirmed says so. A class devflow does not
+with nothing to fix, and one not confirmed says so. The fix of one whose
+attacker named a cause devflow knows is that cause's, alone as in a family. A class devflow does not
 name is said in the words of the class its attacker said it is nearest
 (`near`), else the report sends the reader to attack.json.
 
@@ -365,7 +375,8 @@ cause's fix in devflow's words ("build the blocked ranges from the IANA
 special-purpose address registries", "parse the markup with a real HTML
 parser"), else its class's, each hypothesis names its `family`, the
 markdown gives each one line under "Holes by root", and each family is one
-draft listing its variants, who confirmed each and its proof. The root's
+draft listing its variants in the order of their lines, who confirmed each
+and its proof. The root's
 name is the attack's own word, so it groups variants and is shown nowhere.
 A scanner finding keeps its tool's names
 and the tool's own fix in plain words; a flow's fixes name only the
@@ -629,17 +640,37 @@ exploit test never fetches them offline, even when the attack reads a
 detached tree of a range. They are mounted, not linked: a runner that
 resolves a link would reach the checkout, which the run never sees (PHP's
 autoloader finds the project's classes beside `vendor`).
-Before the attacker, each exploit an earlier attack left open (confirmed,
-or tried: a red run that did not name its test among them), of the same
-work or of a range whose head this one's history holds, in their eight
-newest runs (one whose attacker wrote nothing hides none before it), is run
-again at HEAD from the run that kept it, at most twelve: red is confirmed again,
-green is refuted (the hole is shut), and one that cannot run stays tried
-with why. The attacker is told how each ended and covers the rest; the
-report counts them as `run_again`, each with where it came from under
-`again`, with what it had taken in by then (`merged`), and keeps its exploit
-so the next attack runs it again too. The attacker names, by each one's id,
-the cause of those that have none (`causes`).
+While the attacker works, each exploit an earlier attack left open
+(confirmed, or tried: a red run that did not name its test among them), of
+the same work or of a range whose head this one's history holds, in their
+eight newest runs (one whose attacker wrote nothing hides none before it),
+or carried by them, is run again at HEAD from the run that kept it: red is
+confirmed again, green is refuted (the hole is shut), and one that cannot
+run stays tried with why. The runs go one at a time in the sandbox beside
+the attacker's turn, not before it. The attacker is told each, with how it
+ended in the run that kept it, and covers the rest; the report counts them
+as `run_again`, each with where it came from under `again`, with what it
+had taken in by then (`merged`), and keeps its exploit so the next attack
+runs it again too. The attacker names, by each one's id, the cause of those
+that have none (`causes`).
+At most twelve run again (`run_again_cap`): the most severe first,
+confirmed before tried, then the one longest not run. None past the cap is
+dropped: each is `carried` to the next run (`carried: cap`, counted in
+`run_again_capped`), its exploit kept in this run under
+`exploits/carried-<n>/`, and runs first among its severity there. A
+confirmed hole whose exploit is not in its run is carried too
+(`no_exploit`), as is one an earlier attack did not run that the attacker
+does not name again (`not_named`, listed to the next attacker). Each keeps
+the run and the id that showed it under `again`, the attacker is told those
+carried so it does not look for them again, the reports list them ("Carried
+to the next run" in the markdown, `carried` in attack-report.json, and a
+confirmed one in the SARIF, marked carried), and a confirmed one carried
+past the cap holds at `block_on` as a run would. Only an attacker's exploit
+confirmed at its place takes a carried hole in; anything else said there
+leaves it carried. A hole a newer run showed shut (its exploit green) is not
+brought back by an older run that confirmed it, unless a run newer still
+showed it again. A hole once confirmed is run again, carried with why, or
+shown shut by a green run: it never leaves the lineage.
 What the newest earlier attack refuted, and what it carried as refuted, is
 read against the files whose code changed since its head, work not
 committed yet included: one stands while
@@ -651,8 +682,14 @@ decide, by the control alone. Each is listed to the attacker, and in
 names again (by `same_as`, by its title in that file, or refuted again at
 its place or behind its control) stays there marked `named_again` instead of
 being counted anew, and the report counts them as `named_again`. What that
-attack did not run is listed too, and one named again carries `again`, its
+attack did not run, and what it carried not run, is listed too, by the run
+and the id that did not run it, and one named again carries `again`, its
 `was` `not_run`.
+When no code changed since the newest earlier attack's head, work not
+committed yet included, the attacker is told so: what that attack showed is
+settled, and it looks only for what the threat model does not hold yet. It
+writes the threat model again only when it should change: an empty one
+keeps the project's, with nothing proposed.
 One hole several runs kept, each attacker naming it its own way (the same
 title of the same file, one class within five lines of one place, or one
 exploit), runs again once: from the run that confirmed it, else the newest.
@@ -663,10 +700,14 @@ attackers of one run are merged: `tls`, `ssl`, `certificate` and
 few lines on, it may be a weak hash. Any other two classes stay apart, even
 on one line: `authn` and `authz` in one handler are two holes.
 The attacker's own account of a hole the run again confirmed is not counted
-twice. The hypothesis kept says what it took in, under `merged`: each one's
-id and run (the run that kept it and its id there, or this run and the id
-its attacker gave it), class, place and title, and who found it or which run
-kept it, never its exploit; the JSON report lists each by id and run.
+twice. The hypothesis kept says what it took in, under `merged`, each once:
+one an earlier run kept by the run and its id there (`id`, read from its
+`again` when an older report gave it none), one an attacker of this run
+wrote by the number its attacker gave it (`said_as`, never one of the
+report's ids, with who found it), and each one's class, place and title,
+never its exploit. One named neither way is left out. A count proof that
+takes in a hole proven only by time is that hole run again: it carries its
+`again` as well.
 A red run confirms only when what it printed names the exploit's test, its
 parts joined as the runner joins them (jest's `describe › test`, vitest's
 and Pest's `describe > test`, pytest's, cargo's and PHPUnit's `::`, Go's
