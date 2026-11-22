@@ -778,3 +778,79 @@ fn a_code_path_named_like_a_scheme_is_no_url() {
         assert!(neutral(url).is_err(), "passed: {url}");
     }
 }
+
+/// The ranges IANA keeps for documentation and testing are no one's: an
+/// address in one, or a name that resolves nowhere, passes the filter, bare
+/// or in a URL, while a real address just beside them stays refused.
+#[test]
+fn documentation_ranges_pass_and_a_real_address_beside_them_does_not() {
+    for fine in [
+        "2001:db8::1",
+        "2001:DB8:ffff::42",
+        "3fff::1",
+        "192.0.2.1",
+        "198.51.100.7",
+        "203.0.113.255",
+        "::ffff:192.0.2.9",
+        "http://[2001:db8::1]/",
+        "http://192.0.2.1:8080/admin",
+        "https://203.0.113.5/",
+        "ops@192.0.2.1",
+        "api.example",
+        "http://api.test/",
+        "x.invalid",
+    ] {
+        assert_eq!(neutral(fine), Ok(()), "{fine}");
+    }
+    for real in [
+        "8.8.8.8",
+        "192.0.3.1",
+        "198.51.101.7",
+        "203.0.114.1",
+        "2001:db9::1",
+        "2001:4860:4860::8888",
+        "3ffe::1",
+        "http://[2001:4860:4860::8888]/",
+        "http://198.51.99.1/",
+    ] {
+        assert!(neutral(real).is_err(), "{real}");
+    }
+}
+
+/// A case an attacker proposes holds no host syntax, but an address kept
+/// for documentation, written plainly, is no host anyone reaches: it passes,
+/// and nothing else rides along with it.
+#[test]
+fn a_proposed_case_may_name_a_documentation_address() {
+    for fine in [
+        "2001:db8::1",
+        "[2001:db8::1]",
+        "192.0.2.1",
+        "fetch 198.51.100.7 then 2001:db8::5",
+        "[\"203.0.113.9\", \"2001:db8::7\"]",
+        "{\"url\": \"192.0.2.44\"}",
+        "api.test",
+    ] {
+        assert_eq!(host_free(fine), Ok(()), "{fine}");
+    }
+    for hosted in [
+        "8.8.8.8",
+        "2001:4860:4860::8888",
+        "::1",
+        "192.0.2.01",
+        "192.0.2.1:8080",
+        "http://192.0.2.1/",
+        "2001:db8::1@8.8.8.8",
+        "0xc0.0.2.1",
+        "192.0.2.1.8.8.8.8",
+    ] {
+        assert!(host_free(hosted).is_err(), "{hosted}");
+    }
+    let (kept, dropped) = proposed_of(&serde_json::json!({ "cases": [
+        { "class": "ssrf", "input": "2001:db8::1", "want": "rejected", "why": "documentation range" },
+        { "class": "ssrf", "input": "8.8.8.8", "want": "rejected", "why": "a public resolver" },
+    ] }));
+    assert_eq!(kept.len(), 1, "{dropped:?}");
+    assert_eq!(kept[0]["input"], "2001:db8::1");
+    assert_eq!(dropped.len(), 1);
+}

@@ -359,6 +359,38 @@ fn inside_v6(ip: Ipv6Addr) -> bool {
         || (first & 0xffc0) == 0xfe80
 }
 
+/// An address IANA keeps for documentation, which no network routes:
+/// TEST-NET-1, -2 and -3 (RFC 5737).
+fn documentation_v4(ip: Ipv4Addr) -> bool {
+    matches!(
+        ip.octets(),
+        [192, 0, 2, _] | [198, 51, 100, _] | [203, 0, 113, _]
+    )
+}
+
+/// An IPv6 address IANA keeps for documentation: `2001:db8::/32` (RFC 3849)
+/// and `3fff::/20` (RFC 9637), or IPv4's mapped in it.
+fn documentation_v6(ip: Ipv6Addr) -> bool {
+    if let Some(v4) = ip.to_ipv4_mapped() {
+        return documentation_v4(v4);
+    }
+    let [first, second, ..] = ip.segments();
+    (first == 0x2001 && second == 0x0db8) || (first == 0x3fff && (second & 0xf000) == 0)
+}
+
+/// An address kept for documentation, in any spelling [`inside_address`]
+/// reads: no one owns it, and nothing answers there.
+fn documentation_address(host: &str) -> bool {
+    let host = host.trim_end_matches('.');
+    if let Some(inner) = host
+        .strip_prefix('[')
+        .and_then(|rest| rest.strip_suffix(']'))
+    {
+        return inner.parse::<Ipv6Addr>().is_ok_and(documentation_v6);
+    }
+    aton(host).is_some_and(documentation_v4)
+}
+
 /// A name that resolves nowhere: `.test`, `.invalid`, `.example`.
 fn nowhere(host: &str) -> bool {
     let host = host.trim_end_matches('.').to_ascii_lowercase();
@@ -385,10 +417,10 @@ fn inside_address(host: &str) -> Option<bool> {
 }
 
 /// Whether a URL's host and port are ones a case may name: none (a
-/// `file:///` path), a name that resolves nowhere, or an inside address on
-/// port 1, where nothing listens.
+/// `file:///` path), a name that resolves nowhere, an address kept for
+/// documentation, or an inside address on port 1, where nothing listens.
 fn url_host(host: &str, port: Option<&str>) -> Result<(), String> {
-    if host.is_empty() || nowhere(host) {
+    if host.is_empty() || nowhere(host) || documentation_address(host) {
         return Ok(());
     }
     match inside_address(host) {
@@ -486,11 +518,12 @@ fn urls(text: &str) -> Vec<(String, Option<String>, Option<String>)> {
 }
 
 /// A token that is an address, though no URL names it: four dotted parts
-/// (in any base) or an IPv6 literal.
+/// (in any base) or an IPv6 literal; whether it leads inside or is kept for
+/// documentation.
 fn bare_address(token: &str) -> Option<bool> {
     if token.contains(':') {
         if let Ok(ip) = token.parse::<Ipv6Addr>() {
-            return Some(inside_v6(ip));
+            return Some(inside_v6(ip) || documentation_v6(ip));
         }
     }
     for part in token.split(':') {
@@ -504,15 +537,16 @@ fn bare_address(token: &str) -> Option<bool> {
                             .is_some_and(|hex| hex.chars().all(|ch| ch.is_ascii_hexdigit())))
             });
         if numeric {
-            return Some(aton(part).is_some_and(inside_v4));
+            return Some(aton(part).is_some_and(|ip| inside_v4(ip) || documentation_v4(ip)));
         }
     }
     None
 }
 
 /// Every host and address in `text` is one nobody owns: a URL's host is
-/// loopback or private on port 1, or a name that resolves nowhere; a bare
-/// address leads inside; no name or e-mail address ends in a real place.
+/// loopback or private on port 1, a name that resolves nowhere or an
+/// address kept for documentation; a bare address leads inside or is kept
+/// for documentation; no name or e-mail address ends in a real place.
 pub fn neutral(text: &str) -> Result<(), String> {
     let text = without_declared_namespaces(&folded(text));
     for (host, port, who) in urls(&text) {
@@ -576,7 +610,10 @@ pub fn neutral(text: &str) -> Result<(), String> {
         if !place.contains('.') || reserved_name(place) || nowhere(place) {
             continue;
         }
-        if who.is_some_and(|who| !who.is_empty()) && inside_address(place) != Some(true) {
+        if who.is_some_and(|who| !who.is_empty())
+            && inside_address(place) != Some(true)
+            && !documentation_address(place)
+        {
             return Err(format!("`{word}` is an address someone may own"));
         }
         let last = place
@@ -969,6 +1006,7 @@ pub fn host_free(text: &str) -> Result<(), String> {
         .filter(|ch| !matches!(ch, '\t' | '\n' | '\r'))
         .collect::<String>()
         .to_ascii_lowercase();
+    let lower = without_documentation(&lower);
     if lower.contains('@') {
         return Err("it names someone at a host (`@`)".to_owned());
     }
@@ -1005,6 +1043,50 @@ pub fn host_free(text: &str) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// `text` with each word that is a documentation address, written as one
+/// reads it (`192.0.2.1`, `2001:db8::1`, `[2001:db8::1]`), as `x`: nobody
+/// owns it, and no spelling of another host hides in it. A word is what
+/// whitespace, quotes and brackets of a list or an object leave.
+fn without_documentation(text: &str) -> String {
+    let apart =
+        |ch: char| ch.is_whitespace() || matches!(ch, '"' | '\'' | ',' | '{' | '}' | '(' | ')');
+    let mut kept = String::with_capacity(text.len());
+    let mut word = String::new();
+    let flush = |word: &mut String, kept: &mut String| {
+        let plain = word
+            .chars()
+            .all(|ch| ch.is_ascii_hexdigit() || matches!(ch, '.' | ':' | '[' | ']'));
+        let canonical_v4 = word.split('.').count() == 4
+            && word.split('.').all(|part| {
+                !part.is_empty()
+                    && part.len() <= 3
+                    && part.chars().all(|ch| ch.is_ascii_digit())
+                    && (part == "0" || !part.starts_with('0'))
+            });
+        let bare = word.trim_start_matches('[').trim_end_matches(']');
+        let v6 = word.contains(':')
+            && (bare.len() + 2 == word.len() || bare.len() == word.len())
+            && bare.parse::<Ipv6Addr>().is_ok_and(documentation_v6);
+        let v4 = canonical_v4 && word.parse::<Ipv4Addr>().is_ok_and(documentation_v4);
+        if plain && (v4 || v6) {
+            kept.push('x');
+        } else {
+            kept.push_str(word);
+        }
+        word.clear();
+    };
+    for ch in text.chars() {
+        if apart(ch) {
+            flush(&mut word, &mut kept);
+            kept.push(ch);
+        } else {
+            word.push(ch);
+        }
+    }
+    flush(&mut word, &mut kept);
+    kept
 }
 
 /// The cases an attacker's answer proposes, numbered `c1`, `c2`, and the
