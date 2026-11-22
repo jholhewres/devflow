@@ -395,7 +395,9 @@ fn waited(child: &mut Child, deadline: Instant) -> Option<std::process::ExitStat
     loop {
         match child.try_wait() {
             Ok(Some(status)) => return Some(status),
-            Ok(None) if Instant::now() < deadline => std::thread::sleep(EVERY),
+            Ok(None) if Instant::now() < deadline && !crate::call::cancelled() => {
+                std::thread::sleep(EVERY)
+            }
             _ => {
                 // The CLI and everything it started: a timed-out reader left
                 // running would go on spending beside the one asked again.

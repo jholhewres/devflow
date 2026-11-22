@@ -97,12 +97,11 @@ pub fn run(
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
             Err(mpsc::RecvTimeoutError::Timeout) => {}
         }
-        if let Some(limit) = timeout {
-            if started.elapsed() > limit {
-                end_it_all(&mut child);
-                timed_out = true;
-                break;
-            }
+        // Past its time, or its call cancelled by the client.
+        if timeout.is_some_and(|limit| started.elapsed() > limit) || crate::call::cancelled() {
+            end_it_all(&mut child);
+            timed_out = true;
+            break;
         }
         if !timed_out {
             if let Ok(Some(_)) = child.try_wait() {

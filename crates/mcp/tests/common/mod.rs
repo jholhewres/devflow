@@ -100,6 +100,16 @@ impl Mcp {
         writeln!(self.input, "{message}").unwrap();
     }
 
+    /// The next message the server sends, whatever it is.
+    pub fn heard(&mut self) -> Value {
+        let mut said = String::new();
+        assert!(
+            self.output.read_line(&mut said).unwrap() > 0,
+            "the server hung up"
+        );
+        serde_json::from_str(&said).unwrap()
+    }
+
     /// A tool call during which the server may ask the person: each question
     /// (`elicitation/create`) goes to `person`, whose reply goes back. The
     /// call's result, and the questions it asked.

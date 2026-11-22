@@ -1149,7 +1149,7 @@ pub fn run(
     let status = loop {
         match child.try_wait() {
             Ok(Some(status)) => break Some(status),
-            Ok(None) if Instant::now() >= deadline => {
+            Ok(None) if Instant::now() >= deadline || crate::call::cancelled() => {
                 // The whole group: a test may have spawned its own.
                 crate::runner::descendants::end_it_all(&mut child);
                 let _ = child.wait();

@@ -24,6 +24,8 @@ pub mod autopilot;
 pub mod available;
 pub mod brief;
 pub mod calibrate;
+#[doc(hidden)]
+pub mod call;
 pub mod config;
 pub mod criteria;
 pub mod detect;

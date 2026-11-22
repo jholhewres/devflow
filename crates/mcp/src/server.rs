@@ -114,7 +114,22 @@ pub fn handle(line: &str, server: &Server) -> Option<String> {
         }
         "ping" => json!({}),
         "tools/list" => json!({ "tools": tools::TOOLS.iter().map(listed).collect::<Vec<_>>() }),
-        "tools/call" => call(&params, server),
+        "tools/call" => {
+            // Heard while it runs: a cancellation naming it, and its progress
+            // when the client asked for it.
+            let progress = params
+                .pointer("/_meta/progressToken")
+                .and_then(|token| server.person.progress_to(token));
+            server.person.running(Some(&id));
+            devflow_engine::call::begin(progress);
+            let mut result = call(&params, server);
+            if devflow_engine::call::cancelled() {
+                result = said("cancelled by the client: its processes were ended", true);
+            }
+            devflow_engine::call::end();
+            server.person.running(None);
+            result
+        }
         "prompts/list" => crate::flow::skill::prompts(),
         "resources/list" => crate::flow::skill::resources(),
         "resources/templates/list" => json!({ "resourceTemplates": [] }),

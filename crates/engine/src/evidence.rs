@@ -689,8 +689,10 @@ pub fn gathered(given: &Given) -> Result<Evidence, String> {
         .iter()
         .map(|check| {
             let left = budget.saturating_sub(started.elapsed());
-            if let Some((_, from, record)) = &reusable {
+            let ran = if let Some((_, from, record)) = &reusable {
                 reused(check, from, record, &run, root)
+            } else if crate::call::cancelled() {
+                Ran::not_run(&check.name, "its call was cancelled".to_owned())
             } else if left < Duration::from_secs(1) {
                 Ran::not_run(
                     &check.name,
@@ -698,7 +700,9 @@ pub fn gathered(given: &Given) -> Result<Evidence, String> {
                 )
             } else {
                 run_check(check, root, &run, locks, context, left, redact)
-            }
+            };
+            crate::call::progress(&format!("check {} ran", check.name));
+            ran
         })
         .collect();
     let cases: Vec<Case> = ran

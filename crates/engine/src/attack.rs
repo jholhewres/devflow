@@ -738,7 +738,13 @@ fn proven(given: &Given, stamp: &str, hypotheses: &mut [Value], warm: &mut Optio
         head: given.git.head.chars().take(12).collect(),
     };
     for at in tried {
+        if crate::call::cancelled() {
+            hypotheses[at]["ran"] =
+                json!({ "result": "not_run", "reason": "its call was cancelled" });
+            continue;
+        }
         runner.run(&mut hypotheses[at]);
+        crate::call::progress("an exploit ran in the sandbox");
     }
 }
 
@@ -1907,7 +1913,11 @@ pub fn attacked(given: &Given) -> Result<Done, String> {
     let at_once = usize::from(given.config.stages.attack.concurrency.unwrap_or(1)).max(1);
     let outcomes: Vec<_> = declared
         .chunks(at_once)
-        .flat_map(|some| review::in_parallel(some, &one))
+        .flat_map(|some| {
+            let done = review::in_parallel(some, &one);
+            crate::call::progress("an attacker answered");
+            done
+        })
         .collect();
     let answers = answers_of(given, &path, &declared, outcomes, share)?;
     let mut hypotheses = hypotheses_of(given, answers.found, &refuted, &mut again);

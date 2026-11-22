@@ -1380,7 +1380,7 @@ impl Reading<'_> {
         let mut outcome = self.read(reader, first_try(deadline));
         for pause in RETRY_PAUSES {
             match &outcome {
-                Err((why, _)) if asked_again(why) => {}
+                Err((why, _)) if asked_again(why) && !crate::call::cancelled() => {}
                 _ => break,
             }
             if deadline.saturating_sub(started.elapsed() + pause) < LEAST_TRY {
@@ -1598,7 +1598,15 @@ fn reviewed_anew(given: &Given) -> Result<(String, PathBuf, Record), String> {
     );
     personas_read(given, &readers, &path, &reading.packet)?;
     let started = Instant::now();
-    let tried = |reader: &Reader| reading.tried(reader, deadline, started);
+    let tried = |reader: &Reader| {
+        let tried = reading.tried(reader, deadline, started);
+        crate::call::progress(&format!(
+            "reviewer {}/{} done",
+            reader.reviewer.agent.word(),
+            reader.reviewer.persona
+        ));
+        tried
+    };
     let outcomes = in_parallel(&readers, &tried);
     let mut record = Record {
         base: git.base.to_owned(),

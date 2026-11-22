@@ -7,7 +7,7 @@
 use std::io::{BufRead, Read, Write};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Map, Value};
@@ -68,9 +68,56 @@ pub struct Person {
     offered: AtomicBool,
 }
 
+/// What writes to the client, shared with the thread that reads it.
+type Out = Arc<Mutex<Box<dyn Write + Send>>>;
+
 struct Line {
     inbox: Mutex<Receiver<Incoming>>,
-    out: Mutex<Box<dyn Write + Send>>,
+    out: Out,
+    /// The id of the tool call running now, which a cancellation names.
+    running: Arc<Mutex<Option<String>>>,
+}
+
+/// One message to the client, whole, on `out`.
+fn write_to(out: &Out, message: &str) -> bool {
+    let Ok(mut out) = out.lock() else {
+        return false;
+    };
+    writeln!(out, "{message}")
+        .and_then(|()| out.flush())
+        .is_ok()
+}
+
+/// A message the reading thread answers itself, the moment it comes, even
+/// while a tool runs: `ping`, and a cancellation of the call running now.
+/// Whether it was one.
+fn at_once(line: &str, out: &Out, running: &Mutex<Option<String>>) -> bool {
+    let Ok(message) = serde_json::from_str::<Value>(line) else {
+        return false;
+    };
+    match message.get("method").and_then(Value::as_str) {
+        Some("ping") => match message.get("id") {
+            Some(id) => {
+                write_to(
+                    out,
+                    &json!({ "jsonrpc": "2.0", "id": id, "result": {} }).to_string(),
+                );
+                true
+            }
+            None => false,
+        },
+        Some("notifications/cancelled") => {
+            let named = message["params"]["requestId"].to_string();
+            if running
+                .lock()
+                .is_ok_and(|now| now.as_deref() == Some(named.as_str()))
+            {
+                devflow_engine::call::cancel();
+            }
+            true
+        }
+        _ => false,
+    }
 }
 
 impl Person {
@@ -90,20 +137,34 @@ impl Person {
     }
 
     /// The line `inbox` and `out` are.
+    #[cfg(test)]
     pub fn on(inbox: Receiver<Incoming>, out: Box<dyn Write + Send>) -> Person {
+        Person::on_shared(inbox, Arc::new(Mutex::new(out)), Arc::new(Mutex::new(None)))
+    }
+
+    fn on_shared(
+        inbox: Receiver<Incoming>,
+        out: Out,
+        running: Arc<Mutex<Option<String>>>,
+    ) -> Person {
         Person {
             line: Some(Line {
                 inbox: Mutex::new(inbox),
-                out: Mutex::new(out),
+                out,
+                running,
             }),
             ..Person::none()
         }
     }
 
     /// stdin, read on a thread of its own so a question can wait with a
-    /// deadline, and stdout.
+    /// deadline, and a ping or a cancellation is heard while a tool runs;
+    /// and stdout.
     pub fn on_stdio() -> Person {
         let (send, inbox) = mpsc::sync_channel(AHEAD);
+        let out: Out = Arc::new(Mutex::new(Box::new(std::io::stdout())));
+        let running = Arc::new(Mutex::new(None));
+        let (to_client, call) = (Arc::clone(&out), Arc::clone(&running));
         std::thread::spawn(move || {
             let mut stdin = std::io::stdin().lock();
             let mut line = String::new();
@@ -123,6 +184,7 @@ impl Person {
                             Ok(_) => Incoming::TooLong,
                         }
                     }
+                    Ok(_) if at_once(&line, &to_client, &call) => continue,
                     Ok(_) => Incoming::Message(line.clone()),
                 };
                 let last = matches!(incoming, Incoming::Closed);
@@ -131,7 +193,30 @@ impl Person {
                 }
             }
         });
-        Person::on(inbox, Box::new(std::io::stdout()))
+        Person::on_shared(inbox, out, running)
+    }
+
+    /// The tool call running now, by its id; `None` once it ended.
+    pub fn running(&self, id: Option<&Value>) {
+        if let Some(line) = &self.line {
+            if let Ok(mut now) = line.running.lock() {
+                *now = id.map(Value::to_string);
+            }
+        }
+    }
+
+    /// What says a call's progress to the client, as MCP's
+    /// `notifications/progress` under the `token` its request gave.
+    pub fn progress_to(&self, token: &Value) -> Option<devflow_engine::call::Progress> {
+        let out = Arc::clone(&self.line.as_ref()?.out);
+        let token = token.clone();
+        let done = AtomicU64::new(0);
+        Some(Box::new(move |step: &str| {
+            let progress = done.fetch_add(1, Ordering::SeqCst) + 1;
+            let note = json!({ "jsonrpc": "2.0", "method": "notifications/progress",
+                "params": { "progressToken": token, "progress": progress, "message": step } });
+            write_to(&out, &note.to_string());
+        }))
     }
 
     /// What the client said it can do, from its `initialize`: a form.
@@ -192,15 +277,9 @@ impl Person {
 
     /// One message to the client, whole.
     pub fn send(&self, message: &str) -> bool {
-        let Some(line) = &self.line else {
-            return false;
-        };
-        let Ok(mut out) = line.out.lock() else {
-            return false;
-        };
-        writeln!(out, "{message}")
-            .and_then(|()| out.flush())
-            .is_ok()
+        self.line
+            .as_ref()
+            .is_some_and(|line| write_to(&line.out, message))
     }
 
     /// Asks the person `message` with the form `schema`, through the client,
