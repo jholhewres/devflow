@@ -6,6 +6,7 @@ use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
 
+mod attack_cli;
 mod cli;
 mod consent;
 mod credentials;
@@ -15,13 +16,16 @@ mod flow;
 mod hook;
 mod host;
 mod jev_cli;
+mod payloads_cli;
 mod person;
 mod project;
 mod reach;
 mod ready;
 mod register;
+mod register_cli;
 mod server;
 mod setup_cli;
+mod status_cli;
 mod tools;
 mod update;
 
@@ -250,234 +254,6 @@ struct Registering {
     bin: Option<PathBuf>,
 }
 
-/// `devflow attack <item> --report <run>`: the run's report in `format`,
-/// written beside it with its drafts, and printed.
-fn reporting(root: &std::path::Path, item: &str, run: &str, format: &str) -> ExitCode {
-    use devflow_engine::attack_report::{self, Format};
-    let Some(format) = Format::of(format) else {
-        eprintln!("devflow attack: --format is md, json or sarif");
-        return ExitCode::FAILURE;
-    };
-    let project = project::Project::at(root);
-    let runs = project.runs();
-    let Some(at) = runs.found(item, Some(run), devflow_engine::attack::REPORT) else {
-        eprintln!("devflow attack: run {run} of {item} has no attack report");
-        return ExitCode::FAILURE;
-    };
-    let Some(report) = flow::json_at(&at) else {
-        eprintln!("devflow attack: {} does not read", at.display());
-        return ExitCode::FAILURE;
-    };
-    let folder = at.parent().unwrap_or(&at);
-    if let Err(why) = attack_report::written(folder, &report) {
-        eprintln!("devflow attack: {why}");
-        return ExitCode::FAILURE;
-    }
-    let Ok(said) = std::fs::read_to_string(folder.join(format.file())) else {
-        eprintln!("devflow attack: {} does not read", format.file());
-        return ExitCode::FAILURE;
-    };
-    print!("{said}");
-    ExitCode::SUCCESS
-}
-
-/// `devflow attack promote`: an exploit an attack kept, in the vault or in
-/// an item's run, copied into the repository at its path.
-fn promoting(
-    root: &std::path::Path,
-    subject: &str,
-    hypothesis: &str,
-    run: Option<&str>,
-) -> ExitCode {
-    use devflow_engine::{attack, vault};
-    let failed = |why: String| {
-        eprintln!("devflow attack promote: {why}");
-        ExitCode::FAILURE
-    };
-    let project = project::Project::at(root);
-    let mut places = Vec::new();
-    if let Ok(home) = vault::home(&project.cache(), &project.root) {
-        places.push(vault::runs(home, &project.root));
-    }
-    places.push(project.runs());
-    let found = places.iter().find_map(|runs| match run {
-        Some(run) => runs.found(subject, Some(run), attack::REPORT),
-        None => runs.newest_with(subject, attack::REPORT).map(|(_, at)| at),
-    });
-    let Some(at) = found else {
-        return failed(format!("{subject} has no attack report"));
-    };
-    // A report the repository carries never brings an exploit in.
-    if let Ok(relative) = at.strip_prefix(&project.root) {
-        if devflow_engine::git::tracked(&project.root, &relative.display().to_string())
-            .unwrap_or(true)
-        {
-            return failed(format!(
-                "{} is part of the repository, or git cannot say",
-                relative.display()
-            ));
-        }
-    }
-    let Some(report) = flow::json_at(&at) else {
-        return failed(format!("{} does not read", at.display()));
-    };
-    let folder = at.parent().unwrap_or(&at);
-    match vault::promote(&project.root, folder, &report, hypothesis) {
-        Ok(path) => {
-            println!("{hypothesis}'s exploit copied to {path}");
-            ExitCode::SUCCESS
-        }
-        Err(why) => failed(why),
-    }
-}
-
-/// A release range's two ends: `A..B` or `A...B`.
-fn range_ends(range: &str) -> Option<(&str, &str)> {
-    let (base, head) = range.split_once("...").or_else(|| range.split_once(".."))?;
-    (!base.is_empty() && !head.is_empty() && !head.contains("..")).then_some((base, head))
-}
-
-/// `devflow attack --range A..B`: the range attacked headless, as CI runs
-/// it. Its report's SARIF and JUnit are written to `sarif` and `junit`;
-/// the exit code is 1 when a confirmed exploit is in review.block_on, 2
-/// when the attack could not run (a budget spent, no attacker answered),
-/// and each hypothesis no sandbox ran is warned of, never passed quietly.
-fn ranging(
-    root: &std::path::Path,
-    range: &str,
-    sarif: &std::path::Path,
-    junit: &std::path::Path,
-) -> ExitCode {
-    use devflow_engine::{attack, attack_report};
-    let could_not = |why: String| {
-        eprintln!("devflow attack: {why}");
-        ExitCode::from(2)
-    };
-    let Some((base, head)) = range_ends(range) else {
-        return could_not(format!("`{range}` is not a range: give it as A..B"));
-    };
-    let server = server::Server::new(root);
-    let project = project::Project::at(root);
-    let state = project.read();
-    let block_on = match flow::config_for(&project, &state, &server.consent, "attack") {
-        Ok(config) => config.review.block_on.clone(),
-        Err(why) => return could_not(why),
-    };
-    let asked = serde_json::json!({ "base": base, "head": head });
-    let said = match flow::attack::attack(&server, asked) {
-        Ok(said) => said,
-        Err(why) => return could_not(why),
-    };
-    let folder = std::path::PathBuf::from(said["vault"].as_str().unwrap_or_default());
-    let Some(report) = flow::json_at(&folder.join(attack::REPORT)) else {
-        return could_not(format!(
-            "{} does not read",
-            folder.join(attack::REPORT).display()
-        ));
-    };
-    if attack::failed(&report).is_some() {
-        // Their reasons are theirs: the log names where they are.
-        return could_not(format!(
-            "no attacker answered: why is in {}",
-            folder.join(attack::REPORT).display()
-        ));
-    }
-    let known = attack_report::Known::of(&report);
-    let written = [
-        (
-            sarif,
-            serde_json::to_string_pretty(&attack_report::sarif(&report, &known))
-                .unwrap_or_default()
-                + "\n",
-        ),
-        (junit, attack_report::junit(&report, &block_on)),
-    ];
-    for (at, text) in written {
-        // A link planted at the path would carry the write elsewhere.
-        if std::fs::symlink_metadata(at).is_ok_and(|meta| meta.file_type().is_symlink()) {
-            return could_not(format!("{} is a link: name a file", at.display()));
-        }
-        if let Err(err) = std::fs::write(at, text) {
-            return could_not(format!("{}: {err}", at.display()));
-        }
-    }
-    // The job's log says what devflow sets, never the attack's own words.
-    println!(
-        "{}",
-        serde_json::to_string_pretty(&serde_json::json!({
-            "run": said["run"], "verdict": report["verdict"], "counts": report["counts"],
-            "vault": folder, "sarif": sarif, "junit": junit,
-        }))
-        .unwrap_or_default()
-    );
-    let not_run = attack_report::not_run(&report);
-    let annotate = std::env::var("GITHUB_ACTIONS").is_ok_and(|on| on == "true");
-    for (id, why) in &not_run {
-        let said = format!(
-            "{id} was not run, so it proves nothing either way: {why}. Set stages.attack.test and a sandbox (bwrap or docker) the runner has."
-        );
-        eprintln!("warning: devflow attack: {said}");
-        if annotate {
-            println!("::warning title=devflow attack::{said}");
-        }
-    }
-    let held = attack_report::held(&report, &block_on);
-    for one in &held {
-        let said = format!(
-            "{} {} confirmed at {}:{}",
-            one["severity"].as_str().unwrap_or("?"),
-            one["class"].as_str().unwrap_or("other"),
-            one["file"].as_str().unwrap_or("<…>"),
-            one["line"]
-        );
-        eprintln!("devflow attack: {said}");
-        if annotate {
-            println!("::error title=devflow attack::{said}");
-        }
-    }
-    ExitCode::from(ci_exit(&report, &block_on))
-}
-
-/// A CI run's exit code: 1 when a confirmed exploit is in `block_on`, else 0.
-fn ci_exit(report: &serde_json::Value, block_on: &[devflow_engine::config::Severity]) -> u8 {
-    u8::from(!devflow_engine::attack_report::held(report, block_on).is_empty())
-}
-
-/// `devflow attack`: the attack tool's answer, printed as JSON.
-fn attacking(
-    root: &std::path::Path,
-    item: &str,
-    base: Option<&str>,
-    prove: Option<&str>,
-    flow: Option<&str>,
-) -> ExitCode {
-    let server = server::Server::new(root);
-    let mut asked = serde_json::json!({ "item": item });
-    if let Some(flow) = flow {
-        asked["flow"] = serde_json::json!(flow);
-    }
-    if let Some(base) = base {
-        asked["base"] = serde_json::json!(base);
-    }
-    if let Some(run) = prove {
-        asked["run"] = serde_json::json!(run);
-        asked["prove"] = serde_json::json!(true);
-    }
-    match flow::attack::attack(&server, asked) {
-        Ok(said) => {
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&said).unwrap_or_default()
-            );
-            ExitCode::SUCCESS
-        }
-        Err(why) => {
-            eprintln!("devflow attack: {why}");
-            ExitCode::FAILURE
-        }
-    }
-}
-
 fn main() -> ExitCode {
     let cli = Cli::parse();
     let root = cli.root.unwrap_or_else(|| PathBuf::from("."));
@@ -486,21 +262,21 @@ fn main() -> ExitCode {
             update::on_load();
             ExitCode::from(server::serve(&root) as u8)
         }
-        Command::Version { json } => version(json),
+        Command::Version { json } => status_cli::version(json),
         Command::Update { check, json } => update::command(check, json),
         Command::Host => host::run(&root),
         Command::Persona {
             action: Personas::Show { name },
-        } => persona_show(&root, &name),
-        Command::Payloads { action } => payloads(&root, action),
-        Command::Status { attack: false } => status(&root),
-        Command::Status { attack: true } => attack_status(&root),
+        } => status_cli::persona_show(&root, &name),
+        Command::Payloads { action } => payloads_cli::payloads(&root, action),
+        Command::Status { attack: false } => status_cli::status(&root),
+        Command::Status { attack: true } => status_cli::attack_status(&root),
         Command::Attack {
             range: Some(range),
             sarif,
             junit,
             ..
-        } => ranging(&root, &range, &sarif, &junit),
+        } => attack_cli::ranging(&root, &range, &sarif, &junit),
         Command::Attack { item: None, .. } => {
             eprintln!("devflow attack <item>, or --range A..B");
             ExitCode::FAILURE
@@ -511,7 +287,9 @@ fn main() -> ExitCode {
             run,
             ..
         } if item == "promote" => match promote.as_slice() {
-            [subject, hypothesis] => promoting(&root, subject, hypothesis, run.as_deref()),
+            [subject, hypothesis] => {
+                attack_cli::promoting(&root, subject, hypothesis, run.as_deref())
+            }
             _ => {
                 eprintln!("devflow attack promote <item or range> <hypothesis> [--run RUN]");
                 ExitCode::FAILURE
@@ -526,14 +304,14 @@ fn main() -> ExitCode {
             report: Some(run),
             format,
             ..
-        } => reporting(&root, &item, &run, &format),
+        } => attack_cli::reporting(&root, &item, &run, &format),
         Command::Attack {
             item: Some(item),
             base,
             prove,
             flow,
             ..
-        } => attacking(
+        } => attack_cli::attacking(
             &root,
             &item,
             base.as_deref(),
@@ -542,8 +320,8 @@ fn main() -> ExitCode {
         ),
         Command::Setup(how) => setup_cli::run(&root, &how),
         Command::Doctor => doctor::run(&root),
-        Command::Register(how) => registering(&how, true),
-        Command::Unregister(how) => registering(&how, false),
+        Command::Register(how) => register_cli::registering(&how, true),
+        Command::Unregister(how) => register_cli::registering(&how, false),
         Command::Hook { event, agent } => hook::run(event, &agent, &root),
         Command::Config { action } => match action {
             Configuring::Get { path } => cli::get(&root, path.as_deref()),
@@ -562,323 +340,5 @@ fn main() -> ExitCode {
         Command::Stage {
             action: Staging::Confirm { name },
         } => cli::confirm_stage(&root, &name, &consent::Consent::of_user()),
-    }
-}
-
-fn version(json: bool) -> ExitCode {
-    if json {
-        println!(
-            "{}",
-            serde_json::json!({ "version": env!("CARGO_PKG_VERSION"), "protocols": host::PROTOCOLS })
-        );
-    } else {
-        println!("devflow {}", env!("CARGO_PKG_VERSION"));
-    }
-    ExitCode::SUCCESS
-}
-
-fn registering(how: &Registering, on: bool) -> ExitCode {
-    let machine = register::Machine::here();
-    let tools = match register::chosen(how.tools.as_deref(), &machine) {
-        Ok(tools) => tools,
-        Err(why) => {
-            eprintln!("devflow: {why}");
-            return ExitCode::from(2);
-        }
-    };
-    if tools.is_empty() {
-        println!("No agent CLI or IDE found here; name one with --tools.");
-        return ExitCode::SUCCESS;
-    }
-    // Configs read without the shell's PATH get the binary whole.
-    let bin = how
-        .bin
-        .clone()
-        .map(Ok)
-        .unwrap_or_else(std::env::current_exe)
-        .and_then(|path| path.canonicalize().or(Ok(path)))
-        .map(|path| path.display().to_string())
-        .unwrap_or_else(|_| register::NAME.to_owned());
-    let mut failed = false;
-    for tool in tools {
-        let steps = if on {
-            register::register(tool, &bin, &machine)
-        } else {
-            register::unregister(tool, &machine)
-        };
-        for step in steps {
-            match register::carry(&step, how.dry_run) {
-                Ok(said) => println!("{}: {said}", tool.id()),
-                Err(why) => {
-                    failed = true;
-                    eprintln!("{}: {why}", tool.id());
-                }
-            }
-        }
-    }
-    if failed {
-        ExitCode::FAILURE
-    } else {
-        ExitCode::SUCCESS
-    }
-}
-
-/// `devflow payloads`: the repertoire, its tables, and keeping a case.
-fn payloads(root: &std::path::Path, action: Payloads) -> ExitCode {
-    use devflow_engine::payloads;
-    let failed = |why: String| {
-        eprintln!("devflow payloads: {why}");
-        ExitCode::FAILURE
-    };
-    let project = project::Project::at(root);
-    match action {
-        Payloads::List => {
-            for name in payloads::names() {
-                match payloads::class(&project.root, name) {
-                    Ok(class) => println!("{name}\t{} cases\t{}", class.cases.len(), class.about),
-                    Err(why) => return failed(why),
-                }
-            }
-            ExitCode::SUCCESS
-        }
-        Payloads::Table { class, runner } => {
-            let Some(runner) = payloads::Runner::of(&runner) else {
-                return failed("--runner is jest, vitest, go or pytest".to_owned());
-            };
-            match payloads::class(&project.root, &class) {
-                Ok(class) => {
-                    print!("{}", payloads::table(&class, runner));
-                    ExitCode::SUCCESS
-                }
-                Err(why) => failed(why),
-            }
-        }
-        Payloads::Add { item, case, run } => {
-            let runs = project.runs();
-            let found = match run.as_deref() {
-                Some(run) => runs.found(&item, Some(run), devflow_engine::attack::REPORT),
-                None => runs
-                    .newest_with(&item, devflow_engine::attack::REPORT)
-                    .map(|(_, at)| at),
-            };
-            let Some((at, report)) =
-                found.and_then(|at| flow::json_at(&at).map(|report| (at, report)))
-            else {
-                return failed(format!("{item} has no attack report to take a case from"));
-            };
-            // A report the repository carries never proposes a case.
-            let relative = at
-                .strip_prefix(&project.root)
-                .ok()
-                .map(|rest| rest.display().to_string());
-            if let Some(relative) = relative {
-                match devflow_engine::git::tracked(&project.root, &relative) {
-                    Ok(false) => {}
-                    Ok(true) => {
-                        return failed(format!(
-                            "{relative} is part of the repository: a report it carries proposes nothing"
-                        ))
-                    }
-                    Err(why) => return failed(format!("{relative}: {why}")),
-                }
-            }
-            println!("from: {}", at.display());
-            let Some(proposed) = report["proposed_cases"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .find(|one| one["id"] == case.as_str())
-                .cloned()
-            else {
-                return failed(format!("the attack report proposes no case `{case}`"));
-            };
-            let class = proposed["class"].as_str().unwrap_or_default();
-            if !payloads::names().contains(&class) {
-                return failed(format!("the case `{case}` is of no class devflow ships"));
-            }
-            // Refused before anyone is asked when it could not be kept.
-            let case_kept = match payloads::keepable(&project.root, &proposed) {
-                Ok((_, case_kept)) => case_kept,
-                Err(why) => return failed(why),
-            };
-            if let Some(from) = &case_kept.from {
-                println!(
-                    "written by: {}",
-                    serde_json::to_string(from).unwrap_or_default()
-                );
-            }
-            println!(
-                "class: {}\ninput: {}\nwant: {}\nwhy: {}",
-                serde_json::to_string(&proposed["class"]).unwrap_or_default(),
-                serde_json::to_string(&proposed["input"]).unwrap_or_default(),
-                serde_json::to_string(&proposed["want"]).unwrap_or_default(),
-                serde_json::to_string(&proposed["why"]).unwrap_or_default()
-            );
-            let question = format!("Keep it in {}?", payloads::kept_path(&project.root, class));
-            match cli::confirmed(&question) {
-                Ok(true) => match payloads::keep(&project.root, &proposed) {
-                    Ok(at) => {
-                        println!("kept in {at}");
-                        ExitCode::SUCCESS
-                    }
-                    Err(why) => failed(why),
-                },
-                Ok(false) => {
-                    println!("not kept");
-                    ExitCode::SUCCESS
-                }
-                Err(why) => failed(why),
-            }
-        }
-    }
-}
-
-/// `devflow persona show <name>`: the effective persona and what it was read
-/// from.
-fn persona_show(root: &std::path::Path, name: &str) -> ExitCode {
-    let project = project::Project::at(root);
-    let teams = project.teams();
-    let personal = project::personal_reviewers();
-    let personas = devflow_engine::review::Personas {
-        dialect: &devflow_engine::Dialect::DEVFLOW,
-        personal: personal.as_deref(),
-        teams: &teams,
-    };
-    match devflow_engine::review::effective_persona(&project.root, personas, name) {
-        Ok(effective) => {
-            println!("devflow {}", env!("CARGO_PKG_VERSION"));
-            println!("{}", devflow_engine::review::persona_line(name, &effective));
-            println!();
-            println!("{}", effective.text);
-            ExitCode::SUCCESS
-        }
-        Err(why) => {
-            eprintln!("devflow persona: {why}");
-            ExitCode::FAILURE
-        }
-    }
-}
-
-/// `devflow status --attack`: the project's attack numbers, as JSON.
-fn attack_status(root: &std::path::Path) -> ExitCode {
-    let project = project::Project::at(root);
-    let server = server::Server::new(root);
-    let said = flow::setup::status_of(&project, &server);
-    match said.get("attack") {
-        Some(attack) => {
-            println!(
-                "{}",
-                serde_json::to_string_pretty(attack).unwrap_or_default()
-            );
-            ExitCode::SUCCESS
-        }
-        None => {
-            println!("No attack has run in this project yet.");
-            ExitCode::SUCCESS
-        }
-    }
-}
-
-fn status(root: &std::path::Path) -> ExitCode {
-    let project = project::Project::at(root);
-    let server = server::Server::new(root);
-    let said = flow::setup::status_of(&project, &server);
-    let state = said["state"].as_str().unwrap_or_default();
-    if state == "no file" {
-        println!(
-            "No configuration in {}: none of {} is there.",
-            project.root.display(),
-            devflow_engine::locate::CANDIDATES.join(", ")
-        );
-        return ExitCode::from(1);
-    }
-    let legacy = if said["folder"] == devflow_engine::folder::LEGACY {
-        " (devpit's Devflow layout, read where it is)"
-    } else {
-        ""
-    };
-    println!(
-        "Configuration: {}{legacy}\nState: {state}\nNext: {}",
-        said["file"].as_str().unwrap_or_default(),
-        said["next"].as_str().unwrap_or_default()
-    );
-    if let Some(note) = said["note"].as_str() {
-        println!("Note: {note}");
-    }
-    if let Some(rows) = said["models"]["origins"].as_array() {
-        println!(
-            "Models (preset {}, the session on {}):",
-            said["models"]["preset"].as_str().unwrap_or_default(),
-            said["models"]["agent"].as_str().unwrap_or_default()
-        );
-        for line in models_table(rows) {
-            println!("  {line}");
-        }
-    }
-    ExitCode::SUCCESS
-}
-
-/// Each stage's and reviewer's model as a few columns: the stage, the
-/// reviewer when it is one, the model said, what it runs on when that
-/// differs, and where it came from.
-fn models_table(rows: &[serde_json::Value]) -> Vec<String> {
-    let text =
-        |row: &serde_json::Value, key: &str| row[key].as_str().unwrap_or_default().to_owned();
-    let cells: Vec<[String; 3]> = rows
-        .iter()
-        .map(|row| {
-            let stage = match row["who"].as_str() {
-                Some(who) => format!("{} [{who}]", text(row, "stage")),
-                None => text(row, "stage"),
-            };
-            let said = row["said"].as_str().unwrap_or("-");
-            let model = match (row["runs_on"].as_str(), said) {
-                (Some(on), _) if on != said => format!("{said} ({on})"),
-                // A tier this CLI has no model for leaves it on its own default.
-                (None, "small" | "large") => format!("{said} (the CLI's default)"),
-                _ => said.to_owned(),
-            };
-            [stage, model, text(row, "from")]
-        })
-        .collect();
-    let wide = |at: usize| {
-        cells
-            .iter()
-            .map(|row| row[at].chars().count())
-            .max()
-            .unwrap_or(0)
-    };
-    let (stage, model) = (wide(0), wide(1));
-    cells
-        .iter()
-        .map(|row| format!("{:<stage$}  {:<model$}  {}", row[0], row[1], row[2]))
-        .collect()
-}
-
-#[cfg(test)]
-mod tests {
-    use devflow_engine::config::Severity;
-    use serde_json::json;
-
-    use super::{ci_exit, range_ends};
-
-    #[test]
-    fn a_release_range_exits_1_on_a_confirmed_exploit_in_block_on_and_0_below_it() {
-        let report = json!({ "hypotheses": [
-            { "id": "h1", "status": "confirmed", "severity": "high", "class": "ssrf" },
-            { "id": "h2", "status": "refuted", "severity": "critical" },
-        ] });
-        assert_eq!(ci_exit(&report, &[Severity::Critical, Severity::High]), 1);
-        assert_eq!(ci_exit(&report, &[Severity::Critical]), 0, "below block_on");
-        assert_eq!(ci_exit(&json!({ "hypotheses": [] }), &[Severity::High]), 0);
-    }
-
-    #[test]
-    fn a_release_range_is_a_dot_dot_or_three_dots() {
-        assert_eq!(range_ends("v0.5.2..HEAD"), Some(("v0.5.2", "HEAD")));
-        assert_eq!(range_ends("main...feature"), Some(("main", "feature")));
-        for not in ["HEAD", "..HEAD", "v1..", "a..b..c"] {
-            assert_eq!(range_ends(not), None, "{not}");
-        }
     }
 }
