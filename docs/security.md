@@ -243,6 +243,13 @@ would resolve inside the checkout before it makes any folder of it.
 | `tried` | an exploit test is written but no sandbox ran it, with why | followed up: the session runs it and records it with `run` and `verified` |
 | `not_run` | the attacker could not try it here, with why (no target, a destructive step) | followed up, holds nothing |
 
+Each run of an exploit is kept on its hypothesis as `verified`: its
+result, who ran it (`sandbox` or `session`), the test and the path it ran,
+and the evidence. attack.json's `exploits` lists every confirmed exploit
+test, each with what holds it: `evidence` when the session confirmed it
+(it must be green in the newest run from then on), `proof` when the
+sandbox did (its proof closes it: red at its base, green at HEAD).
+
 A review's finding takes a recorded PoC run the same way: the review tool's
 `verified`, on any finding, `confirmed`, `refuted` or `not_run`. An attack
 finding in a review (the review tool's `attack: true`) with no recorded run,
@@ -293,8 +300,9 @@ who ran its exploit and how it ended (confirmed or refuted by devflow's
 sandbox or by the session), and apart from it the proof's commits and
 results: confirmed is not proven, and a confirmed hypothesis with no proof
 yet says so. A field the attack wrote in any other shape shows as `<…>`.
-Its `mode` is `item`, `range` or `retro`, and a range's attack runs on
-`asked`, not an item's `stages.attack.run`.
+Its `mode` is `item`, `range` or `retro`, the markdown's first line says
+it, and a range's attack runs on `asked`, not an item's
+`stages.attack.run`.
 What a class of hole lets an attacker do, and what shuts it, is said in
 devflow's words for that class. A scanner finding keeps its tool's names
 and the tool's own fix in plain words; a flow's fixes name only the
@@ -564,6 +572,12 @@ report counts them as `run_again`, each with where it came from under
 One hole several runs kept, each attacker naming it its own way (the same
 title of the same file, one class within five lines of one place, or one
 exploit), runs again once: from the run that confirmed it, else the newest.
+Classes that name one kind of hole are one there, as they are when two
+attackers of one run are merged: `tls`, `ssl`, `certificate` and
+`transport`; `authn`, `session` and `jwt`; a class and its other names
+(`idor` for `authz`). `crypto` joins `tls` only on the very same line: a
+few lines on, it may be a weak hash. Any other two classes stay apart, even
+on one line: `authn` and `authz` in one handler are two holes.
 The attacker's own account of a hole the run again confirmed is not counted
 twice.
 A red run confirms only when what it printed names the exploit's test, its
@@ -576,7 +590,9 @@ end the report keeps. A name made from a template (`it.each` with `%s` or
 `$field`) is read with each placeholder standing for one case's words on
 one line. A green run whose runner says no test ran (`no tests to run`,
 `running 0 tests`, `No tests executed`) refutes nothing: its name or place
-matched no test, and it stays tried with why.
+matched no test, and it stays tried with why. Cargo and Go run the test
+the exploit names; jest, vitest, pytest, PHPUnit and Pest run the
+exploit's whole file, so green there is every test of that file passing.
 `auto` tries bwrap for real and falls back to docker: bwrap needs
 unprivileged user namespaces, which Ubuntu restricts from 23.10
 (`kernel.apparmor_restrict_unprivileged_userns=1`); `devflow doctor` says
@@ -594,10 +610,10 @@ confirmed by the sandbox, green refuted.
 | Language | Exploit command | Image | What the run sees besides the worktree |
 |---|---|---|---|
 | Node | `npx jest "$DEVFLOW_EXPLOIT"`, `vitest run` (`pnpm exec`, `yarn`) | `node:22` | `node_modules` |
-| Rust | `cargo test --offline --test <file> -- <name>` | `rust:1`, or the version a `rust-toolchain` pins | `~/.cargo/registry` and `~/.cargo/git` as its `CARGO_HOME`, never its credentials or configuration; `CARGO_NET_OFFLINE`; a target of its own in the worktree, built from scratch |
+| Rust | `cargo test --offline --test <file> -- <name>` | `rust:1`, or the version a `rust-toolchain` pins | `~/.cargo/registry` and `~/.cargo/git` as its `CARGO_HOME`, never its credentials or configuration; `CARGO_NET_OFFLINE`; a target of its own in the worktree, copied from the attack's one build of HEAD |
 | Go | `go test -run <name> ./<folder>` | `golang:1` | the module cache (`go env GOMODCACHE`), `GOPROXY=off`, `GOTOOLCHAIN=local`, a build cache of its own; a committed `vendor/` is used as it is |
 | Python | `python -m pytest "$DEVFLOW_EXPLOIT"` (`uv run`, `poetry run`, `pipenv run`) | `python:3.N`, the venv's | the project's venv (`.venv`, `venv`, or the one poetry or pipenv keeps elsewhere), made the one `python` runs, an editable install pointing at the worktree |
-| PHP | `vendor/bin/phpunit` or `vendor/bin/pest`, also behind `composer test` | `composer:2` | `vendor` |
+| PHP | `vendor/bin/phpunit` or `vendor/bin/pest`, also behind `composer test` (a project of each) | `composer:2` | `vendor` |
 
 In the sandbox, `uv run`, `poetry run` or `pipenv run` before the command
 is dropped: the sandbox makes the project's venv the one `python` runs,
@@ -605,16 +621,27 @@ with the interpreter it was made from where the run can see it, else the
 image's of the same version (a run with neither says so and stops). Its
 packages are the venv's, and a path an editable install adds under the
 project is said again under the worktree, so the run imports the code
-attacked. An editable install that maps its packages through an import
-hook of its own (setuptools' finder for some flat layouts) still points at
-the checkout, which the run does not see.
+attacked. So is a module an editable `.pth` imports that names the
+checkout, setuptools' finder among them (the import hook it writes for a
+layout a path cannot hold, its `MAPPING` leading each package to its
+folder): a copy of it, the checkout's paths in it now the worktree's, is
+found ahead of the venv's own.
+
+A Rust project's exploits start from one build of HEAD per attack, once
+two or more are to run: `cargo test --offline --no-run` in the sandbox,
+offline, in a worktree with no exploit in it. Its `target` is mounted
+read-only into each exploit's run and copied as that worktree's own, so
+each compiles only its own code, and nothing one exploit leaves reaches
+the next. A build that fails past its dependencies still gives them; an
+exploit command with other flags (`--features`, `--release`) builds again
+what they change.
 
 Out for now: Ruby, Java and Kotlin, .NET and every other language. No
 exploit command is detected for them; set `stages.attack.test` and
 `stages.attack.image` yourself and the sandbox runs it, with the
 dependency folders above but no cache of that language's own.
-Known limits: a Rust project builds its dependencies in each exploit's
-worktree from scratch, under the exploit's five minutes; a pinned nightly
+Known limits: a Rust project's one build of HEAD runs under the same five
+minutes as an exploit; a pinned nightly
 or an extra target is fetched, so it does not run offline; a project whose
 tests need an extension or a library the image lacks (`pdo_mysql`, `intl`)
 names an image that has it in `stages.attack.image`.

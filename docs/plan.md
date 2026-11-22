@@ -447,6 +447,16 @@ HEAD. The details, and how to read the report: [security.md](security.md).
   several runs kept runs again once; the markdown report says who ran an
   exploit apart from its proof; a range's report says `mode: range` and
   `run_on: asked`.
+- 0.6.8: neighbouring classes at one place (`tls` and `ssl`, `authn` and
+  `session`; `crypto` and `tls` on one line) are one hole, run again once and merged once; `verified`
+  names the test and path it ran, the sandbox's as the session's;
+  attack.json's `exploits` lists every confirmed exploit with what holds
+  it (`evidence` or `proof`); the markdown's first line says the mode; a
+  module an editable install's `.pth` imports (setuptools' finder) is said
+  again of the worktree; a Rust project's exploits start from one build of
+  HEAD per attack; Pest is proven by a project of its own; the Stop hook
+  reads no diff while the attack is off or kept for a release, and asks
+  git for `HEAD` and the default branch once per gate read.
 
 **What a host sees change**
 
@@ -501,6 +511,13 @@ HEAD. The details, and how to read the report: [security.md](security.md).
   `none_ran` (`attack::none_ran`); `detect::ExploitTest::image` is a
   `String`, and `detect::exploit_test_at` reads the project's venv, its
   `rust-toolchain` and a `composer test` script's runner.
+- 0.6.8: `sandbox::Tree` gains `warm`, the `target` a Rust run starts from
+  (`sandbox::warmed` builds it); `attack::confirmed_exploits` lists every
+  confirmed exploit with `held_by`, and `attack::exploits` keeps only those
+  held by `evidence`, as the gate wants them; `attack_report::family` names
+  the family a class is told apart in, and `attack_report::on_one_line`
+  the families one only on one line; `models::attack_reads_the_diff` says
+  whether a diff could make the attack due.
 
 ## Release
 
