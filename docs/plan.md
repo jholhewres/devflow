@@ -473,6 +473,28 @@ HEAD. The details, and how to read the report: [security.md](security.md).
   (`merged`); the attacker asserts bounds, never wall-clock time; the
   binary's main.rs only defines and dispatches the CLI, and the longest
   functions of attack.rs and review.rs are named steps.
+- 0.7.1, what the 0.7.0 attack's own validation found: attack-report.json
+  says `run_cap_hit`, and each hypothesis's `merged` lists what it took in
+  by id and run, never a null id, with one line per hypothesis in the
+  markdown; `info-disclosure` is a class, `certificate`, `mitm` and
+  `insecure-transport` are `transport` in the report too, and only a
+  confirmed hypothesis is said to be there; a refuted one ends at `info`
+  with the attacker's severity kept as `estimated_severity`; the payload
+  filter lets the documentation ranges through (`192.0.2.0/24`,
+  `198.51.100.0/24`, `203.0.113.0/24`, `2001:db8::/32`, `3fff::/20`), bare
+  in an attacker's proposed case too, and refuses a real address beside
+  them; variants of one root (one file, one class family, one still open)
+  are one family with one fix in attack.json, attack-report.json and the
+  markdown; the attacker proves a denial of service by counting or by
+  comparing inputs, and an exploit that reads the clock is a `timing`
+  proof, run three times and kept only when each run agrees; `devflow
+  doctor` says its version first; a review sends its item to the attack only
+  while it has not run on it (after every change with `per-item`); the
+  skills say what the gate wants of an attack (a session-confirmed exploit
+  green at any severity, a sandbox-confirmed one at `block_on` proven), the
+  attack's question and what only the person sets, a release range's
+  `verified` and `prove`, the review's `attack: true` answer, and the attack
+  stage in the setup.
 
 **What a host sees change**
 
@@ -540,6 +562,14 @@ HEAD. The details, and how to read the report: [security.md](security.md).
   host cancels the call running now and hears its progress; a
   hypothesis may carry `merged`, and an attack report's budget
   `run_cap_hit`.
+- 0.7.1 only adds, all of it internal: `attack_report::roots`,
+  `attack::reads_clock` and `attack::TIMING_RUNS`; attack.json gains
+  `families`, and a hypothesis `family`, `estimated_severity`,
+  `exploit.timing` and `verified.timing`; each `merged` entry gains `id`
+  and `run`; attack-report.json gains `run_cap_hit` and `families`, and its
+  hypotheses `estimated_severity`, `proof_kind`, `timing` and `family`,
+  with `merged` a list instead of a count; `models::attack_next` says
+  whether a review sends its item to the attack.
 
 ## The engine as a library: 0.7.0
 

@@ -92,9 +92,11 @@ sandbox: one that fails there is `confirmed`, one that passes is `refuted`.
   with its severity in `review.block_on`, holds the item until it is proven:
   `attack` with `run` and `prove` (or `devflow attack <item> --prove <run>`)
   runs its exploit again at the commit it was confirmed on, where it must
-  fail, and at HEAD, where it must pass. From then on its exploit test must
-  be green in the newest evidence. A hypothesis no sandbox ran is followed up
-  and holds nothing.
+  fail, and at HEAD, where it must pass; one below `block_on` is followed
+  up. A hypothesis the session confirmed (`verified`) holds the item
+  whatever its severity, until its exploit test is green in the newest
+  evidence, and stays green from then on. A hypothesis no run confirmed is
+  followed up and holds nothing.
 
 ```yaml
 # devflow.yaml, version 2
@@ -255,10 +257,22 @@ what holds it; the test's name is the attack's own words and stays in
 attack.json.
 
 An exploit asserts what the code does, never how long it takes: for a
-denial of service, the attacker is asked to assert the bound the code
-crosses (the steps it runs, the size or depth it accepts, the memory it
-takes), since wall-clock time changes with the machine and makes a flaky
-regression test.
+denial of service, the attacker is asked to count what the code does (the
+steps it runs, the calls it makes, the size of what it builds, the memory it
+takes) or to compare the same work on a small and a large input, never an
+absolute limit in milliseconds, since wall-clock time changes with the
+machine and makes a flaky regression test. When only time can show it, the
+exploit proves by `timing`: its attacker says so, or its code reads the
+clock (`Date.now()`, `performance.now()`, `time.perf_counter()`,
+`Instant::now()` and the like), whatever its attacker said. The sandbox then
+runs it three times, at HEAD and on each side of its proof, and it stands
+only when every run agrees; one whose runs disagree is not run, saying so.
+Its `verified` keeps how many ran and were red, and the report marks the
+proof `timing`, which is less sure than an assertion.
+
+A hypothesis's `severity` is how bad the hole would be were it there. A
+refuted one ends at `info`, and the attacker's severity is kept apart as
+`estimated_severity`; one confirmed later takes it back.
 
 A review's finding takes a recorded PoC run the same way: the review tool's
 `verified`, on any finding, `confirmed`, `refuted` or `not_run`. An attack
@@ -276,7 +290,9 @@ usual choice. Nothing caps it unless the person sets `stages.attack.budget`
 
 - `run_usd` caps one run: the attacker's turn stops there, the report says
   what capped it (`run_capped_by`) and whether a cap ended a turn
-  (`run_cap_hit`, each attacker's `cap_hit`), and several attackers share it.
+  (`run_cap_hit`, each attacker's `cap_hit`; attack-report.json's
+  `run_cap_hit` too, and the markdown's header), and several attackers share
+  it.
 - `month_usd` refuses a run before it starts once the month's attacks spent
   it. A ledger devflow cannot read refuses too: it never counts as nothing
   spent.
@@ -309,14 +325,30 @@ name is `other`), the id, the file when the commit attacked has it (any
 other the attack names, an exploit's own path included, shows as `<…>`),
 the line, the run,
 who ran its exploit and how it ended (confirmed or refuted by devflow's
-sandbox or by the session), and apart from it the proof's commits and
-results: confirmed is not proven, and a confirmed hypothesis with no proof
-yet says so. A field the attack wrote in any other shape shows as `<…>`.
+sandbox or by the session), whether its proof is an assertion or `timing`,
+a refuted one's `estimated_severity`, and apart from it the proof's commits
+and results: confirmed is not proven, and a confirmed hypothesis with no
+proof yet says so. What it took in (`merged`) is listed by each one's id and
+run, and the markdown gives each hypothesis that took others in one line. A
+field the attack wrote in any other shape shows as `<…>`.
 Its `mode` is `item`, `range` or `retro`, the markdown's first line says
 it, and a range's attack runs on `asked`, not an item's
 `stages.attack.run`.
 What a class of hole lets an attacker do, and what shuts it, is said in
-devflow's words for that class. A scanner finding keeps its tool's names
+devflow's words for that class (`info-disclosure` is one, said
+`information-disclosure`, `info-leak` or `user-enumeration` too), and only a
+confirmed hypothesis is said to be there: a refuted one says it was refuted,
+with nothing to fix, and one not confirmed says so.
+
+Variants of one root are one family. Two or more hypotheses of one file and
+one family of class, one of them still open (confirmed or tried), are the
+same hole reached by other inputs: gaps in one blocklist, hidden text one
+extractor lets through. attack.json and attack-report.json list each family
+once (`families`: its id, class, file, variants and how many were
+confirmed) with the one fix devflow says for its class, each hypothesis
+names its `family`, and the markdown gives each one line under "Holes by
+root". The attacker is asked to name the change at the root in each
+variant's fix. A scanner finding keeps its tool's names
 and the tool's own fix in plain words; a flow's fixes name only the
 repositories they touch.
 
@@ -481,9 +513,11 @@ apart from the rest, the noise a scanner alone leaves you with.
 devflow ships generic cases by attack class: SSRF, ReDoS, path traversal, SQL
 and NoSQL injection, XXE, deserialization and prompt injection. Each case is a neutral input
 and what safe code does with it. A URL's host is loopback or private on port
-1, or a name that resolves nowhere; a bare address leads inside; no name or
-e-mail address ends in a real place, and no case names a real project or
-person. A real place is any two-letter country's, any top-level name IANA
+1, a name that resolves nowhere (`.test`, `.example`, `.invalid`) or an
+address IANA keeps for documentation (`192.0.2.0/24`, `198.51.100.0/24`,
+`203.0.113.0/24`, `2001:db8::/32`, `3fff::/20`); a bare address leads
+inside or is kept for documentation; no name or e-mail address ends in a
+real place, and no case names a real project or person. A real place is any two-letter country's, any top-level name IANA
 delegates (in Unicode too), or a name networks use inside (`internal`,
 `local`, `corp`…). A dotted word that ends in one is refused wherever it
 stands, a file's or a call's name included (`main.rs`, `App.java`,
@@ -512,7 +546,11 @@ jest|vitest|go|pytest` prints a test table with a `check` function you fill
 in for the code under test. `stages.attack.regression: [ssrf, redos]` gives
 those classes' cases to every attack. A case an attack proposes stays in its
 report until you keep it with `devflow payloads add <item> <case>` on a
-terminal, in `payloads/<class>.json` of devflow's folder.
+terminal, in `payloads/<class>.json` of devflow's folder. A case an attack
+proposes holds no host syntax at all (no URL, no port, no `@`), so a
+parser cannot read a host from it in a spelling no check foresees; an
+address kept for documentation, written plainly (`192.0.2.1`,
+`2001:db8::1`), is the one exception.
 
 The prompt-injection table tests the code that builds a model's messages,
 with no model called. Each case is text a user, a tool or a document wrote.
@@ -592,8 +630,9 @@ few lines on, it may be a weak hash. Any other two classes stay apart, even
 on one line: `authn` and `authz` in one handler are two holes.
 The attacker's own account of a hole the run again confirmed is not counted
 twice. The hypothesis kept says what it took in, under `merged`: each one's
-id, class, place and title, and who found it or which run kept it, never its
-exploit; the JSON report gives how many.
+id and run (the run that kept it and its id there, or this run and the id
+its attacker gave it), class, place and title, and who found it or which run
+kept it, never its exploit; the JSON report lists each by id and run.
 A red run confirms only when what it printed names the exploit's test, its
 parts joined as the runner joins them (jest's `describe › test`, vitest's
 and Pest's `describe > test`, pytest's, cargo's and PHPUnit's `::`, Go's
