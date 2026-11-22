@@ -499,6 +499,123 @@ fn venv_at(at: &Path, version: &str, base: &str, root: &Path) -> PathBuf {
     site
 }
 
+/// An editable install the way setuptools makes one for a layout a path
+/// cannot hold: a `.pth` that imports a finder, whose `MAPPING` leads the
+/// package `name` to `folder`.
+fn finder_at(site: &Path, name: &str, folder: &Path) {
+    let module = format!("__editable___{name}_1_0_finder");
+    std::fs::write(
+        site.join(format!("{module}.py")),
+        format!(
+            "import sys\n\
+             from importlib.util import spec_from_file_location\n\
+             from pathlib import Path\n\
+             MAPPING: dict[str, str] = {{'{name}': '{}'}}\n\
+             NAMESPACES: dict[str, list[str]] = {{}}\n\
+             class _EditableFinder:\n\
+             \x20   @classmethod\n\
+             \x20   def find_spec(cls, fullname, path=None, target=None):\n\
+             \x20       if fullname not in MAPPING:\n\
+             \x20           return None\n\
+             \x20       at = Path(MAPPING[fullname])\n\
+             \x20       return spec_from_file_location(fullname, at / '__init__.py', submodule_search_locations=[str(at)])\n\
+             def install():\n\
+             \x20   if not any(finder == _EditableFinder for finder in sys.meta_path):\n\
+             \x20       sys.meta_path.append(_EditableFinder)\n",
+            folder.display()
+        ),
+    )
+    .expect("finder");
+    std::fs::write(
+        site.join(format!("__editable__.{name}-1.0.pth")),
+        format!("import {module}; {module}.install()\n"),
+    )
+    .expect("pth");
+}
+
+#[test]
+fn an_editable_finder_is_said_again_of_the_worktree_and_nothing_else_is_read() {
+    let dir = tempfile::tempdir().expect("dir");
+    let checkout = dir.path().join("checkout");
+    let venv = checkout.join(".venv");
+    let site = venv_at(&venv, "python3.12", "/usr/bin", &checkout);
+    finder_at(&site, "vault", &checkout.join("lib/vault"));
+    // A module a `.pth` imports that names no checkout path is left alone,
+    // as is one past a link or not a module's plain name.
+    std::fs::write(site.join("other.pth"), "import plain, ../evil; import os\n").expect("pth");
+    std::fs::write(site.join("plain.py"), "X = '/usr/lib'\n").expect("module");
+    let tree = dir.path().join("tree");
+    let said = editable(&venv, "python3.12", std::slice::from_ref(&checkout), &tree);
+    assert_eq!(said.paths, [tree.join("src").display().to_string()]);
+    assert_eq!(said.modules.len(), 1, "{said:?}");
+    let (name, text) = &said.modules[0];
+    assert_eq!(name, "__editable___vault_1_0_finder");
+    assert!(
+        text.contains(&format!(
+            "{{'vault': '{}'}}",
+            tree.join("lib/vault").display()
+        )),
+        "{text}"
+    );
+    assert!(!text.contains(&checkout.display().to_string()), "{text}");
+    let prelude = python_prelude(
+        Path::new("/tmp/made"),
+        &tree.join(".venv"),
+        "python3.12",
+        None,
+        &said,
+    );
+    assert!(
+        prelude.contains(
+            "> '/tmp/made'/lib/python3.12/site-packages/__editable___vault_1_0_finder.py"
+        ),
+        "{prelude}"
+    );
+    assert_eq!(
+        imported("import a, b as c; x = 1; import d"),
+        ["a", "b", "d"]
+    );
+    assert!(imported("import ../x").is_empty());
+}
+
+#[test]
+fn a_checkout_inside_another_root_is_said_again_by_the_deepest() {
+    let dir = tempfile::tempdir().expect("dir");
+    let main = dir.path().join("main");
+    let checkout = main.join("wt");
+    let venv = checkout.join(".venv");
+    let site = venv_at(&venv, "python3.12", "/usr/bin", &checkout);
+    finder_at(&site, "a", &checkout.join("lib/a"));
+    let tree = dir.path().join("tree");
+    let said = editable(&venv, "python3.12", &[main, checkout], &tree);
+    assert_eq!(said.paths, [tree.join("src").display().to_string()]);
+    assert!(
+        said.modules[0]
+            .1
+            .contains(&format!("'{}'", tree.join("lib/a").display())),
+        "{said:?}"
+    );
+}
+
+#[test]
+fn the_modules_said_again_stay_within_one_argument() {
+    let dir = tempfile::tempdir().expect("dir");
+    let checkout = dir.path().join("checkout");
+    let venv = checkout.join(".venv");
+    let site = venv_at(&venv, "python3.12", "/usr/bin", &checkout);
+    let padding = "#".repeat(30 * 1024);
+    for name in ["a", "b", "c"] {
+        finder_at(&site, name, &checkout.join(name));
+        let module = site.join(format!("__editable___{name}_1_0_finder.py"));
+        let text = std::fs::read_to_string(&module).expect("finder");
+        std::fs::write(&module, format!("{text}{padding}\n")).expect("padded");
+    }
+    let said = editable(&venv, "python3.12", &[checkout], &dir.path().join("tree"));
+    let held: usize = said.modules.iter().map(|(_, text)| text.len()).sum();
+    assert_eq!(said.modules.len(), 2, "two fit, the third would not");
+    assert!(held <= MOST_MODULES_TEXT, "{held}");
+}
+
 #[test]
 fn a_python_venv_is_made_the_one_python_runs_with_the_worktrees_own_code() {
     let dir = tempfile::tempdir().expect("dir");
@@ -567,6 +684,16 @@ fn the_venv_made_runs_the_projects_packages_and_the_worktrees_code() {
     std::fs::write(tree.join("src/shop.py"), "WHO = 'the worktree'\n").expect("code");
     std::fs::create_dir_all(checkout.join("src")).expect("src");
     std::fs::write(checkout.join("src/shop.py"), "WHO = 'the checkout'\n").expect("code");
+    // setuptools' finder: `lib` is on no path, only its MAPPING leads there.
+    finder_at(&site, "vault", &checkout.join("lib/vault"));
+    for (root, who) in [(&tree, "the worktree"), (&checkout, "the checkout")] {
+        std::fs::create_dir_all(root.join("lib/vault")).expect("lib");
+        std::fs::write(
+            root.join("lib/vault/__init__.py"),
+            format!("WHO = '{who}'\n"),
+        )
+        .expect("package");
+    }
     let made = dir.path().join("made");
     let roots = [checkout.clone()];
     let prelude = python_prelude(
@@ -574,13 +701,13 @@ fn the_venv_made_runs_the_projects_packages_and_the_worktrees_code() {
         &venv,
         &version,
         Some(python.parent().expect("bin")),
-        &editable_paths(&venv, &version, &roots, &tree),
+        &editable(&venv, &version, &roots, &tree),
     );
     let said = Command::new("sh")
         .args([
             "-c",
             &format!(
-                "{prelude}python -c 'import shoplib, shop, sys; print(shoplib.WHO, \"/\", shop.WHO, \"/\", sys.prefix)'"
+                "{prelude}python -c 'import shoplib, shop, vault, sys; print(shoplib.WHO, \"/\", shop.WHO, \"/\", vault.WHO, \"/\", sys.prefix)'"
             ),
         ])
         .env_clear()
@@ -589,7 +716,7 @@ fn the_venv_made_runs_the_projects_packages_and_the_worktrees_code() {
         .expect("sh");
     let out = String::from_utf8_lossy(&said.stdout);
     assert!(
-        out.contains("the venv / the worktree"),
+        out.contains("the venv / the worktree / the worktree"),
         "{out} {}",
         String::from_utf8_lossy(&said.stderr)
     );

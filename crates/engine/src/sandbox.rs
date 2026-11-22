@@ -369,23 +369,35 @@ fn language_with(
                     }
                 }
             }
-            let mut roots: Vec<PathBuf> = [venv.from.parent(), Some(tree.root.as_path())]
+            // Where an editable install may point: the checkout, the main
+            // worktree whose venv a linked one runs, or the folder a
+            // project's own `.venv` is in; never the folder poetry or
+            // pipenv keep their venvs in.
+            let own = venv
+                .from
+                .file_name()
+                .is_some_and(|name| name == ".venv" || name == "venv");
+            let mut roots: Vec<PathBuf> = [venv.from.parent().filter(|_| own)]
                 .into_iter()
                 .flatten()
                 .map(Path::to_path_buf)
+                .chain([tree.root.clone()])
+                .chain(main_worktree(&tree.root))
                 .collect();
             for root in roots.clone() {
                 if let Ok(real) = root.canonicalize() {
-                    roots.push(real);
+                    if !roots.contains(&real) {
+                        roots.push(real);
+                    }
                 }
             }
-            let mapped = editable_paths(&venv.from, &version, &roots, &tree.at);
+            let editable = editable(&venv.from, &version, &roots, &tree.at);
             out.prelude = Some(python_prelude(
                 Path::new(PYTHON_HOME),
                 &venv.to,
                 &version,
                 base.as_deref(),
-                &mapped,
+                &editable,
             ));
         }
     }
@@ -466,31 +478,126 @@ fn venv_base(venv: &Path) -> Option<PathBuf> {
     })
 }
 
-/// The paths a venv's `.pth` files add under one of `roots` (an editable
-/// install of the project), said again under `tree`: the run imports the
-/// worktree's code, never the checkout's.
-fn editable_paths(venv: &Path, version: &str, roots: &[PathBuf], tree: &Path) -> Vec<String> {
+/// What an editable install of the project in a venv says of the checkout,
+/// said again of the worktree: the paths its `.pth` files add, and the
+/// modules they import that name it (setuptools' finder, whose `MAPPING`
+/// leads each package to its folder). The run imports the worktree's code,
+/// never the checkout's.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct Editable {
+    paths: Vec<String>,
+    /// Each module's name and its text, the checkout's paths in it now the
+    /// worktree's.
+    modules: Vec<(String, String)>,
+}
+
+/// The most of a `.pth` or a module it imports read: setuptools writes a
+/// few kilobytes.
+const MOST_EDITABLE: u64 = 64 * 1024;
+/// The most modules a venv's `.pth` files import that are said again, and
+/// the most of their text in all: it goes into the one argument `sh -c`
+/// runs, which Linux holds to 128 KiB.
+const MOST_MODULES: usize = 32;
+const MOST_MODULES_TEXT: usize = 64 * 1024;
+
+/// A small regular file's text, never through a link.
+fn small_text(at: &Path) -> Option<String> {
+    let meta = std::fs::symlink_metadata(at).ok()?;
+    (meta.is_file() && meta.len() <= MOST_EDITABLE)
+        .then(|| std::fs::read_to_string(at).ok())
+        .flatten()
+}
+
+/// Whether `name` is a module's plain name: no dots, no path.
+fn module_name(name: &str) -> bool {
+    let mut chars = name.chars();
+    name.len() <= 200
+        && chars
+            .next()
+            .is_some_and(|first| first.is_ascii_alphabetic() || first == '_')
+        && chars.all(|one| one.is_ascii_alphanumeric() || one == '_')
+}
+
+/// The modules a `.pth` line imports: Python runs a line that begins with
+/// `import`, and each of its `import` statements names them.
+fn imported(line: &str) -> Vec<&str> {
+    line.split(';')
+        .filter_map(|part| part.trim().strip_prefix("import "))
+        .flat_map(|names| names.split(','))
+        .filter_map(|name| name.split_whitespace().next())
+        .filter(|name| module_name(name))
+        .collect()
+}
+
+/// `text` with each path under one of `roots` it quotes said under `tree`
+/// instead, the deepest root first; `None` when it quotes none.
+fn requoted(text: &str, roots: &[PathBuf], tree: &Path) -> Option<String> {
+    let tree = tree.display().to_string();
+    let mut out = text.to_owned();
+    for root in roots
+        .iter()
+        .filter(|root| root.is_absolute() && root.parent().is_some())
+    {
+        let root = root.display().to_string();
+        // Python would have escaped it: such a path is never matched.
+        if root.contains(['\'', '"', '\\']) {
+            continue;
+        }
+        for quote in ['\'', '"'] {
+            out = out
+                .replace(&format!("{quote}{root}/"), &format!("{quote}{tree}/"))
+                .replace(
+                    &format!("{quote}{root}{quote}"),
+                    &format!("{quote}{tree}{quote}"),
+                );
+        }
+    }
+    (out != text).then_some(out)
+}
+
+/// What a venv's editable installs under one of `roots` say, said again
+/// under `tree` ([`Editable`]).
+fn editable(venv: &Path, version: &str, roots: &[PathBuf], tree: &Path) -> Editable {
+    // The deepest first: a checkout inside the main worktree is its own.
+    let mut roots = roots.to_vec();
+    roots.sort_by_key(|root| std::cmp::Reverse(root.as_os_str().len()));
+    let roots = roots.as_slice();
     let site = venv.join("lib").join(version).join("site-packages");
-    let mut out: Vec<String> = Vec::new();
+    let mut out = Editable::default();
     let Ok(entries) = std::fs::read_dir(&site) else {
         return out;
     };
-    for entry in entries.flatten().take(2_000) {
-        let is_pth = entry
-            .file_name()
-            .to_str()
-            .is_some_and(|name| name.ends_with(".pth"));
-        let small = entry
-            .metadata()
-            .is_ok_and(|meta| meta.is_file() && meta.len() <= 64 * 1024);
-        if !is_pth || !small {
-            continue;
-        }
-        let Ok(text) = std::fs::read_to_string(entry.path()) else {
+    let mut pths: Vec<PathBuf> = entries
+        .flatten()
+        .take(2_000)
+        .map(|entry| entry.path())
+        .filter(|at| at.extension().is_some_and(|ext| ext == "pth"))
+        .collect();
+    pths.sort();
+    for pth in pths {
+        let Some(text) = small_text(&pth) else {
             continue;
         };
         for line in text.lines().map(str::trim) {
-            if line.is_empty() || line.starts_with('#') || line.starts_with("import") {
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            if line.starts_with("import") {
+                for name in imported(line) {
+                    if out.modules.len() >= MOST_MODULES
+                        || out.modules.iter().any(|(had, _)| had == name)
+                    {
+                        continue;
+                    }
+                    let module = small_text(&site.join(format!("{name}.py")))
+                        .and_then(|text| requoted(&text, roots, tree));
+                    let held: usize = out.modules.iter().map(|(_, text)| text.len()).sum();
+                    if let Some(module) =
+                        module.filter(|module| held + module.len() <= MOST_MODULES_TEXT)
+                    {
+                        out.modules.push((name.to_owned(), module));
+                    }
+                }
                 continue;
             }
             let rest = roots
@@ -499,13 +606,13 @@ fn editable_paths(venv: &Path, version: &str, roots: &[PathBuf], tree: &Path) ->
                 .find_map(|root| Path::new(line).strip_prefix(root).ok());
             if let Some(rest) = rest {
                 let mapped = tree.join(rest).display().to_string();
-                if !out.contains(&mapped) {
-                    out.push(mapped);
+                if !out.paths.contains(&mapped) {
+                    out.paths.push(mapped);
                 }
             }
         }
     }
-    out.sort();
+    out.paths.sort();
     out
 }
 
@@ -525,14 +632,27 @@ fn python_prelude(
     venv: &Path,
     version: &str,
     base: Option<&Path>,
-    mapped: &[String],
+    editable: &Editable,
 ) -> String {
     let site = venv.join("lib").join(version).join("site-packages");
     let site = serde_json::to_string(&site.display().to_string()).unwrap_or_default();
     // The worktree's code first: where the checkout is in sight, its own
     // editable path, which the venv's packages add, comes after.
-    let mut lines: Vec<String> = mapped.iter().map(|one| quoted(one)).collect();
+    let mut lines: Vec<String> = editable.paths.iter().map(|one| quoted(one)).collect();
     lines.push(quoted(&format!("import site; site.addsitedir({site})")));
+    // A module an editable `.pth` imports is found here first, ahead of the
+    // venv's own: setuptools' finder then leads to the worktree.
+    let modules: String = editable
+        .modules
+        .iter()
+        .map(|(name, text)| {
+            format!(
+                "printf '%s' {} > {}/lib/{version}/site-packages/{name}.py\n",
+                quoted(text),
+                quoted(&at.display().to_string())
+            )
+        })
+        .collect();
     let from_base = base
         .map(|base| quoted(&base.join(version).display().to_string()))
         .unwrap_or_default();
@@ -545,6 +665,7 @@ fn python_prelude(
          for one in python python3 {version}; do ln -sf \"$devflow_py\" {home}/bin/$one; done\n\
          printf 'home = %s\\ninclude-system-site-packages = false\\n' \"${{devflow_py%/*}}\" > {home}/pyvenv.cfg\n\
          printf '%s\\n' {lines} > {home}/lib/{version}/site-packages/00-devflow.pth\n\
+         {modules}\
          PATH={home}/bin:$PATH VIRTUAL_ENV={home}\n\
          export PATH VIRTUAL_ENV\n",
         lines = lines.join(" "),
