@@ -47,6 +47,10 @@ pub fn of_report(report: &Value) -> Value {
     json!({
         "tried": count("tried"), "confirmed": confirmed, "refuted": count("refuted"),
         "not_run": count("not_run"), "cost_usd": cost, "duration_ms": time,
+        // Exploits stopped by their environment or build: several say the
+        // attack's test command lacks what the project needs.
+        "env_error": report["counts"]["env_error"].as_u64().unwrap_or_default(),
+        "env_repeated": crate::attack::env_repeated(report),
         "wall_ms": report["profile"]["total_ms"].as_u64(),
         "cost_per_confirmed": (confirmed > 0).then(|| cost / confirmed as f64),
         "missed_by_review": missed,

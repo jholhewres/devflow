@@ -363,6 +363,7 @@ fn project(root: &Path, consent: &Consent) -> Vec<Said> {
             let path = std::env::var_os("PATH").unwrap_or_default();
             if config.stages_on().contains(&"attack") {
                 said.push(sandbox(&config.stages.attack, &path));
+                said.extend(env_errors(&project, config.stages.attack.test.as_deref()));
             }
             for check in config.stages.execution.every_check() {
                 match devflow_engine::available::why_not(&project.root, &path, &check.run) {
@@ -433,6 +434,45 @@ fn consented(root: &Path, consent: &Consent) -> Vec<Said> {
         )));
     }
     said
+}
+
+/// Whether the newest attack's exploits stopped on one same error of their
+/// environment or build, several of them: then `stages.attack.test` (`set`)
+/// most likely lacks what the project's own tests use, such as Go build
+/// tags. The command detected from the project's Makefile or CI is said
+/// when it differs from the one set.
+fn env_errors(project: &Project, set: Option<&str>) -> Option<Said> {
+    let ledger = devflow_engine::attack_metrics::ledger(&project.runs().home);
+    // The newest by its run's stamp: a run kept again goes last in the ledger.
+    let newest = ledger
+        .iter()
+        .max_by(|one, other| one["run"].as_str().cmp(&other["run"].as_str()))?;
+    let count = newest["metrics"]["env_repeated"]
+        .as_u64()
+        .unwrap_or_default();
+    if count < devflow_engine::attack::ENV_ERRORS_SAID as u64 {
+        return None;
+    }
+    let root = project.root.as_path();
+    let detected = devflow_engine::detect::detected(root, crate::flow::setup::machine(root));
+    let fix = match devflow_engine::detect::exploit_test_at(root, &detected) {
+        Some(found) if Some(found.command.as_str()) != set => format!(
+            "set it as the project runs its tests: `devflow config set stages.attack.test '{}'` \
+             (as {} runs them)",
+            found.command, found.source
+        ),
+        _ => "set it as the project runs its tests (`devflow config set stages.attack.test \
+              '<command>'`), or run each exploit in the session and send `verified`"
+            .to_owned(),
+    };
+    Some(maybe(format!(
+        "the newest attack (run {} of {}): {count} exploits failed on one same error of their \
+         environment or build, not on their assertion (env_error): stages.attack.test most \
+         likely lacks what the project's tests use (build tags, as Go's `-tags`, a module, a \
+         service); {fix}",
+        newest["run"].as_str().unwrap_or("?"),
+        newest["item"].as_str().unwrap_or("?"),
+    )))
 }
 
 /// Where the attack's exploits run here, and why bwrap does not when

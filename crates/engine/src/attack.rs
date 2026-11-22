@@ -1517,6 +1517,9 @@ impl Exploits<'_> {
         if timing {
             one["ran"]["timing"] = json!({ "runs": runs.0, "red": runs.1 });
         }
+        if why.starts_with(ENV_ERROR) {
+            one["ran"]["env_error"] = json!(env_said(&ran, given.redact));
+        }
         if result != "not_run" {
             // The test it ran, as the session's `verified` names its own.
             one["verified"] = json!({
@@ -1532,6 +1535,13 @@ impl Exploits<'_> {
         }
         took.iter().skip(1).sum()
     }
+}
+
+/// The line a run that stopped on its environment printed of it, redacted
+/// whole and then cut short, for the person to fix the command.
+fn env_said(ran: &sandbox::Ran, redact: &dyn Fn(&str) -> String) -> String {
+    let error = ran.env_error.as_deref().unwrap_or(SETUP_TIMED_OUT);
+    redact(error).chars().take(MOST_ENV_LINE).collect()
 }
 
 /// The milliseconds since `at`.
@@ -1570,11 +1580,39 @@ fn steady<R>(
     (ran, ended, counted)
 }
 
+/// Why a run is not run when its environment or build failed, not its
+/// assertion: it shows nothing of the hole, red or green.
+pub const ENV_ERROR: &str = "env_error";
+
+/// What a run that timed out still setting up says of its environment.
+const SETUP_TIMED_OUT: &str = "timed out before its test began";
+
+/// What a run prints while it still sets up: fetching or building what the
+/// test needs. A run that times out on one never reached its test.
+const SETTING_UP: [&str; 5] = [
+    "go: downloading",
+    "go: finding",
+    "Compiling ",
+    "Downloading ",
+    "Installing ",
+];
+
 /// How an exploit's run ends its hypothesis: its status, its run's result
 /// and why. Red that names its test confirms; green that ran a test refutes;
-/// anything else is not run, for the session.
+/// a run whose environment or build failed ([`env_failed`]), or that timed
+/// out still setting up ([`SETTING_UP`]), is not run, `env_error`; anything
+/// else is not run, for the session.
 fn ended(ran: &sandbox::Ran) -> (&'static str, &'static str, String) {
+    let env = || {
+        (
+            "tried",
+            "not_run",
+            format!("{ENV_ERROR}: its environment or build failed, not its assertion, so it shows nothing of the hole: run it again once its command and code build and run (stages.attack.test: a build tag, a module, a service), or in the session"),
+        )
+    };
     match &ran.outcome {
+        Outcome::Red | Outcome::Green | Outcome::TimedOut if ran.env_error.is_some() => env(),
+        Outcome::TimedOut if setting_up(ran) => env(),
         Outcome::Red if ran.reached => ("confirmed", "confirmed", "red, naming its test".to_owned()),
         Outcome::Red => (
             "tried",
@@ -1631,6 +1669,83 @@ const NONE_RAN: [&str; 8] = [
     "no tests ran",
     "collected 0 items",
 ];
+
+/// Whether a run that timed out was still setting up: it never named its
+/// test, and the end it printed fetches or builds ([`SETTING_UP`]).
+fn setting_up(ran: &sandbox::Ran) -> bool {
+    !ran.reached && SETTING_UP.iter().any(|sign| ran.tail.contains(sign))
+}
+
+/// What a run prints when its build or setup failed, so its test never ran:
+/// a build, a compile or a collection that failed, a package or command not
+/// there, a setup that broke before the test.
+const BUILD_FAILED: [&str; 13] = [
+    "[build failed]",
+    "[setup failed]",
+    "error: could not compile",
+    "error[E",
+    "PHP Parse error",
+    "ERROR collecting",
+    "errors during collection",
+    "build constraints exclude all Go files",
+    "cannot find package",
+    "no required module provides package",
+    "command not found",
+    "Test suite failed to run",
+    "ERROR at setup of",
+];
+
+/// What a run prints when what its test needs is not there as it runs: a
+/// module, an extension or a library. A test may name itself and still fail
+/// on one (Go's `no such module: fts5` when a build tag is missing). A test
+/// that passes may print one too (a fix that logs the error it now
+/// catches), so a green run counts it only when it skipped.
+const MISSING: [&str; 11] = [
+    "SyntaxError",
+    "Cannot find module",
+    "ModuleNotFoundError",
+    "ImportError",
+    "no such module:",
+    "could not load extension",
+    "could not open extension control file",
+    "error while loading shared libraries",
+    "cannot open shared object file",
+    "Library not loaded",
+    "undefined symbol:",
+];
+
+/// What a runner prints for a test it skipped.
+const SKIPPED: [&str; 4] = ["--- SKIP", "SKIPPED", " skipped", "# SKIP"];
+
+/// The most of a run's own output kept of the line that says its
+/// environment failed, once redacted.
+const MOST_ENV_LINE: usize = 240;
+
+/// The line of a run's output that says its environment or build failed,
+/// not its assertion ([`BUILD_FAILED`], [`MISSING`]), or a panic before its
+/// test was named; `None` when nothing says so. Of a `green` run, only what
+/// kept its test from running, or what is missing in one that skipped.
+pub fn env_failed(said: &str, test: &str, green: bool) -> Option<String> {
+    let line_with = |markers: &[&str]| {
+        said.lines()
+            .find(|line| markers.iter().any(|marker| line.contains(marker)))
+            .map(|line| line.trim().chars().take(4 * MOST_ENV_LINE).collect())
+    };
+    if let Some(line) = line_with(&BUILD_FAILED) {
+        return Some(line);
+    }
+    if green {
+        let skipped = SKIPPED.iter().any(|marker| said.contains(marker));
+        return skipped.then(|| line_with(&MISSING)).flatten();
+    }
+    if let Some(line) = line_with(&MISSING) {
+        return Some(line);
+    }
+    if named(said, test) {
+        return None;
+    }
+    line_with(&["panic:", "panicked at"])
+}
 
 /// Whether a red run reached its test: the output names it, and no harness
 /// error says the file never ran.
@@ -1838,7 +1953,66 @@ pub fn counts(report: &Value) -> Value {
     }
     let carried = report["carried"].as_array().map_or(0, Vec::len);
     counts.insert("carried".to_owned(), json!(carried));
+    counts.insert("env_error".to_owned(), json!(env_errors(&list)));
     Value::Object(counts)
+}
+
+/// The errors of their environment or build `hypotheses` were not run for,
+/// each as compared: without the `file:line:` a runner puts before it.
+fn env_lines(hypotheses: &[Value]) -> Vec<String> {
+    hypotheses
+        .iter()
+        .filter(|one| one["status"] == "tried")
+        .filter_map(|one| one["ran"]["env_error"].as_str())
+        .map(|line| {
+            let line = line.trim();
+            let placed = line.split_once(": ").filter(|(place, _)| {
+                !place.contains(' ') && place.contains(':') && {
+                    let mut parts = place.rsplit(':');
+                    parts.next().is_some_and(|last| {
+                        !last.is_empty() && last.chars().all(|ch| ch.is_ascii_digit())
+                    })
+                }
+            });
+            placed.map_or(line, |(_, rest)| rest).to_owned()
+        })
+        .collect()
+}
+
+/// How many of `hypotheses` ran into an error of their environment or
+/// build, and were not run for it.
+fn env_errors(hypotheses: &[Value]) -> usize {
+    env_lines(hypotheses).len()
+}
+
+/// How many of `report`'s exploits stopped on the very same error of their
+/// environment, the most of any one error: a build tag missing stops each
+/// exploit the same way; an attacker's typo, only its own.
+pub fn env_repeated(report: &Value) -> usize {
+    let list = report["hypotheses"].as_array().cloned().unwrap_or_default();
+    let lines = env_lines(&list);
+    lines
+        .iter()
+        .map(|line| lines.iter().filter(|other| *other == line).count())
+        .max()
+        .unwrap_or(0)
+}
+
+/// How many exploits one same error of their environment must stop to be a
+/// warning: then the command most likely lacks what the project needs.
+pub const ENV_ERRORS_SAID: usize = 2;
+
+/// What the report says when several exploits stopped on one same error of
+/// their environment or build ([`env_repeated`]): how many, and what to
+/// change. `None` below [`ENV_ERRORS_SAID`].
+pub fn env_warning(report: &Value) -> Option<Value> {
+    let count = env_repeated(report);
+    (count >= ENV_ERRORS_SAID).then(|| {
+        json!({
+            "count": count,
+            "fix": "Several exploits failed on one same error of their environment or build, not on their assertion: stages.attack.test most likely lacks what the project's own tests use (build tags, as Go's `-tags`, a module, an extension or a service). Set it as the project's Makefile or CI runs its tests, then run the attack again, or run each exploit in the session with the command fixed and send `verified`.",
+        })
+    })
 }
 
 /// The attack's verdict: a confirmed hypothesis at `block_on` asks for
@@ -1874,6 +2048,14 @@ pub fn settled(report: &mut Value, block_on: &[Severity]) {
     estimates_apart(report);
     rooted(report);
     report["counts"] = counts(report);
+    match env_warning(report) {
+        Some(warning) => report["env_warning"] = warning,
+        None => {
+            if let Some(fields) = report.as_object_mut() {
+                fields.remove("env_warning");
+            }
+        }
+    }
     report["exploits"] = json!(confirmed_exploits(report));
     report["verdict"] = json!(verdict(report, block_on, retro));
     report["metrics"] = crate::attack_metrics::of_report(report);
@@ -3071,6 +3253,12 @@ fn side(
     let (_, (_, result, why), _) = steady(timing, || {
         let ran = sandbox::run(found, &tree, command, (path, test), limits);
         let said: (&'static str, &'static str, String) = match ran.outcome {
+            // Its environment or build failed: neither side shows anything.
+            _ if ran.env_error.is_some() => (
+                "tried",
+                "not_run",
+                format!("{ENV_ERROR}: its environment or build failed, not its assertion"),
+            ),
             Outcome::Red if ran.reached => ("confirmed", "red", "red, naming its test".to_owned()),
             Outcome::Green if ran.none_ran => {
                 ("tried", "not_run", "green, but no test ran".to_owned())
@@ -3254,7 +3442,8 @@ pub fn summary(done: &Done) -> Value {
         .into_iter()
         .flatten()
         .filter(|one| one["status"] == "tried")
-        .map(|one| json!({ "id": one["id"], "title": one["title"], "test": one["exploit"]["test"], "saved": one["exploit"]["saved"] }))
+        .map(|one| json!({ "id": one["id"], "title": one["title"], "test": one["exploit"]["test"], "saved": one["exploit"]["saved"],
+            "env_error": one["ran"]["env_error"].is_string() }))
         .collect();
     let mut answer = json!({
         "run": done.stamp,
@@ -3263,6 +3452,11 @@ pub fn summary(done: &Done) -> Value {
         "counts": report["counts"],
         "attackers": report["attackers"],
     });
+    // Several exploits stopped on one error of their environment: the
+    // command to fix before any of them shows anything.
+    if report["env_warning"].is_object() {
+        answer["env_warning"] = report["env_warning"].clone();
+    }
     if let Some(found) = report["scanner"]
         .as_array()
         .filter(|found| !found.is_empty())
@@ -3283,7 +3477,7 @@ pub fn summary(done: &Done) -> Value {
     }
     if !tried.is_empty() {
         answer["next"] = json!(format!(
-            "Run each tried exploit: copy it from the run's {EXPLOITS}/ to its path, run it, and record what it showed with the attack tool's `run` \"{}\" and `verified`: one {{ hypothesis, result, evidence, test }} each. Red is confirmed; a confirmed exploit stays a regression test that must be green once fixed.",
+            "Run each tried exploit: copy it from the run's {EXPLOITS}/ to its path, run it, and record what it showed with the attack tool's `run` \"{}\" and `verified`: one {{ hypothesis, result, evidence, test }} each. One marked `env_error` failed on its environment or build: run it with the command fixed first. Red is confirmed; a confirmed exploit stays a regression test that must be green once fixed.",
             done.stamp
         ));
         answer["tried"] = json!(tried);

@@ -1227,6 +1227,7 @@ pub fn json_of(report: &Value, known: &Known) -> Value {
         "mode": report["mode"], "verdict": report["verdict"], "counts": report["counts"],
         "metrics": report["metrics"], "profile": report["profile"],
         "run_cap_hit": run_cap_hit(report),
+        "env_warning": crate::attack::env_warning(report),
         "run_again": report["run_again"].as_u64(),
         "run_again_cap": report["run_again_cap"].as_u64(),
         "run_again_capped": report["run_again_capped"].as_u64(),
@@ -1506,6 +1507,13 @@ pub fn markdown(report: &Value, known: &Known) -> String {
         out.push_str(
             "A cap ended an attacker's turn (`run_cap_hit`): it may have found more past it.\n",
         );
+    }
+    if let Some(warning) = crate::attack::env_warning(report) {
+        out.push_str(&format!(
+            "**{} exploits did not run for their environment (`env_error`).** {}\n",
+            warning["count"],
+            text(&warning, "fix")
+        ));
     }
     if let Some(path) = threat_path(report) {
         out.push_str(&format!(
@@ -1919,7 +1927,9 @@ pub fn not_run(report: &Value) -> Vec<(String, String)> {
             // devflow's own words for why, never a reason that could carry
             // the exploit's path or output.
             let said = text(&one["ran"], "reason");
-            let why = if said.contains("stages.attack.test") {
+            let why = if said.starts_with(crate::attack::ENV_ERROR) {
+                "env_error: its environment or build failed, not its assertion (fix stages.attack.test, or run it in the session)"
+            } else if said.contains("stages.attack.test") {
                 "stages.attack.test is not set"
             } else if said.contains("bwrap") || said.contains("docker") {
                 "no sandbox the runner has: bwrap with user namespaces, or docker with stages.attack.image"

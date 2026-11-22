@@ -125,6 +125,11 @@ pub struct Ran {
     /// Whether all it printed says no test ran ([`crate::attack::none_ran`]):
     /// a green run that does refutes nothing.
     pub none_ran: bool,
+    /// The line of all it printed that says its environment or build
+    /// failed, not its assertion ([`crate::attack::env_failed`]): a build or
+    /// compile error, a module, extension or library missing, a panic before
+    /// its test began. Such a run shows nothing of the hole.
+    pub env_error: Option<String>,
     pub duration_ms: u64,
 }
 
@@ -1136,6 +1141,7 @@ pub fn run(
         tail: String::new(),
         reached: false,
         none_ran: false,
+        env_error: None,
         duration_ms: began.elapsed().as_millis() as u64,
     };
     let mut child = match child.spawn() {
@@ -1172,33 +1178,37 @@ pub fn run(
         said.extend(reading.join().unwrap_or_default());
     }
     let said = String::from_utf8_lossy(&said);
-    let (tail, reached, none_ran) = judged(&said, exploit.1);
     let (outcome, exit) = match status {
         None => (Outcome::TimedOut, None),
         Some(status) if status.success() => (Outcome::Green, status.code()),
         Some(status) => (Outcome::Red, status.code()),
     };
+    let green = matches!(outcome, Outcome::Green);
+    let (tail, reached, none_ran, env_error) = judged(&said, exploit.1, green);
     Ran {
         outcome,
         exit,
         tail,
         reached,
         none_ran,
+        env_error,
         duration_ms: began.elapsed().as_millis() as u64,
     }
 }
 
 /// What a run printed, as its report keeps it (its end) and as it is judged
-/// (all of it): whether it names `test`, and whether it says no test ran. A
-/// runner prints the failing test's name first and its stack after, so the
-/// end alone may not name it.
-fn judged(said: &str, test: &str) -> (String, bool, bool) {
+/// (all of it): whether it names `test`, whether it says no test ran, and
+/// the line that says its environment or build failed (of a `green` run,
+/// only one that kept the test from running). A runner prints the failing
+/// test's name first and its stack after, so the end alone may not name it.
+pub(crate) fn judged(said: &str, test: &str, green: bool) -> (String, bool, bool, Option<String>) {
     let chars: Vec<char> = said.chars().collect();
     let tail = chars[chars.len().saturating_sub(TAIL)..].iter().collect();
     (
         tail,
         crate::attack::reached(said, test),
         crate::attack::none_ran(said),
+        crate::attack::env_failed(said, test, green),
     )
 }
 

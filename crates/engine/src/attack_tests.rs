@@ -1362,3 +1362,223 @@ fn an_attackers_variant_beside_a_hole_run_again_is_another_one() {
         "nothing of its own to run"
     );
 }
+
+/// A run as the sandbox judges what it printed.
+fn ran_of(outcome: Outcome, said: &str, test: &str) -> sandbox::Ran {
+    let green = matches!(outcome, Outcome::Green);
+    let (tail, reached, none_ran, env_error) = sandbox::judged(said, test, green);
+    sandbox::Ran {
+        outcome,
+        exit: None,
+        tail,
+        reached,
+        none_ran,
+        env_error,
+        duration_ms: 1,
+    }
+}
+
+/// An exploit whose environment or build failed shows nothing of the hole,
+/// red or green: it is not run, `env_error`, with the line that says so,
+/// even when the runner names its test. Its own assertion going red
+/// confirms, as before.
+#[test]
+fn an_error_of_the_environment_or_build_is_never_confirmed() {
+    let test = "TestExploitSearch";
+    let env = [
+        (Outcome::Red, "--- FAIL: TestExploitSearch (0.00s)\n    store_test.go:7: open store: no such module: fts5\nFAIL\nFAIL\texample.test/store\t0.004s\n", "no such module: fts5"),
+        (Outcome::Red, "package example.test/store: build constraints exclude all Go files in /src/store\nFAIL\n", "build constraints"),
+        (Outcome::Red, "# example.test/store [example.test/store.test]\n./store_test.go:9:2: undefined: OpenSearch\nFAIL\texample.test/store [build failed]\n", "[build failed]"),
+        (Outcome::Red, "panic: open the store: connection refused\n\ngoroutine 1 [running]:\nmain.main()\nFAIL\texample.test/store\t0.010s\n", "panic: open the store"),
+        (Outcome::Red, "./run.sh: line 1: go: command not found\n", "command not found"),
+        (Outcome::Red, "error while loading shared libraries: libsqlite3.so.0: cannot open shared object file\n", "libsqlite3"),
+        (Outcome::Green, "--- SKIP: TestExploitSearch (0.00s)\n    store_test.go:7: no such module: fts5\nok\texample.test/store\n", "no such module"),
+        (Outcome::TimedOut, "go: downloading example.test/dep v1.0.0\n", "timed out before its test began"),
+    ];
+    for (outcome, said, line) in env {
+        let ran = ran_of(outcome, said, test);
+        let (status, result, why) = ended(&ran);
+        assert_eq!((status, result), ("tried", "not_run"), "{said}");
+        assert!(why.starts_with(ENV_ERROR), "{why}");
+        let error = ran.env_error.as_deref().unwrap_or(SETUP_TIMED_OUT);
+        assert!(error.contains(line), "{error} | {line}");
+    }
+    let shown = ran_of(
+        Outcome::Red,
+        "--- FAIL: TestExploitSearch (0.00s)\n    store_test.go:11: tenant a reads a row of tenant b\nFAIL\n",
+        test,
+    );
+    assert_eq!(ended(&shown).0, "confirmed");
+    // A Rust assertion panics: naming its test, it is the hole shown.
+    let asserted = ran_of(
+        Outcome::Red,
+        "test exploit::forged ... FAILED\nthread 'exploit::forged' panicked at src/lib.rs:9:5:\nassertion failed\n",
+        "exploit::forged",
+    );
+    assert_eq!(ended(&asserted).0, "confirmed");
+    // One that ran past its time after naming its test, or saying nothing
+    // of a setup, is not its environment: a hang may be the hole.
+    for said in ["=== RUN   TestExploitSearch\n", ""] {
+        let slow = ran_of(Outcome::TimedOut, said, test);
+        assert_eq!(ended(&slow).2, "it ran past its time", "{said}");
+    }
+    // A fix that logs the error it now catches passes: green, refuted.
+    let fixed = ran_of(
+        Outcome::Green,
+        "console.error\n    SyntaxError: Unexpected token < in JSON at position 0\nPASS tests/x.test.ts\n",
+        test,
+    );
+    assert_eq!(ended(&fixed).0, "refuted");
+    // What the run printed is kept redacted whole, then cut short.
+    let mut long = ran_of(Outcome::Red, "", test);
+    long.env_error = Some(format!("{}SECRETKEY no such module: fts5", "x".repeat(238)));
+    let said = env_said(&long, &|text: &str| text.replace("SECRETKEY", "[redacted]"));
+    assert_eq!(said.chars().count(), MOST_ENV_LINE);
+    assert!(!said.contains("SECRET"), "{said}");
+    long.env_error = None;
+    assert_eq!(
+        env_said(&long, &|text: &str| text.to_owned()),
+        SETUP_TIMED_OUT
+    );
+}
+
+/// A Go project whose store is built only with a build tag: its exploit,
+/// run without the tag, fails on the missing module and is never
+/// confirmed; run with the tags the project's Makefile says, which the
+/// attack's test command now carries, it shows the hole.
+#[test]
+fn a_go_exploit_without_its_build_tag_is_not_confirmed() {
+    let Ok(go) = std::process::Command::new("go").arg("version").output() else {
+        eprintln!("not run here: no go");
+        return;
+    };
+    if !go.status.success() {
+        eprintln!("not run here: go does not run");
+        return;
+    }
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/go-build-tag");
+    let dir = tempfile::tempdir().expect("dir");
+    let root = dir.path().join("project");
+    copied(&fixture, &root);
+    let detected = crate::detect::detected(&root, crate::detect::Machine::default());
+    let found = crate::detect::exploit_test_at(&root, &detected).expect("go");
+    assert!(
+        found.command.contains("-tags sqlite_fts5 "),
+        "{}",
+        found.command
+    );
+    assert_eq!(found.source, "Makefile:4");
+    let test = "TestExploitSearchCrossesTenants";
+    let run = |command: &str| {
+        let out = std::process::Command::new("sh")
+            .args(["-c", command])
+            .current_dir(&root)
+            .env("DEVFLOW_EXPLOIT", "store/search_exploit_test.go")
+            .env("DEVFLOW_EXPLOIT_TEST", test)
+            .env("GOCACHE", dir.path().join("cache"))
+            .env("GOPATH", dir.path().join("gopath"))
+            .env("GOTOOLCHAIN", "local")
+            .env("GOFLAGS", "")
+            .output()
+            .expect("go test");
+        let said = format!(
+            "{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let outcome = if out.status.success() {
+            Outcome::Green
+        } else {
+            Outcome::Red
+        };
+        ran_of(outcome, &said, test)
+    };
+    let untagged =
+        run("go test -run \"$DEVFLOW_EXPLOIT_TEST\" \"./$(dirname \"$DEVFLOW_EXPLOIT\")\"");
+    assert!(untagged.reached, "Go names the test: {}", untagged.tail);
+    let (status, result, why) = ended(&untagged);
+    assert_eq!((status, result), ("tried", "not_run"), "{}", untagged.tail);
+    assert!(why.starts_with(ENV_ERROR));
+    assert!(untagged
+        .env_error
+        .as_deref()
+        .is_some_and(|line| line.contains("no such module: fts5")));
+    let tagged = run(&found.command);
+    assert_eq!(ended(&tagged).0, "confirmed", "{}", tagged.tail);
+}
+
+/// `from` copied whole into `to`.
+fn copied(from: &Path, to: &Path) {
+    std::fs::create_dir_all(to).expect("folder");
+    for entry in std::fs::read_dir(from).expect("fixture") {
+        let entry = entry.expect("entry");
+        let at = to.join(entry.file_name());
+        if entry.file_type().expect("kind").is_dir() {
+            copied(&entry.path(), &at);
+        } else {
+            std::fs::copy(entry.path(), at).expect("copy");
+        }
+    }
+}
+
+/// Exploits stopped by their environment are said once there are several,
+/// with what to change, in every report; one the session then runs with
+/// the command fixed takes its `verified`, and the warning goes.
+#[test]
+fn several_env_errors_warn_and_the_session_settles_each() {
+    let stopped = |id: &str| {
+        json!({ "id": id, "title": "t", "class": "authz", "file": "src/a.go", "line": 3,
+            "severity": "high", "status": "tried",
+            "exploit": { "path": "store/x_test.go", "test": "TestX" },
+            "ran": { "by": "docker", "result": "not_run",
+                "reason": format!("{ENV_ERROR}: its environment or build failed"),
+                "env_error": "open store: no such module: fts5" } })
+    };
+    // Two exploits each stopped by an error of its own (an attacker's typo)
+    // are no repeated error: no warning.
+    let mut typo = stopped("h1");
+    typo["ran"]["env_error"] = json!("./a_test.go:9:2: undefined: verifyTokn");
+    let mut other = stopped("h2");
+    other["ran"]["env_error"] = json!("./b_test.go:4:2: undefined: openStor");
+    let mut apart = json!({ "item": "i", "run": "20261123T000000Z", "mode": "item",
+        "hypotheses": [typo, other] });
+    settled(&mut apart, &[Severity::High]);
+    assert_eq!(apart["counts"]["env_error"], 2);
+    assert!(apart.get("env_warning").is_none(), "{apart:#}");
+    // One same error, each at its own place, is repeated.
+    let mut report = json!({ "item": "i", "run": "20261123T000000Z", "mode": "item",
+        "hypotheses": [stopped("h1"), stopped("h2")] });
+    report["hypotheses"][0]["ran"]["env_error"] =
+        json!("store_test.go:7: open store: no such module: fts5");
+    settled(&mut report, &[Severity::High]);
+    assert_eq!(report["counts"]["env_error"], 2, "{report:#}");
+    assert_eq!(report["env_warning"]["count"], 2, "{report:#}");
+    assert_eq!(report["metrics"]["env_error"], 2, "{report:#}");
+    assert_eq!(report["metrics"]["env_repeated"], 2, "{report:#}");
+    let known = crate::attack_report::Known::default();
+    let md = crate::attack_report::markdown(&report, &known);
+    assert!(
+        md.contains("**2 exploits did not run for their environment (`env_error`).**"),
+        "{md}"
+    );
+    assert!(md.contains("build tags"), "{md}");
+    assert!(
+        !md.contains("open store"),
+        "the run's own output stays in attack.json: {md}"
+    );
+    let shown = crate::attack_report::json_of(&report, &known);
+    assert_eq!(shown["env_warning"]["count"], 2, "{shown:#}");
+    let why = crate::attack_report::not_run(&report);
+    assert!(why[0].1.starts_with("env_error"), "{why:?}");
+
+    verified_on(
+        &mut report,
+        &[json!({ "hypothesis": "h1", "result": "confirmed",
+            "evidence": "go test -tags sqlite_fts5: red, naming TestX" })],
+    )
+    .expect("the session settles an env_error");
+    settled(&mut report, &[Severity::High]);
+    assert_eq!(report["hypotheses"][0]["status"], "confirmed");
+    assert_eq!(report["hypotheses"][0]["verified"]["by"], "session");
+    assert!(report.get("env_warning").is_none(), "{report:#}");
+}

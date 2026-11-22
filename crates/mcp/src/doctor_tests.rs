@@ -486,3 +486,98 @@ fn an_update_lock_left_behind_is_pointed_out() {
         said.what
     );
 }
+
+/// The newest attack whose exploits failed on their environment, several of
+/// them, is pointed out with the command detected from the project's own
+/// Makefile, its Go build tags in it; one alone is not.
+#[test]
+fn an_attack_whose_exploits_failed_on_their_environment_is_pointed_out() {
+    let home = tempfile::tempdir().unwrap();
+    let root = tempfile::tempdir().unwrap();
+    let folder = root.path().join(".devflow");
+    fs::create_dir_all(folder.join("runs")).unwrap();
+    fs::write(
+        folder.join("devflow.yaml"),
+        "version: 2\nenabled: true\nstages:\n  attack:\n    run: release\n    test: go test ./...\n",
+    )
+    .unwrap();
+    fs::write(root.path().join("go.mod"), "module x\n").unwrap();
+    fs::write(
+        root.path().join("Makefile"),
+        "test:\n\tgo test -tags sqlite_fts5 ./...\n",
+    )
+    .unwrap();
+    let ledger = folder
+        .join("runs")
+        .join(devflow_engine::attack_metrics::LEDGER);
+    let line = |run: &str, errors: u64| {
+        serde_json::json!({ "item": "card_1", "run": run,
+            "metrics": { "env_error": errors, "env_repeated": errors } })
+        .to_string()
+    };
+    fs::write(&ledger, format!("{}\n", line("20261123T000000Z", 1))).unwrap();
+    let consent = Consent::at(&home.path().join("devflow"));
+    let said = |root: &Path| findings(root, &machine(home.path()), &consent, "/bin/devflow", &[]);
+    assert!(!said(root.path())
+        .iter()
+        .any(|one| one.what.contains("env_error")));
+    fs::write(
+        &ledger,
+        format!(
+            "{}\n{}\n",
+            line("20261123T000000Z", 1),
+            line("20261123T010000Z", 3)
+        ),
+    )
+    .unwrap();
+    let found = said(root.path());
+    let warned = found
+        .iter()
+        .find(|one| one.what.contains("env_error"))
+        .expect("pointed out");
+    assert!(warned.optional, "{}", warned.what);
+    assert!(
+        warned
+            .what
+            .contains("(run 20261123T010000Z of card_1): 3 exploits"),
+        "{}",
+        warned.what
+    );
+    assert!(
+        warned
+            .what
+            .contains("devflow config set stages.attack.test 'go test -tags sqlite_fts5 -v -run"),
+        "{}",
+        warned.what
+    );
+    assert!(
+        warned.what.contains("(as Makefile:2 runs them)"),
+        "{}",
+        warned.what
+    );
+    // The command set is already the one detected: the session runs them.
+    let detected = devflow_engine::detect::exploit_test_at(
+        root.path(),
+        &devflow_engine::detect::detected(root.path(), crate::flow::setup::machine(root.path())),
+    )
+    .expect("go")
+    .command;
+    fs::write(
+        folder.join("devflow.yaml"),
+        format!(
+            "version: 2\nenabled: true\nstages:\n  attack:\n    run: release\n    test: {}\n",
+            serde_json::to_string(&detected).unwrap()
+        ),
+    )
+    .unwrap();
+    let found = said(root.path());
+    let warned = found
+        .iter()
+        .find(|one| one.what.contains("env_error"))
+        .expect("pointed out");
+    assert!(
+        warned.what.contains("run each exploit in the session"),
+        "{}",
+        warned.what
+    );
+}
