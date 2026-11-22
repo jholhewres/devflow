@@ -37,6 +37,25 @@ fn a_project_without_devflow_is_told_how_to_set_it_up() {
 }
 
 #[test]
+fn doctor_says_which_devflow_it_is_first() {
+    let home = tempfile::tempdir().unwrap();
+    let root = tempfile::tempdir().unwrap();
+    let consent = Consent::at(&home.path().join("devflow"));
+    let said = findings(
+        root.path(),
+        &machine(home.path()),
+        &consent,
+        "/bin/devflow",
+        &[],
+    );
+    assert!(said[0].ok);
+    assert_eq!(
+        said[0].what,
+        format!("devflow {}", env!("CARGO_PKG_VERSION"))
+    );
+}
+
+#[test]
 fn a_set_up_project_says_whether_it_is_on_and_its_runs_are_ignored() {
     let home = tempfile::tempdir().unwrap();
     let root = tempfile::tempdir().unwrap();

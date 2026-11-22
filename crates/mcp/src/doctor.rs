@@ -55,7 +55,8 @@ pub fn findings(
     bin: &str,
     session: &[Vec<String>],
 ) -> Vec<Said> {
-    let mut said = Vec::new();
+    // Which devflow speaks, before anything it says.
+    let mut said = vec![ok(format!("devflow {}", env!("CARGO_PKG_VERSION")))];
     match register::on_path(register::NAME) {
         Some(found) => said.push(ok(format!("devflow is on PATH at {}", found.display()))),
         None => said.push(bad(
