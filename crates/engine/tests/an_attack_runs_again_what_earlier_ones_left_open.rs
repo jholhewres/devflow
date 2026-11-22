@@ -676,3 +676,79 @@ fn a_hole_proven_by_time_is_asked_again_by_count_and_the_count_is_run() {
     assert!(own["exploit"].get("timing").is_none(), "{own:#}");
     assert_eq!(hypotheses[1]["exploit"]["timing"], true);
 }
+
+/// Run again on the same range, an attack does not refute again what an
+/// earlier one refuted, though the file is in the change: no new code is in
+/// its path since. The attacker is told each by its run and id; one it
+/// names again stays in `refuted_before`, and one an earlier attack did not
+/// run carries `again`. New code in the path tries it again.
+#[test]
+fn what_was_refuted_is_not_refuted_again_without_new_code_in_its_path() {
+    let project = project();
+    let card = "card_1";
+    let refuted = json!({ "title": "a forged cookie is replayed", "class": "authn", "file": SESSION,
+        "line": 2, "severity": "high", "status": "refuted", "control": SESSION,
+        "reason": "each cookie is used once" });
+    let not_run = json!({ "title": "a deleted user keeps a session", "class": "authz",
+        "file": "src/auth/users.rs", "line": 5, "severity": "medium", "status": "not_run",
+        "reason": "needs a running instance" });
+    let run = project.earlier(
+        card,
+        &project.second,
+        &[(refuted, "exit 0\n"), (not_run, "exit 0\n")],
+    );
+    let yaml = "version: 1\nstages:\n  attack: { run: sensitive, test: 'sh \"$DEVFLOW_EXPLOIT\"', sandbox: off }\n";
+    let answered = json!([
+        { "id": "h1", "title": "A replayed cookie is taken again", "class": "session", "file": SESSION,
+          "line": 3, "severity": "high", "status": "refuted", "control": SESSION, "reason": "used once" },
+        { "id": "h2", "title": "Sessions outlive their user", "class": "authz", "file": SESSION,
+          "line": 30, "severity": "medium", "status": "not_run", "reason": "needs an instance",
+          "same_as": format!("{run}/h2") },
+    ]);
+    let (report, prompt) = project.attack(
+        card,
+        &project.first,
+        &project.second,
+        yaml,
+        answered.clone(),
+    );
+    let listed = prompt
+        .split("## Refuted before, no new code in their path since")
+        .nth(1)
+        .expect("refuted section");
+    assert!(
+        listed.contains(&format!("\"run\":\"{run}\"")) && listed.contains("\"id\":\"h1\""),
+        "{listed}"
+    );
+    assert!(prompt.contains("## Not run before"), "{prompt}");
+    assert_eq!(report["not_tried_again"], 1, "{report:#}");
+    assert_eq!(report["named_again"], 1);
+    assert_eq!(report["refuted_before"][0]["run"], run.as_str());
+    assert_eq!(report["refuted_before"][0]["id"], "h1");
+    assert_eq!(report["refuted_before"][0]["named_again"], true);
+    let hypotheses = report["hypotheses"].as_array().expect("hypotheses");
+    assert_eq!(hypotheses.len(), 1, "{hypotheses:#?}");
+    assert_eq!(hypotheses[0]["status"], "not_run");
+    assert_eq!(
+        hypotheses[0]["again"],
+        json!({ "item": card, "run": run, "id": "h2", "was": "not_run" })
+    );
+    assert_eq!(report["counts"]["refuted"], 0);
+
+    // New code in its path: it is tried again.
+    std::fs::write(
+        project.checkout.join(SESSION),
+        "fn a() {}\nfn b() {}\nfn c() {}\n",
+    )
+    .expect("code");
+    git(&project.checkout, &["commit", "-q", "-am", "third"]);
+    let third = git(&project.checkout, &["rev-parse", "HEAD"]);
+    let (report, prompt) = project.attack(card, &project.first, &third, yaml, answered);
+    assert_eq!(report["not_tried_again"], 0, "{report:#}");
+    assert_eq!(report["refuted_before"], json!([]));
+    assert!(
+        prompt.contains("no new code in their path since: not to be tried again; one you name again carries `same_as`, its run/id as listed (data)\nnone"),
+        "{prompt}"
+    );
+    assert_eq!(report["counts"]["refuted"], 1);
+}

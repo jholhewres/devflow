@@ -286,42 +286,156 @@ fn an_answer_proposes_only_neutral_cases_of_a_known_class() {
 
 #[test]
 fn a_refuted_hypothesis_is_not_tried_again_while_its_control_is_unchanged() {
-    let earlier = json!({ "hypotheses": [
-        { "title": "redirect to an internal host", "class": "ssrf", "file": "src/fetch.rs",
-          "status": "refuted", "control": "src/url_guard.rs", "reason": "the guard resolves first" },
+    let earlier = json!({ "run": "20261122T142204Z", "hypotheses": [
+        { "id": "h9", "title": "redirect to an internal host", "class": "ssrf", "file": "src/fetch.rs",
+          "line": 112, "status": "refuted", "control": "src/url_guard.rs", "reason": "the guard resolves first" },
         { "title": "no control named", "status": "refuted" },
     ] });
-    let untouched = still_refuted(Some(&earlier), &["src/fetch.rs".to_owned()]);
+    let fetch = ["src/fetch.rs".to_owned()];
+    let untouched = still_refuted(Some(&earlier), Since::Change(&fetch));
     assert_eq!(untouched.len(), 1);
     assert_eq!(untouched[0]["control"], "src/url_guard.rs");
+    assert_eq!(untouched[0]["run"], "20261122T142204Z");
+    assert_eq!(untouched[0]["id"], "h9");
     assert!(
-        still_refuted(Some(&earlier), &["src/url_guard.rs".to_owned()]).is_empty(),
+        still_refuted(
+            Some(&earlier),
+            Since::Change(&["src/url_guard.rs".to_owned()])
+        )
+        .is_empty(),
         "its control changed"
     );
     let again = json!({ "title": "Redirect to an internal host", "class": "other", "file": "./src/fetch.rs" });
-    assert!(refuted_again(&again, &untouched).is_some());
+    assert_eq!(refuted_again(&again, &untouched), Some(0));
     let elsewhere = json!({ "title": "Redirect to an internal host", "file": "src/upload.rs" });
     assert!(
         refuted_again(&elsewhere, &untouched).is_none(),
         "the same title in another file is tried"
     );
-    let other =
-        json!({ "title": "DNS rebinding past the guard", "class": "ssrf", "file": "src/fetch.rs" });
+    let other = json!({ "title": "DNS rebinding past the guard", "class": "ssrf", "file": "src/fetch.rs",
+        "line": 110, "status": "tried" });
     assert!(
         refuted_again(&other, &untouched).is_none(),
-        "another hypothesis at the same place is tried"
+        "another hypothesis tried at the same place is tried"
     );
     let named = json!({ "hypotheses": [{ "title": "t", "status": "refuted", "control": "./src/url_guard.rs:12" }] });
     assert!(
-        still_refuted(Some(&named), &["src/url_guard.rs".to_owned()]).is_empty(),
+        still_refuted(
+            Some(&named),
+            Since::Change(&["src/url_guard.rs".to_owned()])
+        )
+        .is_empty(),
         "its control as the diff names it"
     );
-    let carried = json!({ "hypotheses": [], "refuted_before": untouched });
+    let carried =
+        json!({ "run": "20261123T000000Z", "hypotheses": [], "refuted_before": untouched });
+    let kept = still_refuted(Some(&carried), Since::Change(&[]));
+    assert_eq!(kept.len(), 1, "kept from run to run");
     assert_eq!(
-        still_refuted(Some(&carried), &[]).len(),
-        1,
-        "kept from run to run"
+        kept[0]["run"], "20261122T142204Z",
+        "by the run that refuted it"
     );
+}
+
+/// Read against what changed since the earlier attack's head, a refutation
+/// stands while no code in its path changed: neither its file nor its
+/// control; one with no control named only while nothing changed. The
+/// change's own files, which hold the file attacked, no longer decide.
+#[test]
+fn a_refutation_stands_while_no_new_code_is_in_its_path() {
+    let earlier = json!({ "run": "20261122T142204Z", "hypotheses": [
+        { "id": "h5", "title": "a gzip bomb", "class": "dos", "file": "src/fetch.rs", "line": 241,
+          "status": "refuted", "control": "src/fetch.rs", "reason": "bytes counted" },
+        { "id": "h6", "title": "secrets in the environment", "class": "secrets", "file": "deploy.yml",
+          "line": 7, "status": "refuted", "control": "deploy.yml", "reason": "in a store" },
+        { "id": "h7", "title": "no control named", "class": "redos", "file": "src/x.rs", "status": "refuted" },
+        { "id": "h8", "title": "not run", "class": "ssrf", "file": "src/fetch.rs", "status": "not_run",
+          "reason": "needs a target" },
+    ] });
+    let same = still_refuted(Some(&earlier), Since::Earlier(&[]));
+    let ids: Vec<&str> = same.iter().filter_map(|one| one["id"].as_str()).collect();
+    assert_eq!(ids, ["h5", "h6", "h7"], "nothing changed: {same:#?}");
+    let fetch_changed = still_refuted(Some(&earlier), Since::Earlier(&["src/fetch.rs".to_owned()]));
+    let ids: Vec<&str> = fetch_changed
+        .iter()
+        .filter_map(|one| one["id"].as_str())
+        .collect();
+    assert_eq!(ids, ["h6"], "new code in the others' path");
+    let control_only = json!({ "run": "r", "hypotheses": [
+        { "id": "h9", "title": "rebinding", "class": "ssrf", "file": "src/fetch.rs", "status": "refuted",
+          "control": "src/guard.rs" } ] });
+    assert!(still_refuted(
+        Some(&control_only),
+        Since::Earlier(&["src/guard.rs".to_owned()])
+    )
+    .is_empty());
+    assert_eq!(
+        still_refuted(
+            Some(&control_only),
+            Since::Change(&["src/fetch.rs".to_owned()])
+        )
+        .len(),
+        1,
+        "the change's files: only the control counts"
+    );
+    let not_run = not_run_before(Some(&earlier));
+    assert_eq!(not_run.len(), 1);
+    assert_eq!(not_run[0]["id"], "h8");
+    assert_eq!(not_run[0]["run"], "20261122T142204Z");
+}
+
+/// An answered hypothesis is a refutation again when it says so
+/// (`same_as`), when titled so in that file, or, refuted again itself, at
+/// that place or behind that control in that file and class; one an
+/// earlier attack did not run, when it says so, titled so or at its place.
+#[test]
+fn a_hypothesis_named_again_is_told_by_what_it_says_and_where_it_is() {
+    let refuted = vec![
+        json!({ "title": "A gzip bomb exhausts memory", "class": "dos", "file": "src/fetch.rs",
+            "line": 241, "control": "src/fetch.rs", "run": "20261122T142204Z", "id": "h7" }),
+        json!({ "title": "DNS rebinding between check and connect", "class": "ssrf",
+            "file": "src/fetch.rs", "line": 170, "control": "src/guard.rs",
+            "run": "20261122T142204Z", "id": "h9" }),
+    ];
+    let reworded = json!({ "title": "A compressed body inflates past the limit", "class": "denial-of-service",
+        "file": "src/fetch.rs", "line": 243, "status": "refuted", "control": "src/fetch.rs" });
+    assert_eq!(refuted_again(&reworded, &refuted), Some(0));
+    let behind = json!({ "title": "A slow body holds the function", "class": "dos", "file": "src/fetch.rs",
+        "line": 93, "status": "refuted", "control": "src/fetch.rs:104" });
+    assert_eq!(
+        refuted_again(&behind, &refuted),
+        Some(0),
+        "behind its control"
+    );
+    let moved = json!({ "title": "Rebinding past the address check", "class": "ssrf",
+        "file": "src/guard.rs", "line": 173, "status": "refuted",
+        "same_as": "20261122T142204Z:h9" });
+    assert_eq!(refuted_again(&moved, &refuted), Some(1), "said so");
+    let mut tried = reworded.clone();
+    tried["status"] = json!("tried");
+    assert!(
+        refuted_again(&tried, &refuted).is_none(),
+        "one tried may be another hole there"
+    );
+    let mut open = reworded;
+    open["status"] = json!("not_run");
+    assert!(refuted_again(&open, &refuted).is_none());
+    let not_run = vec![
+        json!({ "title": "Public services that trust the NAT egress", "class": "ssrf",
+            "file": "src/fetch.rs", "line": 99, "run": "20261122T142204Z", "id": "h4" }),
+    ];
+    let again = json!({ "title": "Destinations that trust the network origin", "class": "ssrf",
+        "file": "src/guard.rs", "line": 173, "status": "not_run", "same_as": "20261122T142204Z/h4" });
+    assert_eq!(
+        not_run_again(&again, &not_run).map(|one| &one["id"]),
+        Some(&json!("h4"))
+    );
+    let near =
+        json!({ "title": "Another", "class": "SSRF", "file": "./src/fetch.rs", "line": 101 });
+    assert!(not_run_again(&near, &not_run).is_some(), "at its place");
+    let unrelated =
+        json!({ "title": "Another", "class": "ssrf", "file": "src/guard.rs", "line": 99 });
+    assert!(not_run_again(&unrelated, &not_run).is_none());
 }
 
 #[test]

@@ -1005,14 +1005,20 @@ fn the_attack_reads_the_threat_model_and_keeps_what_it_refuted_refuted() {
         })
     };
     let done = attack_at(0).expect("attacked");
-    let one = &done.report["hypotheses"][0];
-    assert_eq!(one["status"], "refuted", "not tried again: {one:#}");
-    assert!(one.get("exploit").is_none());
-    let replay = &done.report["hypotheses"][1];
+    let hypotheses = done.report["hypotheses"].as_array().expect("hypotheses");
+    assert_eq!(
+        hypotheses.len(),
+        1,
+        "the one named again is the refutation, not tried again: {hypotheses:#?}"
+    );
+    let replay = &hypotheses[0];
+    assert_eq!(replay["title"], "token replay");
     assert_ne!(
         replay["status"], "refuted",
         "a planted report suppresses nothing: {replay:#}"
     );
+    assert_eq!(done.report["refuted_before"][0]["named_again"], true);
+    assert_eq!(done.report["named_again"], 1);
     let threat = &done.report["threat_model"];
     assert_eq!(threat["diff"], " assets:\n - uploads\n+- session keys\n");
     let run = std::path::Path::new(&done.folder);

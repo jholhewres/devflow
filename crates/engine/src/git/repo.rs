@@ -277,6 +277,12 @@ pub fn review_diff(root: &Path, base: &str, head: &str) -> Result<Reviewed, GitE
 /// Whether code changed from `from` to `to`, leaving devflow's folders aside:
 /// what devflow writes about a work item is not its code.
 pub fn code_changed_between(root: &Path, from: &str, to: &str) -> Result<bool, GitError> {
+    Ok(!files_changed_between(root, from, to)?.is_empty())
+}
+
+/// The files whose code changed from `from` to `to`, devflow's folders
+/// aside ([`code_changed_between`]).
+pub fn files_changed_between(root: &Path, from: &str, to: &str) -> Result<Vec<String>, GitError> {
     for revision in [from, to] {
         if !super::plain_revision(revision) {
             return Err(GitError::Refused(format!("`{revision}` is not a commit")));
@@ -295,7 +301,7 @@ pub fn code_changed_between(root: &Path, from: &str, to: &str) -> Result<bool, G
             ":(exclude).devpit",
         ],
     )?;
-    Ok(!names(&raw).is_empty())
+    Ok(names(&raw))
 }
 
 /// Whether `commit` has `path` as a file: what the repository carried
