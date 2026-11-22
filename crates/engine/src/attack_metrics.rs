@@ -47,6 +47,7 @@ pub fn of_report(report: &Value) -> Value {
     json!({
         "tried": count("tried"), "confirmed": confirmed, "refuted": count("refuted"),
         "not_run": count("not_run"), "cost_usd": cost, "duration_ms": time,
+        "wall_ms": report["profile"]["total_ms"].as_u64(),
         "cost_per_confirmed": (confirmed > 0).then(|| cost / confirmed as f64),
         "missed_by_review": missed,
         "by_attacker": attackers.iter().map(|one| json!({

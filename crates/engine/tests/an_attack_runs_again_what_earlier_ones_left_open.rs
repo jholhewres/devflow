@@ -151,6 +151,19 @@ impl Project {
         yaml: &str,
         answer: Value,
     ) -> (Value, String) {
+        self.attack_answered_at(card, base, head, yaml, answer, 1_792_000_000)
+    }
+
+    /// [`Project::attack_answered`], its run made at `at`.
+    fn attack_answered_at(
+        &self,
+        card: &str,
+        base: &str,
+        head: &str,
+        yaml: &str,
+        answer: Value,
+        at: u64,
+    ) -> (Value, String) {
         let bin = self.root.join(format!("bin-{card}"));
         std::fs::create_dir_all(&bin).expect("bin");
         let claude = fake_claude(&bin, &answer);
@@ -180,7 +193,7 @@ impl Project {
             evidence: None,
             review: None,
             env: &[],
-            at: SystemTime::UNIX_EPOCH + Duration::from_secs(1_792_000_000),
+            at: SystemTime::UNIX_EPOCH + Duration::from_secs(at),
             budget: Duration::from_secs(60),
             reach: &reach,
             redact: &redact,
@@ -251,9 +264,29 @@ fn an_exploit_left_open_is_run_again_and_the_attacker_told_without_a_sandbox() {
         JEST_RED
     );
     assert!(
-        prompt.contains("## Run again at HEAD before you, from earlier attacks"),
+        prompt.contains("## Run again at HEAD by devflow while you work, from earlier attacks"),
         "{prompt}"
     );
+    // One its earlier run did not settle is the attacker's to show its way.
+    assert!(
+        prompt.contains("but for one listed `was: tried`"),
+        "{prompt}"
+    );
+    // Where the time went, by phase.
+    let profile = &report["profile"];
+    for phase in [
+        "prepare_ms",
+        "run_again_ms",
+        "attackers_ms",
+        "proof_ms",
+        "timing_ms",
+        "total_ms",
+    ] {
+        assert!(profile[phase].is_u64(), "{phase}: {report:#}");
+    }
+    let md = devflow_engine::attack_report::markdown(&report, &Default::default());
+    assert!(md.contains("Time: "), "{md}");
+    assert!(md.contains(" run again (while the attack ran)"), "{md}");
     assert!(
         prompt.contains("a cookie signed with any key is accepted"),
         "{prompt}"
@@ -317,8 +350,16 @@ fn an_exploit_kept_outside_its_run_is_never_read() {
     )
     .expect("report");
     let yaml = "version: 1\nstages:\n  attack: { run: sensitive, test: 'sh \"$DEVFLOW_EXPLOIT\"', sandbox: off }\n";
-    let (report, _) = project.attack(card, &project.first, &project.second, yaml, json!([]));
+    let (report, prompt) = project.attack(card, &project.first, &project.second, yaml, json!([]));
     assert_eq!(report["run_again"], 0, "{report:#}");
+    assert!(!prompt.contains("planted"), "{prompt}");
+    // The hole it confirmed is not lost: it is carried, said why.
+    let carried = report["carried"].as_array().expect("carried");
+    assert_eq!(carried.len(), 1, "{report:#}");
+    assert_eq!(carried[0]["carried"], "no_exploit");
+    assert_eq!(carried[0]["status"], "confirmed");
+    assert!(carried[0]["exploit"]["saved"].is_null(), "{report:#}");
+    assert!(!report.to_string().contains("planted"), "{report:#}");
 }
 
 #[test]
@@ -393,7 +434,9 @@ fn in_the_sandbox_an_exploit_kept_red_comes_back_confirmed_with_nothing_written(
     assert_eq!(again["verified"]["path"], again["exploit"]["path"]);
     assert_eq!(report["exploits"][0]["held_by"], "proof", "{report:#}");
     assert_eq!(report["verdict"], "request_changes");
-    assert!(prompt.contains("\"status\":\"confirmed\""), "{prompt}");
+    // Run beside the attacker's turn: it is told the hole and how it ended
+    // in the run that kept it.
+    assert!(prompt.contains("\"was\":\"tried\""), "{prompt}");
 }
 
 /// As on a real project: a run whose exploit went red was filed tried with
@@ -487,7 +530,11 @@ fn one_hole_several_runs_kept_is_run_again_once() {
         })
         .collect();
     assert_eq!(report["run_again"], 2, "{report:#}");
-    assert!(again.contains(&("tls", confirmed.as_str())), "{again:?}");
+    // Kept by devflow's name for its class.
+    assert!(
+        again.contains(&("transport", confirmed.as_str())),
+        "{again:?}"
+    );
     assert!(
         again.iter().any(|(class, _)| *class == "secrets"),
         "{again:?}"
@@ -572,7 +619,7 @@ fn a_hole_one_run_names_crypto_and_another_tls_is_run_again_once() {
         .iter()
         .find(|one| one["class"] == "crypto")
         .expect("kept");
-    assert_eq!(kept["merged"][0]["class"], "TLS", "{kept:#}");
+    assert_eq!(kept["merged"][0]["class"], "transport", "{kept:#}");
     assert!(kept["merged"][0]["again"]["run"].is_string(), "{kept:#}");
     // Named by the run that kept it and the id it had there, never null.
     assert_eq!(kept["merged"][0]["id"], "h1", "{kept:#}");
@@ -721,6 +768,13 @@ fn what_was_refuted_is_not_refuted_again_without_new_code_in_its_path() {
         "{listed}"
     );
     assert!(prompt.contains("## Not run before"), "{prompt}");
+    // Nothing changed since that attack: the attacker looks only past it.
+    assert!(
+        prompt.contains(&format!(
+            "## No code changed since run {run} attacked this head"
+        )),
+        "{prompt}"
+    );
     assert_eq!(report["not_tried_again"], 1, "{report:#}");
     assert_eq!(report["named_again"], 1);
     assert_eq!(report["refuted_before"][0]["run"], run.as_str());
@@ -741,7 +795,7 @@ fn what_was_refuted_is_not_refuted_again_without_new_code_in_its_path() {
         "fn a() {}\nfn b() {}\nfn c() {}\n",
     )
     .expect("code");
-    let (report, _) = project.attack(
+    let (report, prompt) = project.attack(
         card,
         &project.first,
         &project.second,
@@ -750,6 +804,7 @@ fn what_was_refuted_is_not_refuted_again_without_new_code_in_its_path() {
     );
     assert_eq!(report["not_tried_again"], 0, "{report:#}");
     assert_eq!(report["counts"]["refuted"], 1);
+    assert!(!prompt.contains("## No code changed since"), "{prompt}");
 
     // Committed, it is still tried again.
     git(&project.checkout, &["commit", "-q", "-am", "third"]);
@@ -798,20 +853,429 @@ fn a_hypothesis_run_again_keeps_what_it_took_in() {
     assert_eq!(report["run_again"], 1, "{report:#}");
     let again = &report["hypotheses"][0];
     assert_eq!(again["again"]["run"], newer.as_str());
-    let merged: Vec<(&str, &str)> = again["merged"]
+    let merged: Vec<(&str, &str, &str)> = again["merged"]
         .as_array()
         .expect("merged kept")
         .iter()
         .map(|one| {
             (
                 one["id"].as_str().unwrap_or("-"),
+                one["said_as"].as_str().unwrap_or("-"),
                 one["run"].as_str().unwrap_or("-"),
             )
         })
         .collect();
+    // An older report's attacker's own, named by `id` then, is said by the
+    // id its attacker gave it, apart from the ids of any run.
     assert_eq!(
         merged,
-        [("h1", older.as_str()), ("h4", newer.as_str())],
+        [("h1", "-", older.as_str()), ("-", "h4", newer.as_str())],
         "{again:#}"
     );
+}
+
+const SANDBOX_OFF: &str = "version: 1\nstages:\n  attack: { run: sensitive, test: 'sh \"$DEVFLOW_EXPLOIT\"', sandbox: off }\n";
+
+/// Each hypothesis's `again` as `id of run`, in the report's order.
+fn again_of(report: &Value) -> Vec<String> {
+    report["hypotheses"]
+        .as_array()
+        .expect("hypotheses")
+        .iter()
+        .map(|one| format!("{} of {}", one["again"]["id"], one["again"]["run"]))
+        .collect()
+}
+
+/// Fourteen holes an earlier run confirmed, past the cap of twelve run
+/// again: the most severe run first, the two left are carried to the next
+/// run, said so in the report, and run first there. No hole is lost.
+#[test]
+fn fourteen_confirmed_with_a_cap_of_twelve_carry_two_that_come_back_next_run() {
+    let project = project();
+    let card = "card_1";
+    let hole = |n: u64, severity: &str| {
+        (
+            json!({ "title": format!("hole {n}"), "class": "authn", "file": SESSION, "line": n * 10,
+                "severity": severity, "status": "confirmed", "reason": "shown",
+                "exploit": { "path": format!("tests/security/h{n}.test.ts"), "test": format!("hole {n}") } }),
+            format!("exit 1 # hole {n}\n"),
+        )
+    };
+    let mut kept: Vec<(Value, String)> = (1..=12).map(|n| hole(n, "low")).collect();
+    kept.push(hole(13, "high"));
+    kept.push(hole(14, "medium"));
+    let listed: Vec<(Value, &str)> = kept
+        .iter()
+        .map(|(one, code)| (one.clone(), code.as_str()))
+        .collect();
+    let first = project.earlier(card, &project.first, &listed);
+    let (report, prompt) = project.attack(
+        card,
+        &project.first,
+        &project.second,
+        SANDBOX_OFF,
+        json!([]),
+    );
+    assert_eq!(report["run_again"], 12, "{report:#}");
+    assert_eq!(report["run_again_cap"], 12, "{report:#}");
+    assert_eq!(report["run_again_capped"], 2, "{report:#}");
+    let ran = again_of(&report);
+    let quoted = |id: &str, run: &str| format!("\"{id}\" of \"{run}\"");
+    assert!(
+        ran.contains(&quoted("h13", &first)),
+        "the most severe first: {ran:?}"
+    );
+    assert!(ran.contains(&quoted("h14", &first)), "{ran:?}");
+    let carried = report["carried"].as_array().expect("carried");
+    let ids: Vec<&str> = carried
+        .iter()
+        .filter_map(|one| one["again"]["id"].as_str())
+        .collect();
+    assert_eq!(ids, ["h11", "h12"], "{report:#}");
+    let folder = project
+        .runs()
+        .home
+        .join(card)
+        .join(report["run"].as_str().expect("run"));
+    for one in carried {
+        assert_eq!(one["carried"], "cap");
+        assert_eq!(one["status"], "confirmed");
+        assert_eq!(one["severity"], "low");
+        assert_eq!(one["again"]["run"], first.as_str());
+        assert_eq!(one["again"]["was"], "confirmed");
+        // Its exploit is kept in this run, so the next one can run it.
+        let saved = one["exploit"]["saved"].as_str().expect("saved");
+        assert!(std::fs::read_to_string(folder.join(saved))
+            .expect("kept")
+            .starts_with("exit 1 # hole 1"));
+    }
+    assert_eq!(report["counts"]["carried"], 2, "{report:#}");
+    // The attacker is told, so it does not look for them again.
+    let told = prompt.split("## Carried").nth(1).expect("carried told");
+    assert!(
+        told.contains("hole 11") && told.contains("hole 12"),
+        "{told}"
+    );
+    // The reports say it in devflow's words.
+    let shown = devflow_engine::attack_report::json_of(&report, &Default::default());
+    assert_eq!(shown["run_again_capped"], 2, "{shown:#}");
+    assert_eq!(shown["carried"][0]["id"], "h11", "{shown:#}");
+    assert_eq!(shown["carried"][0]["run"], first.as_str(), "{shown:#}");
+    assert_eq!(shown["carried"][0]["carried"], "cap", "{shown:#}");
+    assert_eq!(shown["carried"][0]["was"], "confirmed", "{shown:#}");
+    let md = devflow_engine::attack_report::markdown(&report, &Default::default());
+    assert!(md.contains("## Carried to the next run"), "{md}");
+    assert!(md.contains(&format!("- h11 of run {first}")), "{md}");
+    assert!(md.contains("past the cap of 12 run again"), "{md}");
+
+    // The next run: the two carried run first, by the run that confirmed
+    // them; two others are carried in their place.
+    let (next, _) = project.attack_answered_at(
+        card,
+        &project.first,
+        &project.second,
+        SANDBOX_OFF,
+        json!({ "version": 1, "hypotheses": [] }),
+        1_793_000_000,
+    );
+    let ran = again_of(&next);
+    assert!(ran.contains(&quoted("h11", &first)), "{ran:?}");
+    assert!(ran.contains(&quoted("h12", &first)), "{ran:?}");
+    let carried = next["carried"].as_array().expect("carried");
+    assert_eq!(carried.len(), 2, "{next:#}");
+    // Run or carried, each of the fourteen is there once.
+    let mut titles: Vec<String> = next["hypotheses"]
+        .as_array()
+        .expect("hypotheses")
+        .iter()
+        .chain(carried)
+        .filter_map(|one| one["title"].as_str().map(str::to_owned))
+        .collect();
+    titles.sort();
+    titles.dedup();
+    assert_eq!(titles.len(), 14, "{titles:?}");
+}
+
+/// A hypothesis an earlier attack did not run, which the attacker does not
+/// name again, is carried with its run and id, and listed to the next
+/// attacker, where naming it carries `again` back to that run.
+#[test]
+fn a_not_run_hypothesis_not_named_again_is_carried_and_listed_next_run() {
+    let project = project();
+    let card = "card_1";
+    let not_run = json!({ "title": "a deleted user keeps a session", "class": "authz",
+        "file": "src/auth/users.rs", "line": 5, "severity": "medium", "status": "not_run",
+        "reason": "needs a running instance" });
+    let first = project.earlier(card, &project.first, &[(not_run, "exit 0\n")]);
+    let (report, _) = project.attack(
+        card,
+        &project.first,
+        &project.second,
+        SANDBOX_OFF,
+        json!([]),
+    );
+    let carried = report["carried"].as_array().expect("carried");
+    assert_eq!(carried.len(), 1, "{report:#}");
+    assert_eq!(carried[0]["carried"], "not_named");
+    assert_eq!(carried[0]["status"], "not_run");
+    assert_eq!(
+        carried[0]["again"],
+        json!({ "item": card, "run": first, "id": "h1", "was": "not_run" })
+    );
+    let md = devflow_engine::attack_report::markdown(&report, &Default::default());
+    assert!(md.contains(&format!("- h1 of run {first}")), "{md}");
+
+    let named = json!({ "version": 1, "hypotheses": [
+        { "id": "h1", "title": "Sessions outlive their user", "class": "authz", "file": "src/auth/users.rs",
+          "line": 40, "severity": "medium", "status": "not_run", "reason": "needs an instance",
+          "same_as": format!("{first}/h1") } ] });
+    let (next, prompt) = project.attack_answered_at(
+        card,
+        &project.first,
+        &project.second,
+        SANDBOX_OFF,
+        named,
+        1_793_000_000,
+    );
+    let listed = prompt.split("## Not run before").nth(1).expect("listed");
+    assert!(
+        listed.contains(&format!("\"run\":\"{first}\"")) && listed.contains("\"id\":\"h1\""),
+        "{listed}"
+    );
+    assert_eq!(
+        next["hypotheses"][0]["again"],
+        json!({ "item": card, "run": first, "id": "h1", "was": "not_run" }),
+        "{next:#}"
+    );
+    assert_eq!(next["carried"], json!([]), "{next:#}");
+}
+
+/// Thirteen high holes an earlier run confirmed, each exploit its own: the
+/// thirteenth is past the cap.
+fn thirteen_high(project: &Project, card: &str, at: u64) -> String {
+    let codes: Vec<String> = (1..=13).map(|n| format!("exit 1 # hole {n}\n")).collect();
+    let kept: Vec<(Value, &str)> = (1..=13u64)
+        .map(|n| (high_hole(n), codes[n as usize - 1].as_str()))
+        .collect();
+    project.earlier_at(card, &project.first, &kept, at)
+}
+
+fn high_hole(n: u64) -> Value {
+    json!({ "title": format!("hole {n}"), "class": "authn", "file": SESSION, "line": n * 10,
+        "severity": "high", "status": "confirmed", "reason": "shown",
+        "exploit": { "path": format!("tests/security/h{n}.test.ts"), "test": format!("hole {n}") } })
+}
+
+/// A carried hole stays carried, holding, when what the attacker says at its
+/// place does not show it: only an attacker's confirmed exploit takes it in.
+#[test]
+fn a_carried_hole_is_taken_in_only_by_a_hypothesis_that_shows_it() {
+    let project = project();
+    let card = "card_1";
+    thirteen_high(&project, card, 1_791_000_000);
+    let nearby = json!([{ "id": "h1", "title": "something else nearby", "class": "authn", "file": SESSION,
+        "line": 131, "severity": "low", "status": "not_run", "reason": "could not try" }]);
+    let (report, _) = project.attack(card, &project.first, &project.second, SANDBOX_OFF, nearby);
+    let carried = report["carried"].as_array().expect("carried");
+    assert_eq!(carried.len(), 1, "{report:#}");
+    assert_eq!(carried[0]["again"]["id"], "h13");
+    assert_eq!(report["run_again_capped"], 1);
+    assert_eq!(report["verdict"], "request_changes", "{report:#}");
+    let own = report["hypotheses"]
+        .as_array()
+        .expect("hypotheses")
+        .iter()
+        .find(|one| one["status"] == "not_run")
+        .expect("the attacker's own");
+    assert!(own["again"].is_null(), "{own:#}");
+}
+
+/// A hole a newer run ran again green is shut: an older run that confirmed
+/// it does not bring it back, run again or carried.
+#[test]
+fn a_hole_a_newer_run_showed_shut_is_not_brought_back_by_an_older_one() {
+    let project = project();
+    let card = "card_1";
+    let first = thirteen_high(&project, card, 1_791_000_000);
+    let codes: Vec<String> = (1..=13).map(|n| format!("exit 1 # hole {n}\n")).collect();
+    let shut: Vec<(Value, &str)> = (1..=13u64)
+        .map(|n| {
+            let mut one = high_hole(n);
+            one["status"] = json!("refuted");
+            one["ran"] = json!({ "result": "refuted", "reason": "green: the hole is not there" });
+            one["again"] =
+                json!({ "item": card, "run": first, "id": format!("h{n}"), "was": "confirmed" });
+            (one, codes[n as usize - 1].as_str())
+        })
+        .collect();
+    project.earlier_at(card, &project.second, &shut, 1_791_500_000);
+    let (report, _) = project.attack(
+        card,
+        &project.first,
+        &project.second,
+        SANDBOX_OFF,
+        json!([]),
+    );
+    assert_eq!(report["run_again"], 0, "{report:#}");
+    assert_eq!(report["carried"], json!([]), "{report:#}");
+    assert_eq!(report["verdict"], "approve");
+}
+
+/// An earlier attack whose attackers gave no answer settles nothing: an
+/// attack again at its head is not told that nothing is left to look at.
+#[test]
+fn an_attack_that_failed_does_not_say_nothing_changed_since() {
+    let project = project();
+    let card = "card_1";
+    let run = project.earlier(card, &project.second, &[]);
+    std::fs::write(
+        project.runs().home.join(card).join(&run).join(attack::REPORT),
+        json!({ "head": project.second, "hypotheses": [],
+            "attackers": [{ "agent": "claude", "reason": "its time ran out", "result": "not_run", "cap_hit": true }] })
+        .to_string(),
+    )
+    .expect("a failed attack");
+    let (_, prompt) = project.attack(
+        card,
+        &project.first,
+        &project.second,
+        SANDBOX_OFF,
+        json!([]),
+    );
+    assert!(!prompt.contains("## No code changed since"), "{prompt}");
+}
+
+fn variant(line: u64, status: &str) -> Value {
+    json!({ "title": format!("variant at {line}"), "class": "authn", "file": SESSION,
+        "line": line, "severity": "high", "status": status, "reason": "shown",
+        "exploit": { "path": format!("tests/security/v{line}.test.ts"), "test": format!("variant {line}") } })
+}
+
+/// A variant shown shut beside a confirmed one of the same hole, in the same
+/// run, shuts only itself: the confirmed one is run again.
+#[test]
+fn a_variant_shown_shut_does_not_hide_a_confirmed_one_beside_it() {
+    let project = project();
+    let card = "card_1";
+    let mut green = variant(12, "refuted");
+    green["ran"] = json!({ "result": "refuted", "reason": "green: the hole is not there" });
+    green["verified"] = json!({ "result": "refuted", "by": "sandbox" });
+    project.earlier(
+        card,
+        &project.first,
+        &[(variant(10, "confirmed"), "exit 1\n"), (green, "exit 0\n")],
+    );
+    let (report, _) = project.attack(
+        card,
+        &project.first,
+        &project.second,
+        SANDBOX_OFF,
+        json!([]),
+    );
+    assert_eq!(report["run_again"], 1, "{report:#}");
+    assert_eq!(report["hypotheses"][0]["title"], "variant at 10");
+}
+
+/// A refutation in the attacker's word alone, though it names again what was
+/// not run, shuts nothing: what a newer run confirmed again is run again.
+#[test]
+fn a_refutation_no_run_showed_shuts_nothing() {
+    let project = project();
+    let card = "card_1";
+    let first = project.earlier_at(
+        card,
+        &project.first,
+        &[(variant(10, "confirmed"), "exit 1\n")],
+        1_791_000_000,
+    );
+    let mut again = variant(10, "confirmed");
+    again["again"] = json!({ "item": card, "run": first, "id": "h1", "was": "confirmed" });
+    let mut word = variant(13, "refuted");
+    word["again"] = json!({ "item": card, "run": first, "id": "h9", "was": "not_run" });
+    project.earlier_at(
+        card,
+        &project.second,
+        &[(again, "exit 1\n"), (word, "exit 0\n")],
+        1_791_500_000,
+    );
+    let (report, _) = project.attack(
+        card,
+        &project.first,
+        &project.second,
+        SANDBOX_OFF,
+        json!([]),
+    );
+    assert_eq!(report["run_again"], 1, "{report:#}");
+    assert_eq!(
+        report["verdict"], "approve",
+        "sandbox off: run again, tried"
+    );
+    assert_eq!(report["carried"], json!([]));
+}
+
+/// A hole a sibling range's newer run showed shut is not brought back by
+/// this range's own older run: every folder's shut holes are known first.
+#[test]
+fn a_hole_a_sibling_range_showed_shut_stays_shut() {
+    let project = project();
+    let card = format!("{}-{}", short(&project.first), short(&project.second));
+    let own = project.earlier_at(
+        &card,
+        &project.first,
+        &[(variant(10, "confirmed"), "exit 1\n")],
+        1_791_000_000,
+    );
+    let mut green = variant(10, "refuted");
+    green["ran"] = json!({ "result": "refuted", "reason": "green: the hole is not there" });
+    green["again"] = json!({ "item": card, "run": own, "id": "h1", "was": "confirmed" });
+    let sibling = format!("{}-{}", short(&project.first), short(&project.first));
+    project.earlier_at(
+        &sibling,
+        &project.first,
+        &[(green, "exit 1\n")],
+        1_791_500_000,
+    );
+    let (report, _) = project.attack(
+        &card,
+        &project.first,
+        &project.second,
+        SANDBOX_OFF,
+        json!([]),
+    );
+    assert_eq!(report["run_again"], 0, "{report:#}");
+    assert_eq!(report["carried"], json!([]));
+}
+
+/// A proof shown shut that took in an older one, written another way (a
+/// count proof that took in a timing one), shuts that older one too.
+#[test]
+fn a_proof_shown_shut_shuts_what_it_took_in() {
+    let project = project();
+    let card = "card_1";
+    let timed = project.earlier_at(
+        card,
+        &project.first,
+        &[(variant(10, "confirmed"), "exit 1 # by time\n")],
+        1_791_000_000,
+    );
+    let mut count = variant(10, "refuted");
+    count["exploit"] = json!({ "path": "tests/security/count.test.ts", "test": "counts" });
+    count["ran"] = json!({ "result": "refuted", "reason": "green: the hole is not there" });
+    count["again"] =
+        json!({ "item": card, "run": "20260901T000000Z", "id": "h4", "was": "confirmed" });
+    count["merged"] = json!([{ "id": "h1", "run": timed, "class": "authn", "line": 10 }]);
+    project.earlier_at(
+        card,
+        &project.second,
+        &[(count, "exit 1 # by count\n")],
+        1_791_500_000,
+    );
+    let (report, _) = project.attack(
+        card,
+        &project.first,
+        &project.second,
+        SANDBOX_OFF,
+        json!([]),
+    );
+    assert_eq!(report["run_again"], 0, "{report:#}");
 }

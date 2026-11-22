@@ -21,6 +21,34 @@ fn a_confirmed_hypothesis_at_block_on_is_followed_up_on_a_range_in_production() 
     );
 }
 
+/// A confirmed hole carried past the cap is not shown fixed: at block_on it
+/// holds as a run would. One carried with no exploit, or not run, does not.
+#[test]
+fn a_confirmed_hole_carried_past_the_cap_holds_at_block_on() {
+    let block_on = [Severity::Critical, Severity::High];
+    let report = |why: &str, status: &str| {
+        json!({ "hypotheses": [], "carried": [{ "status": status, "severity": "high", "carried": why,
+            "again": { "item": "card_1", "run": "20261119T120000Z", "id": "h13", "was": status } }] })
+    };
+    assert_eq!(
+        verdict(&report("cap", "confirmed"), &block_on, false),
+        "request_changes"
+    );
+    assert_eq!(
+        verdict(&report("cap", "confirmed"), &block_on, true),
+        "follow_up"
+    );
+    assert_eq!(
+        verdict(&report("cap", "tried"), &block_on, false),
+        "approve"
+    );
+    assert_eq!(
+        verdict(&report("no_exploit", "confirmed"), &block_on, false),
+        "approve"
+    );
+    assert_eq!(counts(&report("cap", "confirmed"))["carried"], 1);
+}
+
 #[test]
 fn an_exploit_belongs_inside_the_repository() {
     assert!(exploit_path("tests/a.test.ts").is_ok());
@@ -1008,7 +1036,8 @@ fn the_report_keeps_the_families_of_one_root() {
 
 /// A hypothesis merged into another is named on its trail by an id and a
 /// run: the run that kept it and its id there, or this run and the id its
-/// attacker gave it.
+/// attacker gave it, kept apart as `said_as` so it never reads as one of the
+/// report's own ids.
 #[test]
 fn a_merged_hypothesis_is_named_by_its_id_and_its_run() {
     let mut kept = json!({ "title": "a", "class": "ssrf", "file": "a.ts", "line": 3 });
@@ -1019,20 +1048,24 @@ fn a_merged_hypothesis_is_named_by_its_id_and_its_run() {
     merge_into(&mut kept, &own);
     let mut list = vec![kept];
     runs_named(&mut list, "20261122T142204Z");
-    let named: Vec<(&str, &str)> = list[0]["merged"]
+    let named: Vec<(&str, &str, &str)> = list[0]["merged"]
         .as_array()
         .expect("merged")
         .iter()
         .map(|one| {
             (
                 one["id"].as_str().unwrap_or("-"),
+                one["said_as"].as_str().unwrap_or("-"),
                 one["run"].as_str().unwrap_or("-"),
             )
         })
         .collect();
     assert_eq!(
         named,
-        [("h2", "20261121T031245Z"), ("h7", "20261122T142204Z")]
+        [
+            ("h2", "-", "20261121T031245Z"),
+            ("-", "h7", "20261122T142204Z")
+        ]
     );
     assert_eq!(list[0]["merged"][0]["again"]["was"], "confirmed");
 }
@@ -1072,7 +1105,11 @@ fn the_hypothesis_kept_says_what_it_took_in() {
         "the exploit's stands, the rest are its trail"
     );
     assert_eq!(merged[0]["found_by"], json!(["claude/large"]));
-    assert_eq!(merged[0]["id"], "h1", "the id its attacker gave it");
+    assert_eq!(merged[0]["said_as"], "h1", "the id its attacker gave it");
+    assert!(
+        merged[0].get("id").is_none(),
+        "never a final id: {merged:#?}"
+    );
     assert!(
         !kept[0]["merged"].to_string().contains("secret code"),
         "never an exploit"
@@ -1104,4 +1141,138 @@ fn an_earlier_exploit_that_reads_the_clock_is_run_again_as_timing() {
     assert_eq!(again["exploit"]["timing"], true, "{again:#}");
     let again = left_open(&kept("h2"), run.path(), "card_1", "20261121T031245Z").expect("open");
     assert!(again["exploit"].get("timing").is_none(), "{again:#}");
+}
+
+/// One attacker's hypothesis merged into another's in this run keeps the id
+/// its attacker gave it apart from the report's own ids: the report lists it
+/// under "merged in this run", never as one of an earlier run.
+#[test]
+fn a_merge_in_this_run_keeps_the_attackers_id_apart_from_the_final_ones() {
+    let one = |id: &str, class: &str, file: &str, line: u64, title: &str| {
+        json!({ "id": id, "title": title, "class": class, "file": file, "line": line,
+            "severity": "low", "status": "confirmed", "verified": { "by": "sandbox" } })
+    };
+    let mut kept = merged_across(vec![
+        (
+            "claude/large".to_owned(),
+            vec![
+                one("h1", "ssrf", "src/fetch.ts", 5, "any address is fetched"),
+                one("h2", "xss", "src/page.ts", 40, "markup is stored live"),
+            ],
+        ),
+        (
+            "codex/default".to_owned(),
+            vec![one(
+                "h2",
+                "ssrf",
+                "src/fetch.ts",
+                6,
+                "a private address is fetched",
+            )],
+        ),
+    ]);
+    runs_named(&mut kept, "20261122T195432Z");
+    for (at, one) in kept.iter_mut().enumerate() {
+        one["id"] = json!(format!("h{}", at + 1));
+    }
+    let report = json!({ "run": "20261122T195432Z", "hypotheses": kept });
+    let known = crate::attack_report::Known::of(&report);
+    let shown = crate::attack_report::json_of(&report, &known);
+    let merged = &shown["hypotheses"][0]["merged"];
+    assert_eq!(merged[0]["said_as"], "h2", "{shown:#}");
+    assert_eq!(merged[0]["by"], "codex", "{shown:#}");
+    assert!(merged[0]["id"].is_null(), "{shown:#}");
+    let md = crate::attack_report::markdown(&report, &known);
+    let this_run = md
+        .split("### Merged in this run")
+        .nth(1)
+        .expect("its own heading");
+    assert!(
+        this_run.contains("- h1 took in what codex numbered h2 (ssrf, line 6)"),
+        "{md}"
+    );
+    assert!(!md.contains("h2 of run"), "{md}");
+    assert!(!md.contains("### From earlier runs"), "{md}");
+}
+
+/// What a hypothesis took in is said once each, named by the run and id
+/// that kept it: an older report's entry with no id is named by its
+/// `again`, and the same hole taken in by two paths is said once.
+#[test]
+fn what_a_hypothesis_took_in_is_said_once_and_never_without_an_id() {
+    let mut kept = json!({ "title": "pg TLS off", "class": "crypto", "file": "src/db.ts", "line": 14,
+        "again": { "item": "card_1", "run": "20261122T185109Z", "id": "h18", "was": "confirmed" } });
+    let again =
+        |run: &str, id: &str| json!({ "item": "card_1", "run": run, "id": id, "was": "confirmed" });
+    let gone = json!({ "title": "pg TLS", "class": "tls", "file": "src/db.ts", "line": 14,
+        "again": again("20261122T142204Z", "h19"),
+        "merged": [
+            { "id": null, "run": "20261122T142204Z", "class": "crypto", "line": 14,
+              "again": again("20261121T031245Z", "h15") },
+            { "id": "h15", "run": "20261121T031245Z", "class": "crypto", "line": 14,
+              "again": again("20261121T031245Z", "h15") },
+            { "id": null, "run": "20261122T142204Z", "class": "tls", "line": 14,
+              "again": again("20261121T031245Z", "h18") },
+            { "id": null, "run": null, "class": "tls", "line": 14 },
+        ] });
+    merge_into(&mut kept, &gone);
+    let named: Vec<(String, String)> = kept["merged"]
+        .as_array()
+        .expect("merged")
+        .iter()
+        .map(|one| (one["run"].to_string(), one["id"].to_string()))
+        .collect();
+    assert_eq!(
+        named,
+        [
+            ("\"20261121T031245Z\"".to_owned(), "\"h15\"".to_owned()),
+            ("\"20261121T031245Z\"".to_owned(), "\"h18\"".to_owned()),
+            ("\"20261122T142204Z\"".to_owned(), "\"h19\"".to_owned()),
+        ],
+        "{kept:#}"
+    );
+}
+
+/// A count proof that takes in a hole an earlier run proved only by time is
+/// that hole run again: it carries its `again`, not only its trail.
+#[test]
+fn a_count_proof_that_takes_in_a_timing_one_carries_its_again() {
+    let mut hypotheses = vec![
+        json!({ "id": "h1", "title": "Quadratic scan", "file": "src/scan.ts",
+        "line": 529, "class": "redos", "status": "confirmed",
+        "exploit": { "path": "tests/count.test.ts", "test": "count", "code": "steps" } }),
+    ];
+    let timed = json!({ "id": "again-1", "title": "quadratic scan", "file": "src/scan.ts", "line": 529,
+        "class": "redos", "status": "confirmed", "exploit": { "timing": true, "code": "Date.now(" },
+        "again": { "item": "card_1", "run": "20261122T185109Z", "id": "h12", "was": "confirmed" } });
+    let left = timing_taken_in(&mut hypotheses, vec![timed]);
+    assert!(left.is_empty());
+    assert_eq!(
+        hypotheses[0]["again"],
+        json!({ "item": "card_1", "run": "20261122T185109Z", "id": "h12", "was": "confirmed" })
+    );
+    assert_eq!(hypotheses[0]["merged"][0]["id"], "h12");
+}
+
+/// A class is kept in attack.json by devflow's name for it, as the reports
+/// show it, and the attacker's own word beside it when it differs.
+#[test]
+fn a_class_is_kept_by_devflows_name_with_the_attackers_word_beside_it() {
+    let said = r#"{ "hypotheses": [
+        { "id": "h1", "title": "markup stored live", "class": "Stored XSS", "file": "src/a.ts", "line": 3,
+          "severity": "low", "status": "refuted", "reason": "escaped" },
+        { "id": "h2", "title": "ssrf", "class": "ssrf", "file": "src/a.ts", "line": 9,
+          "severity": "low", "status": "refuted", "reason": "blocked" } ] }"#;
+    let answer = read_answer(said).expect("answer");
+    assert_eq!(answer["hypotheses"][0]["class"], "xss");
+    assert_eq!(answer["hypotheses"][0]["class_said"], "Stored XSS");
+    assert_eq!(answer["hypotheses"][1]["class"], "ssrf");
+    assert!(answer["hypotheses"][1].get("class_said").is_none());
+}
+
+/// The threat model is written again only when it should change: the
+/// attacker is told an empty one keeps the project's.
+#[test]
+fn the_attacker_writes_the_threat_model_only_when_it_should_change() {
+    assert!(ASK.contains("an empty string when the threat model above still reads right"));
 }

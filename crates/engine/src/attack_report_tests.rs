@@ -158,6 +158,53 @@ fn a_flows_fixes_name_only_the_repositories_they_touch() {
     assert!(md.contains("- h1: api, worker\n"), "{md}");
 }
 
+/// A confirmed hole carried to the next run is in the SARIF, said carried,
+/// and the reports name it only in devflow's words.
+#[test]
+fn a_confirmed_hole_carried_is_in_the_sarif_in_devflows_words() {
+    let mut report = report();
+    report["run_again_cap"] = json!(12);
+    report["carried"] = json!([
+        { "title": SAID[9], "reason": SAID[0], "impact": SAID[1], "fix": SAID[2], "class": "secrets",
+          "file": "src/fetch.ts", "line": 9, "severity": "low", "status": "confirmed", "carried": "cap",
+          "again": { "item": "item_1", "run": "20261118T120000Z", "id": "h19", "was": "confirmed" },
+          "exploit": { "test": SAID[3], "saved": "exploits/carried-1/a.test.ts" } },
+        { "title": SAID[7], "class": "authz", "file": "src/b.ts", "line": 5, "severity": "medium",
+          "status": "not_run", "carried": "not_named", "not_run_reason": SAID[8],
+          "again": { "item": "item_1", "run": "20261118T120000Z", "id": "h3", "was": "not_run" } },
+    ]);
+    let said = sarif(&report, &none());
+    let results = said["runs"][0]["results"].as_array().expect("results");
+    assert_eq!(results.len(), 2, "{said:#}");
+    assert_eq!(results[1]["ruleId"], "attack/secrets");
+    assert_eq!(results[1]["level"], "note");
+    assert_eq!(results[1]["properties"]["carried"], "cap");
+    assert!(results[1]["message"]["text"]
+        .as_str()
+        .expect("message")
+        .contains("in run 20261118T120000Z, carried"));
+    let md = markdown(&report, &none());
+    assert!(md.contains("2 carried"), "{md}");
+    assert!(
+        md.contains("- h19 of run 20261118T120000Z (confirmed, low secrets at `src/fetch.ts:9`): past the cap of 12 run again"),
+        "{md}"
+    );
+    assert!(
+        md.contains("- h3 of run 20261118T120000Z (not_run, medium authz"),
+        "{md}"
+    );
+    let shown = [
+        md,
+        serde_json::to_string(&json_of(&report, &none())).expect("json"),
+        serde_json::to_string(&said).expect("sarif"),
+    ];
+    for text in &shown {
+        for leak in LEAKS {
+            assert!(!text.contains(leak), "{leak} leaked: {text}");
+        }
+    }
+}
+
 #[test]
 fn the_sarif_is_2_1_0_with_each_confirmed_hypothesis_at_its_line() {
     let said = sarif(&report(), &none());
@@ -660,9 +707,10 @@ fn the_markdown_says_in_one_line_what_each_hypothesis_took_in() {
         { "id": "../h1", "run": SAID[0], "title": SAID[3] },
     ]);
     let md = markdown(&report, &none());
+    assert!(md.contains("### From earlier runs"), "{md}");
     assert!(
-        md.contains("- h1 took in 3: h2 of run 20261118T090000Z, h18 of run 20261121T031245Z-1, <…> of run <…>\n"),
-        "{md}"
+        md.contains("- h1 took in 2: h2 of run 20261118T090000Z, h18 of run 20261121T031245Z-1\n"),
+        "one it cannot name is left out, never `<…>`: {md}"
     );
     assert_eq!(md.matches(" took in ").count(), 1, "{md}");
     for leak in LEAKS {

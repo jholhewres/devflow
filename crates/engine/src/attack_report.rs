@@ -738,24 +738,45 @@ fn side(value: &Value) -> Value {
     })
 }
 
-/// What a hypothesis took in, as a report shows each: its id and run (the
-/// run that kept it, or this one for an attacker's own), its item, how it
-/// had ended, its class and line.
+/// Who an attacker is, as a report names it: its agent, never its model.
+fn agent_of(found_by: &Value) -> Value {
+    let said = found_by[0].as_str().unwrap_or_default();
+    name_of(&json!(said.split('/').next().unwrap_or_default()))
+}
+
+/// What a hypothesis took in, as a report shows each, said once: one an
+/// earlier run kept by its id and run there, its item and how it had ended;
+/// an attacker's own by the id its attacker gave it (`said_as`), who that
+/// was and the run that merged it. Each with its class and line. One it
+/// cannot name is left out: attack.json keeps it.
 fn merged_shown(one: &Value) -> Option<Vec<Value>> {
     let merged = one["merged"].as_array()?;
-    Some(
-        merged
-            .iter()
-            .map(|gone| {
-                json!({
-                    "id": id_of(&gone["id"]), "run": run_of(&gone["run"]),
-                    "item": name_of(&gone["again"]["item"]),
-                    "was": one_of(&gone["again"]["was"], &STATUSES),
-                    "class": class_of(&gone["class"]), "line": gone["line"].as_u64(),
-                })
+    let mut shown: Vec<Value> = Vec::new();
+    for gone in merged {
+        let (id, said, run) = (
+            id_of(&gone["id"]),
+            id_of(&gone["said_as"]),
+            run_of(&gone["run"]),
+        );
+        let entry = if !id.is_null() && !run.is_null() {
+            json!({
+                "id": id, "run": run, "item": name_of(&gone["again"]["item"]),
+                "was": one_of(&gone["again"]["was"], &STATUSES),
+                "class": class_of(&gone["class"]), "line": gone["line"].as_u64(),
             })
-            .collect(),
-    )
+        } else if id.is_null() && !said.is_null() && !run.is_null() {
+            json!({
+                "said_as": said, "by": agent_of(&gone["found_by"]), "run": run,
+                "class": class_of(&gone["class"]), "line": gone["line"].as_u64(),
+            })
+        } else {
+            continue;
+        };
+        if !shown.contains(&entry) {
+            shown.push(entry);
+        }
+    }
+    Some(shown)
 }
 
 /// How the run that confirmed or refuted a hypothesis proved it: by an
@@ -1011,14 +1032,77 @@ fn run_cap_hit(report: &Value) -> bool {
             .any(|one| one["cap_hit"] == true)
 }
 
+/// Each hole carried to the next run as a report shows it: the run and id
+/// that showed it, how it ended there, its class, severity and place, and
+/// why it was carried ([`crate::attack::CARRIED`]).
+fn carried(report: &Value, known: &Known) -> Vec<Value> {
+    report["carried"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|one| {
+            json!({
+                "id": id_of(&one["again"]["id"]), "run": run_of(&one["again"]["run"]),
+                "item": name_of(&one["again"]["item"]),
+                "was": one_of(&one["status"], &STATUSES),
+                "severity": one_of(&one["severity"], &SEVERITIES),
+                "class": class_of(&one["class"]),
+                "file": repo_path(&one["file"], known), "line": one["line"].as_u64(),
+                "carried": one_of(&one["carried"], &crate::attack::CARRIED),
+            })
+        })
+        .collect()
+}
+
+/// Why a hole was carried, as a line says it.
+fn carried_why(report: &Value, why: &Value) -> String {
+    match why.as_str() {
+        Some("cap") => format!(
+            "past the cap of {} run again, the most severe first; it runs first among its severity next time",
+            report["run_again_cap"].as_u64().unwrap_or_default()
+        ),
+        Some("not_named") => "not run before, and not named again by the attack".to_owned(),
+        Some("no_exploit") => {
+            "its exploit is not in the run that kept it, until an attack writes it again".to_owned()
+        }
+        _ => "carried".to_owned(),
+    }
+}
+
+/// Each carried hole as one line: the run and id that showed it, how it
+/// ended there, and why it is carried.
+fn carried_lines(report: &Value, carried: &[Value]) -> String {
+    carried
+        .iter()
+        .map(|one| {
+            format!(
+                "- {} of run {} ({}, {} {} at `{}:{}`): {}\n",
+                cell(&one["id"]),
+                cell(&one["run"]),
+                cell(&one["was"]),
+                cell(&one["severity"]),
+                cell(&one["class"]),
+                cell(&one["file"]),
+                one["line"].as_u64().unwrap_or(1),
+                carried_why(report, &one["carried"])
+            )
+        })
+        .collect()
+}
+
 /// The report as JSON: the run, its verdict and numbers, whether a cap
-/// ended a turn, every hypothesis as [`shown`] and the families they make.
+/// ended a turn, every hypothesis as [`shown`] and the families they make,
+/// and the holes carried to the next run.
 pub fn json_of(report: &Value, known: &Known) -> Value {
     json!({
         "item": report["item"], "run": report["run"], "base": report["base"], "head": report["head"],
         "mode": report["mode"], "verdict": report["verdict"], "counts": report["counts"],
-        "metrics": report["metrics"],
+        "metrics": report["metrics"], "profile": report["profile"],
         "run_cap_hit": run_cap_hit(report),
+        "run_again": report["run_again"].as_u64(),
+        "run_again_cap": report["run_again_cap"].as_u64(),
+        "run_again_capped": report["run_again_capped"].as_u64(),
+        "carried": carried(report, known),
         "hypotheses": hypotheses(report, known),
         "families": families(report, known),
         "exploits": exploits_shown(report, known),
@@ -1113,25 +1197,67 @@ fn severity_cell(one: &Value) -> String {
     }
 }
 
-/// Each hypothesis that took others in, one line each: how many, and each
-/// one's id and the run that kept it.
-fn merged_lines(shown: &[Value]) -> String {
+/// Whether an entry of what a hypothesis took in was merged in `run`, the
+/// report's own: an attacker's hypothesis, named by the id it gave it.
+fn merged_in(gone: &Value, run: &str) -> bool {
+    gone["said_as"].is_string() && gone["run"] == run
+}
+
+/// Each hypothesis that took in what earlier runs kept, one line each: how
+/// many, and each one's id and the run that kept it, or the id an attacker
+/// of that run gave it.
+fn merged_lines(shown: &[Value], run: &str) -> String {
     shown
         .iter()
         .filter_map(|one| {
-            let merged = one["merged"]
-                .as_array()
-                .filter(|merged| !merged.is_empty())?;
-            let each: Vec<String> = merged
+            let each: Vec<String> = one["merged"]
+                .as_array()?
                 .iter()
-                .map(|gone| format!("{} of run {}", cell(&gone["id"]), cell(&gone["run"])))
+                .filter(|gone| !merged_in(gone, run))
+                .map(|gone| match gone["said_as"].as_str() {
+                    Some(said) => format!(
+                        "what {} numbered {said} in run {}",
+                        cell(&gone["by"]),
+                        cell(&gone["run"])
+                    ),
+                    None => format!("{} of run {}", cell(&gone["id"]), cell(&gone["run"])),
+                })
                 .collect();
-            Some(format!(
-                "- {} took in {}: {}\n",
-                cell(&one["id"]),
-                merged.len(),
-                each.join(", ")
-            ))
+            (!each.is_empty()).then(|| {
+                format!(
+                    "- {} took in {}: {}\n",
+                    cell(&one["id"]),
+                    each.len(),
+                    each.join(", ")
+                )
+            })
+        })
+        .collect()
+}
+
+/// Each hypothesis that took in another of this run, one line each: each by
+/// the id its attacker gave it, with its class and line, never as one of
+/// this report's ids.
+fn merged_here_lines(shown: &[Value], run: &str) -> String {
+    shown
+        .iter()
+        .filter_map(|one| {
+            let each: Vec<String> = one["merged"]
+                .as_array()?
+                .iter()
+                .filter(|gone| merged_in(gone, run))
+                .map(|gone| {
+                    format!(
+                        "what {} numbered {} ({}, line {})",
+                        cell(&gone["by"]),
+                        cell(&gone["said_as"]),
+                        cell(&gone["class"]),
+                        cell(&gone["line"])
+                    )
+                })
+                .collect();
+            (!each.is_empty())
+                .then(|| format!("- {} took in {}\n", cell(&one["id"]), each.join(", ")))
         })
         .collect()
 }
@@ -1199,8 +1325,14 @@ pub fn markdown(report: &Value, known: &Known) -> String {
         .into_iter()
         .find(|mode| report["mode"] == *mode)
         .map_or_else(String::new, |mode| format!("{mode} "));
+    let carried_count = report["carried"].as_array().map_or(0, Vec::len);
+    let carried_said = if carried_count > 0 {
+        format!(", {carried_count} carried")
+    } else {
+        String::new()
+    };
     let mut out = format!(
-        "# Attack report: {}\n\nRun {}, {mode}{}..{}. Verdict: **{}**. {} confirmed, {} refuted, {} tried, {} not run.\n",
+        "# Attack report: {}\n\nRun {}, {mode}{}..{}. Verdict: **{}**. {} confirmed, {} refuted, {} tried, {} not run{carried_said}.\n",
         text(report, "item"),
         text(report, "run"),
         text(report, "base").chars().take(12).collect::<String>(),
@@ -1217,6 +1349,19 @@ pub fn markdown(report: &Value, known: &Known) -> String {
             "Cost US$ {:.2}, {} min.\n",
             metrics["cost_usd"].as_f64().unwrap_or_default(),
             metrics["duration_ms"].as_u64().unwrap_or_default() / 60_000
+        ));
+    }
+    let profile = &report["profile"];
+    if profile.is_object() {
+        let secs = |key: &str| profile[key].as_u64().unwrap_or_default() / 1_000;
+        out.push_str(&format!(
+            "Time: {}s in all; {}s before the attack, {}s the attack, {}s run again (while the attack ran), {}s proving what it wrote; of the last two, {}s repeating proofs by time.\n",
+            secs("total_ms"),
+            secs("prepare_ms"),
+            secs("attackers_ms"),
+            secs("run_again_ms"),
+            secs("proof_ms"),
+            secs("timing_ms"),
         ));
     }
     if run_cap_hit(report) {
@@ -1288,10 +1433,25 @@ pub fn markdown(report: &Value, known: &Known) -> String {
         out.push_str("\n## Holes by root\n\nConfirmed variants of one cause (one function, rule or list) are one hole: one fix at its root shuts them all. A refuted or unconfirmed hypothesis is no variant.\n\n");
         out.push_str(&family_lines(&families));
     }
-    let merged = merged_lines(&shown);
-    if !merged.is_empty() {
-        out.push_str("\n## What each hypothesis took in\n\nOne hole earlier runs or other attackers named again, merged into the one kept.\n\n");
-        out.push_str(&merged);
+    let run = text(report, "run");
+    let (earlier, here) = (merged_lines(&shown, run), merged_here_lines(&shown, run));
+    if !earlier.is_empty() || !here.is_empty() {
+        out.push_str("\n## What each hypothesis took in\n\nOne hole named again, merged into the one kept.\n");
+    }
+    if !earlier.is_empty() {
+        out.push_str(
+            "\n### From earlier runs\n\nEach by the run that kept it and its id there.\n\n",
+        );
+        out.push_str(&earlier);
+    }
+    if !here.is_empty() {
+        out.push_str("\n### Merged in this run\n\nAnother attacker's hypothesis at the same place, or one an attacker named again of a hole run again: each by the number its attacker gave it, not this report's ids.\n\n");
+        out.push_str(&here);
+    }
+    let carried = carried(report, known);
+    if !carried.is_empty() {
+        out.push_str("\n## Carried to the next run\n\nNot run again this time and kept, so no hole is lost: each is named by the run that showed it, and comes back in the next run.\n\n");
+        out.push_str(&carried_lines(report, &carried));
     }
     out.push_str(
         "\n| Id | Status | Severity | Class | Where | Ran | Proof |\n|---|---|---|---|---|---|---|\n",
@@ -1320,9 +1480,19 @@ fn level(severity: &str) -> &'static str {
     }
 }
 
-/// The confirmed hypotheses as SARIF 2.1.0, each at its file and line.
+/// A SARIF location at a shown file and line.
+fn location(one: &Value) -> Value {
+    json!([{ "physicalLocation": {
+        "artifactLocation": { "uri": one["file"].as_str().map_or_else(|| ".".to_owned(), uri_of) },
+        "region": { "startLine": one["line"].as_u64().unwrap_or(1).max(1) },
+    } }])
+}
+
+/// The confirmed hypotheses as SARIF 2.1.0, each at its file and line, and
+/// the confirmed holes carried to the next run, said so: shown by the run
+/// named, not run again at this HEAD.
 pub fn sarif(report: &Value, known: &Known) -> Value {
-    let results: Vec<Value> = hypotheses(report, known)
+    let mut results: Vec<Value> = hypotheses(report, known)
         .into_iter()
         .filter(|one| one["status"] == "confirmed")
         .map(|one| {
@@ -1333,14 +1503,29 @@ pub fn sarif(report: &Value, known: &Known) -> Value {
                 "message": { "text": format!(
                     "{class}: confirmed by an exploit test. {}", text(&one, "impact")
                 ) },
-                "locations": [{ "physicalLocation": {
-                    "artifactLocation": { "uri": one["file"].as_str().map_or_else(|| ".".to_owned(), uri_of) },
-                    "region": { "startLine": one["line"].as_u64().unwrap_or(1).max(1) },
-                } }],
+                "locations": location(&one),
                 "properties": { "severity": one["severity"], "verifiedBy": one["verified_by"] },
             })
         })
         .collect();
+    results.extend(
+        carried(report, known)
+            .into_iter()
+            .filter(|one| one["was"] == "confirmed")
+            .map(|one| {
+                let class = text(&one, "class");
+                json!({
+                    "ruleId": format!("attack/{class}"),
+                    "level": level(text(&one, "severity")),
+                    "message": { "text": format!(
+                        "{class}: confirmed by an exploit test in run {}, carried: not run again at this HEAD.",
+                        cell(&one["run"])
+                    ) },
+                    "locations": location(&one),
+                    "properties": { "severity": one["severity"], "carried": one["carried"] },
+                })
+            }),
+    );
     json!({
         "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
         "version": "2.1.0",
