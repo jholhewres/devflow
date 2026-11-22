@@ -539,6 +539,14 @@ HEAD. The details, and how to read the report: [security.md](security.md).
   and one root or target both name). A carried hole keeps its file and line in every report,
   is in the SARIF `carried: true`, keeps a draft and stays a variant of its
   family; attack-report.json shows `class_said`.
+- 0.7.5, what a Go project's attack showed: an exploit whose environment or
+  build failed (a build tag missing, a module, extension or library not
+  there, a setup that broke or timed out) is never confirmed, even when the
+  runner names its test: it is not run, `env_error`, with the line that
+  said so; several of them are said once in the reports and by `devflow
+  doctor`, with the command to set; the session's `verified` settles one.
+  A Go project's exploit test carries the build tags its Makefile or CI
+  tests with.
 
 **What a host sees change**
 
@@ -648,6 +656,15 @@ HEAD. The details, and how to read the report: [security.md](security.md).
   family holds has a draft, `carried-<n>`. `attack_report::roots` reads the
   holes carried after the hypotheses: a place past the hypotheses is one
   carried.
+- 0.7.5 only adds, but for one internal shape: `sandbox::Ran` gains
+  `env_error`, and `attack` gains `ENV_ERROR`, `ENV_ERRORS_SAID`,
+  `env_failed`, `env_repeated` and `env_warning`; a run stopped by its
+  environment keeps `ran.env_error`; attack.json's `counts` and the
+  ledger's metrics gain `env_error` (the ledger `env_repeated` too), the
+  attack's answer and attack.json and attack-report.json `env_warning`, and
+  each tried hypothesis in the answer `env_error`. `detect::exploit_test_at`
+  gives a Go project's command `-v` and its `-tags`, its source where they
+  are said: the detected Go command changes.
 
 ## The engine as a library: 0.7.0
 

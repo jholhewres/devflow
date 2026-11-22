@@ -69,6 +69,13 @@ the same `base`, `head` and the attack's `run`. `devflow attack <range>
 --promote <hypothesis> --run <run>` copies one into the repository at its
 path once its fix lands; the answer's `next` says it.
 
+A hypothesis whose run says `env_error` failed on its environment or build
+(a build tag, a module, a service), not on its assertion: it shows nothing.
+Say so, with the `env_warning` when there is one: the person fixes
+`stages.attack.test`, or you run its exploit with the command fixed and
+send `verified`. Until it ran with the command fixed, never hand it back
+as confirmed or as refuted.
+
 The attacker also reads the project's threat model, `threat-model.md` in
 devflow's folder, and its overlay on the security persona,
 `reviewers/devflow-security.overlay.md`: the project's assets and boundaries,

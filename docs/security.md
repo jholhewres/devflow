@@ -738,7 +738,30 @@ end the report keeps. A name made from a template (`it.each` with `%s` or
 `$field`) is read with each placeholder standing for one case's words on
 one line. A green run whose runner says no test ran (`no tests to run`,
 `running 0 tests`, `No tests executed`) refutes nothing: its name or place
-matched no test, and it stays tried with why. Cargo and Go run the test
+matched no test, and it stays tried with why. A run whose environment or
+build failed shows nothing of the hole, red or green, even when its runner
+names the test (Go's `no such module: fts5` when the build tag that builds
+it in is missing): a build, compile or collection failure, a package or
+command missing, a setup that broke, a module, extension or library missing
+as it runs, a panic before the test was named, or a time out while it still
+fetched or built. A green run counts only what kept its test from running,
+or a missing module in a test that skipped: a fix that logs the error it
+now catches still passes. Such a run stays tried, `not_run` with
+`env_error` and the line that said so (redacted, kept in attack.json only),
+and a proof's side that ends so is an error. When one same error, its
+`file:line:` set aside, stops two or more exploits of a run, the reports
+say it once with what to change (`env_warning`; `counts.env_error` and the
+ledger count them), and `devflow doctor` points at the newest attack with
+the command detected from the project's Makefile or CI when it differs from
+the one set; an attacker's typo stops only its own exploit and warns of
+nothing. The session's `verified` settles such a hypothesis once it ran with
+the command fixed: the sandbox showed nothing. A Go project's exploit test
+runs `go test -v`, naming its test as it starts, with the build tags its
+own tests use: the `-tags` of a `go test` line of its Makefile, task runner
+or `.github/workflows`, a make variable read where the file sets it, a
+commented line not read; only when no line runs `go test` are a `go build`,
+`go vet` or `go run` line's tags taken. The attack's question proposes it
+so. Cargo and Go run the test
 the exploit names; jest, vitest, pytest, PHPUnit and Pest run the
 exploit's whole file, so green there is every test of that file passing.
 `auto` tries bwrap for real and falls back to docker: bwrap needs
