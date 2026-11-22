@@ -242,7 +242,7 @@ would resolve inside the checkout before it makes any folder of it.
 | Status | Means | Effect |
 |---|---|---|
 | `confirmed` | the exploit test failed as the hypothesis said, in the sandbox or in the session's recorded run | holds the item when its severity is in `block_on`, until proven; its test must then stay green |
-| `refuted` | the exploit ran and the hole is not there, or the attacker found the control that stops it | holds nothing; not tried again while the control's file is unchanged (`refuted_before`) |
+| `refuted` | the exploit ran and the hole is not there, or the attacker found the control that stops it | holds nothing; not tried again while no code in its path changed (`refuted_before`) |
 | `tried` | an exploit test is written but no sandbox ran it, with why | followed up: the session runs it and records it with `run` and `verified` |
 | `not_run` | the attacker could not try it here, with why (no target, a destructive step) | followed up, holds nothing |
 
@@ -261,14 +261,19 @@ denial of service, the attacker is asked to count what the code does (the
 steps it runs, the calls it makes, the size of what it builds, the memory it
 takes) or to compare the same work on a small and a large input, never an
 absolute limit in milliseconds, since wall-clock time changes with the
-machine and makes a flaky regression test. When only time can show it, the
+machine and makes a flaky regression test. The ask shows one: count how many
+times a scan's loop runs on 1,000 and on 2,000 copies of the input, and
+assert the second is at most about twice the first. When only time can show it, the
 exploit proves by `timing`: its attacker says so, or its code reads the
 clock (`Date.now()`, `performance.now()`, `time.perf_counter()`,
 `Instant::now()` and the like), whatever its attacker said. The sandbox then
 runs it three times, at HEAD and on each side of its proof, and it stands
 only when every run agrees; one whose runs disagree is not run, saying so.
-Its `verified` keeps how many ran and were red, and the report marks the
-proof `timing`, which is less sure than an assertion.
+Its `verified` keeps how many ran and were red, and the report and its
+draft mark the proof `timing`, which is less sure than an assertion. One an
+earlier run proved by timing is listed apart for the next attacker, which
+is asked to write it again by count; its count proof runs as its own, and
+once it confirms the hole it takes the timing proof in.
 
 A hypothesis's `severity` is how bad the hole would be were it there. A
 refuted one ends at `info`, and the attacker's severity is kept apart as
@@ -312,16 +317,18 @@ missed, and the run mode those numbers suggest.
 
 Each attack run writes its report beside `attack.json`: markdown
 (`attack-report.md`), JSON (`attack-report.json`) and SARIF 2.1.0
-(`attack-report.sarif`), and one issue draft per confirmed hypothesis under
-`drafts/`. No exploit's code is in any of them. `devflow attack <item>
+(`attack-report.sarif`), and issue drafts under `drafts/`: one per family,
+then one per confirmed hypothesis no family holds. No exploit's code is in any of them. `devflow attack <item>
 --report <run> --format md|json|sarif` prints one. devflow publishes none of
 them: they are the host's to show and to send where the person says.
 
 They are what a person shares, so they carry none of the attack's own
 words. Each holds only what devflow sets, each field in its own shape: the
 status, severity and class from their own words (`stored-xss` is `xss`,
-`denial-of-service` is `dos`, `tls` is `transport`; a class devflow does not
-name is `other`), the id, the file when the commit attacked has it (any
+`denial-of-service` is `dos`, `tls` is `transport`, `provenance`,
+`content-spoofing` and `origin-confusion` are `integrity`; a class devflow
+does not name keeps its own name when it is lowercase words joined by
+hyphens, `attack/<class>` in the SARIF, and any other is `other`), the id, the file when the commit attacked has it (any
 other the attack names, an exploit's own path included, shows as `<…>`),
 the line, the run,
 who ran its exploit and how it ended (confirmed or refuted by devflow's
@@ -338,17 +345,28 @@ What a class of hole lets an attacker do, and what shuts it, is said in
 devflow's words for that class (`info-disclosure` is one, said
 `information-disclosure`, `info-leak` or `user-enumeration` too), and only a
 confirmed hypothesis is said to be there: a refuted one says it was refuted,
-with nothing to fix, and one not confirmed says so.
+with nothing to fix, and one not confirmed says so. A class devflow does not
+name is said in the words of the class its attacker said it is nearest
+(`near`), else the report sends the reader to attack.json.
 
-Variants of one root are one family. Two or more hypotheses of one file and
-one family of class, one of them still open (confirmed or tried), are the
-same hole reached by other inputs: gaps in one blocklist, hidden text one
-extractor lets through. attack.json and attack-report.json list each family
-once (`families`: its id, class, file, variants and how many were
-confirmed) with the one fix devflow says for its class, each hypothesis
-names its `family`, and the markdown gives each one line under "Holes by
-root". The attacker is asked to name the change at the root in each
-variant's fix. A scanner finding keeps its tool's names
+Variants of one root are one family. Two or more **confirmed** hypotheses
+of one file and one family of class whose attacker named one cause for them
+are the same hole reached by other inputs: gaps in one blocklist, hidden
+text one extractor lets through. The attacker names, for each hypothesis,
+its `cause` from devflow's list (`hand-kept-blocklist`,
+`pattern-parsed-markup`, `super-linear-work`, `unverified-peer` and the
+like) and its `root`, the function, rule or list at fault by its name in
+the code; variants share both. One that names neither joins the only root
+of its file and class. A refuted, tried or not_run hypothesis is never a
+variant. attack.json and attack-report.json list each family once
+(`families`: its id, class, file, cause and confirmed variants) with its
+cause's fix in devflow's words ("build the blocked ranges from the IANA
+special-purpose address registries", "parse the markup with a real HTML
+parser"), else its class's, each hypothesis names its `family`, the
+markdown gives each one line under "Holes by root", and each family is one
+draft listing its variants, who confirmed each and its proof. The root's
+name is the attack's own word, so it groups variants and is shown nowhere.
+A scanner finding keeps its tool's names
 and the tool's own fix in plain words; a flow's fixes name only the
 repositories they touch.
 
@@ -618,7 +636,21 @@ again at HEAD from the run that kept it, at most twelve: red is confirmed again,
 green is refuted (the hole is shut), and one that cannot run stays tried
 with why. The attacker is told how each ended and covers the rest; the
 report counts them as `run_again`, each with where it came from under
-`again`, and keeps its exploit so the next attack runs it again too.
+`again`, with what it had taken in by then (`merged`), and keeps its exploit
+so the next attack runs it again too. The attacker names, by each one's id,
+the cause of those that have none (`causes`).
+What the newest earlier attack refuted, and what it carried as refuted, is
+read against the files whose code changed since its head: one stands while
+neither its file nor its control changed (one with no control named, only
+while nothing did), so an attack run again on the same range refutes
+nothing again. When that head cannot be read, the change's own files
+decide, by the control alone. Each is listed to the attacker, and in
+`refuted_before`, with the run and the id that refuted it; one the attacker
+names again (by `same_as`, by its title in that file, or refuted again at
+its place or behind its control) stays there marked `named_again` instead of
+being counted anew, and the report counts them as `named_again`. What that
+attack did not run is listed too, and one named again carries `again`, its
+`was` `not_run`.
 One hole several runs kept, each attacker naming it its own way (the same
 title of the same file, one class within five lines of one place, or one
 exploit), runs again once: from the run that confirmed it, else the newest.

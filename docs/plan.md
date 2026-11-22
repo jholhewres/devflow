@@ -495,6 +495,22 @@ HEAD. The details, and how to read the report: [security.md](security.md).
   attack's question and what only the person sets, a release range's
   `verified` and `prove`, the review's `attack: true` answer, and the attack
   stage in the setup.
+- 0.7.2, what the 0.7.1 validation found: a family holds only confirmed
+  hypotheses of one file, class and cause, the attacker naming each one's
+  `cause` from devflow's list and its `root` (and, by id, the cause of each
+  run again), and its fix is the cause's, in devflow's words; drafts are
+  one per family, then one per confirmed hypothesis no family holds, and a
+  proof by timing says in its draft that it is less sure; the ask shows a
+  denial of service proven by count, and a hole an earlier run proved only
+  by timing is asked again by count, the count proof taking it in once it
+  confirms; a refutation is read against the code changed since the attack
+  that refuted it, so a range attacked again refutes nothing again, and each
+  is listed with its run and id, one named again kept in `refuted_before`;
+  one an earlier attack did not run, named again, carries `again`; a
+  hypothesis run again keeps what it took in (`merged`); `provenance`,
+  `content-spoofing`, `origin-confusion` and their like are `integrity`, and
+  a class devflow does not name keeps its own name, said in the words of
+  the class its attacker says is nearest (`near`).
 
 **What a host sees change**
 
@@ -570,6 +586,17 @@ HEAD. The details, and how to read the report: [security.md](security.md).
   hypotheses `estimated_severity`, `proof_kind`, `timing` and `family`,
   with `merged` a list instead of a count; `models::attack_next` says
   whether a review sends its item to the attack.
+- 0.7.2 adds `git::files_changed_between`, the files whose code changed
+  between two commits; the rest is internal: `attack::still_refuted` takes
+  an `attack::Since` instead of the change's files, and
+  `attack::not_run_before` is new; `attack_report::CAUSES` and
+  `attack_report::cause_of` name the causes; a hypothesis may carry `cause`,
+  `root`, `near` and `same_as`; attack.json gains `named_again`, each
+  `refuted_before` entry `line`, `run`, `id` and `named_again`, and each
+  family `cause`; attack-report.json's hypotheses gain `cause`, and its
+  families `cause`, `impact` and `timing`, holding only confirmed variants;
+  the drafts are one per family (`f1`…), with `variants`, then one per
+  confirmed hypothesis no family holds.
 
 ## The engine as a library: 0.7.0
 

@@ -76,12 +76,17 @@ added after the persona's rules and never taking one away (`devflow persona
 show devflow-security` prints what it reads). Its update to the threat model
 comes back as a diff in the report, with the whole text beside it as
 `threat-model.proposed.md`, for the person to take or leave. A hypothesis an
-earlier attack refuted is not tried again while the file of the control that
-refuted it is unchanged. One an earlier attack left open (confirmed, or tried
-with an exploit kept), of this work or of a range this one's history holds,
-is run again at HEAD in the sandbox before the attacker, and the attacker is
-told how each ended so it covers the rest: a hole once shown is shown again
-whether or not this attacker finds it.
+earlier attack refuted is not tried again while no code in its path (its
+file, the file of the control that refuted it) changed since that attack's
+head: it stays in `refuted_before` with the run and the id that refuted it,
+and one the attacker names again is kept there, not counted anew. One an
+earlier attack did not run, named again, carries `again`. One an earlier
+attack left open (confirmed, or tried with an exploit kept), of this work or
+of a range this one's history holds, is run again at HEAD in the sandbox
+before the attacker, with what it had taken in (`merged`), and the attacker
+is told how each ended so it covers the rest: a hole once shown is shown
+again whether or not this attacker finds it. One proven only by `timing` is
+asked again as a proof by count.
 
 `stages.attack.regression` names payload classes (`devflow payloads list`)
 whose generic cases every attack is given to run again. A case the attacker
@@ -166,16 +171,18 @@ after the last change.
 ### 4. Hand back, then stop
 
 Each answer names the report written beside the run: `attack-report.md`,
-`attack-report.json`, `attack-report.sarif`, and one issue draft per
-confirmed hypothesis under `drafts/`. Secrets, tokens, e-mail addresses,
+`attack-report.json`, `attack-report.sarif`, and the issue drafts under
+`drafts/`: one per family, then one per confirmed hypothesis no family
+holds. Secrets, tokens, e-mail addresses,
 phone numbers and every string the exploits send are taken out of them, and
 no exploit's code is in them. devflow publishes none of it: where a draft
 goes (a tracker, a report, nowhere) is the person's to say.
 
 Reply with the verdict, each confirmed hypothesis with its test, and what is
-followed up. Variants of one root (one file, one class) are one family in the
-report, with one fix: hand them back as one hole, not one per input, and say
-their drafts are one issue. A proof marked `timing` was read from the clock
+followed up. Confirmed variants of one cause (one file and class, one function, rule
+or list) are one family in the report, with the cause's fix and one draft:
+hand them back as one hole, not one per input. A refuted or unconfirmed
+hypothesis is never one of them. A proof marked `timing` was read from the clock
 over several runs: say it is less sure. The next stage is the completion (`devflow-completion`). End the
 turn.
 
