@@ -802,8 +802,8 @@ fn a_refuted_hypothesis_keeps_its_attackers_estimate_apart() {
     assert_eq!(report["verdict"], "request_changes");
 }
 
-/// attack.json keeps the families of one root, and each hypothesis of one
-/// names it.
+/// attack.json keeps the families of one root, only confirmed variants in
+/// each, and each hypothesis of one names it.
 #[test]
 fn the_report_keeps_the_families_of_one_root() {
     let one = |id: &str, status: &str, line: u64| json!({ "id": id, "status": status, "severity": "low", "class": "ssrf", "file": "src/block.ts", "line": line });
@@ -814,9 +814,13 @@ fn the_report_keeps_the_families_of_one_root() {
     settled(&mut report, &[Severity::High]);
     assert_eq!(
         report["families"],
-        json!([{ "id": "f1", "class": "ssrf", "file": "src/block.ts", "variants": ["h1", "h2", "h3"], "confirmed": 2 }])
+        json!([{ "id": "f1", "class": "ssrf", "file": "src/block.ts", "cause": null,
+                 "variants": ["h1", "h2"], "confirmed": 2 }])
     );
-    assert_eq!(report["hypotheses"][2]["family"], "f1");
+    assert!(
+        report["hypotheses"][2].get("family").is_none(),
+        "a refuted one is no variant"
+    );
     assert!(report["hypotheses"][3].get("family").is_none());
     report["hypotheses"][1]["class"] = json!("dos");
     report["hypotheses"][2]["class"] = json!("authz");

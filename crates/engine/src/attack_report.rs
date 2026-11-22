@@ -1,10 +1,11 @@
 //! An attack's report for people and tools: markdown, JSON and SARIF 2.1.0,
-//! and one issue draft per confirmed hypothesis. They are what a person
-//! shares, so they carry none of the attack's own words: only the fields
-//! devflow sets (status, severity, class, a repository path, a line, the
-//! run, who confirmed it, the proof's commits and results) and devflow's own
-//! sentences for each class of hole. No payload, secret or exploit code can
-//! reach them. The attack's account stays in the run's `attack.json`, for
+//! and an issue draft per family of one root and per confirmed hypothesis
+//! no family holds. They are what a person shares, so they carry none of
+//! the attack's own words: only the fields devflow sets (status, severity,
+//! class, a repository path, a line, the run, who confirmed it, the proof's
+//! commits and results), a class devflow does not name by its plain name,
+//! and devflow's own sentences for each class of hole and each cause. No
+//! payload, secret or exploit code can reach them. The attack's account stays in the run's `attack.json`, for
 //! the person to read. devflow publishes none of this: the files are the
 //! host's to show and to send where the person says.
 
@@ -17,7 +18,8 @@ use serde_json::{json, Value};
 pub const MARKDOWN: &str = "attack-report.md";
 pub const JSON: &str = "attack-report.json";
 pub const SARIF: &str = "attack-report.sarif";
-/// The folder of the issue drafts, one per confirmed hypothesis.
+/// The folder of the issue drafts: one per family, and one per confirmed
+/// hypothesis no family holds.
 pub const DRAFTS: &str = "drafts";
 /// What stands for a field that came in a shape devflow does not set, and
 /// for each word of a scanner's text that is not plain.
@@ -285,6 +287,91 @@ pub fn on_one_line(one: &str, other: &str) -> bool {
     ON_ONE_LINE
         .iter()
         .any(|(a, b)| (*a == one && *b == other) || (*a == other && *b == one))
+}
+
+/// What is at fault in a hole, as devflow names it, each with the one
+/// change at the root that shuts every hole it causes, in devflow's words.
+/// The attacker names one per hypothesis (`cause`); a family's fix is the
+/// cause its confirmed variants share.
+pub const CAUSES: [(&str, &str); 15] = [
+    (
+        "hand-kept-blocklist",
+        "Build the blocked address ranges from the IANA special-purpose address registries for IPv4 and IPv6, and test each of their entries, instead of a list of private, loopback and link-local ranges kept by hand.",
+    ),
+    (
+        "check-then-connect",
+        "Resolve the name once, check every address it resolves to, and connect to the address checked, so nothing changes between the check and the connection.",
+    ),
+    (
+        "unchecked-redirect",
+        "Check each redirect's destination as the first request's is checked, and bound how many are followed.",
+    ),
+    (
+        "pattern-parsed-markup",
+        "Parse the markup with a real HTML parser and keep only what a browser renders, instead of matching patterns over the text.",
+    ),
+    (
+        "unescaped-output",
+        "Escape output for where it is written, with the template's own escaping, and never mark input as safe markup.",
+    ),
+    (
+        "text-built-code",
+        "Pass input as parameters or an argument list, never by building a query, a command or a template from text.",
+    ),
+    (
+        "super-linear-work",
+        "Replace the work whose cost grows faster than its input with one linear pass, a single cursor or a parser, and bound the input's size.",
+    ),
+    (
+        "unbounded-input",
+        "Bound what input may cost before the work starts: its size and depth, the steps and calls it sets off, and the memory it may take.",
+    ),
+    (
+        "unverified-peer",
+        "Verify the peer's certificate and name: turn the certificate check back on, and give the client the authority that signs the server's certificate.",
+    ),
+    (
+        "unverified-token",
+        "Verify every token's signature, issuer, audience and expiry on the server before trusting any of its claims.",
+    ),
+    (
+        "missing-ownership-check",
+        "Check on the server that the caller may act on the very record asked for, on every path to it.",
+    ),
+    (
+        "secret-in-reach",
+        "Move the secret to a store read at run time, out of the code, the environment others read, the logs and the responses, and rotate it.",
+    ),
+    (
+        "credentials-in-url",
+        "Refuse a URL that carries credentials, or strip them, before it is stored, logged or followed.",
+    ),
+    (
+        "unresolved-path",
+        "Resolve the path, links included, and check it stays under its root before opening it.",
+    ),
+    (
+        "origin-not-kept",
+        "Keep the final origin content came from after redirects, and store or show it under that origin only, or refuse a redirect to another one.",
+    ),
+];
+
+/// A cause as devflow names it ([`CAUSES`]), whatever its case or
+/// separators; `None` for any other.
+pub fn cause_of(said: &str) -> Option<&'static str> {
+    let said = said.trim().to_ascii_lowercase().replace(['_', ' '], "-");
+    CAUSES
+        .iter()
+        .map(|(name, _)| *name)
+        .find(|name| *name == said)
+}
+
+/// The fix devflow says for a cause it names.
+fn cause_fix(cause: &str) -> Option<&'static str> {
+    CAUSES
+        .iter()
+        .find(|(name, _)| *name == cause)
+        .map(|(_, fix)| *fix)
 }
 
 /// The family a hypothesis' class is told apart in: its name as devflow
@@ -696,7 +783,7 @@ fn shown(one: &Value, known: &Known) -> Value {
         "id": id_of(&one["id"]), "status": status,
         "severity": one_of(&one["severity"], &SEVERITIES),
         "estimated_severity": one_of(&one["estimated_severity"], &SEVERITIES),
-        "class": class,
+        "class": class, "cause": cause_of(one["cause"].as_str().unwrap_or_default()),
         "file": repo_path(&one["file"], known), "line": one["line"].as_u64(),
         "impact": impact_of(&class, said, one), "fix": fix_of(&class, said, one),
         "verified_by": one_of(&one["verified"]["by"], &["sandbox", "session"]),
@@ -762,79 +849,150 @@ fn rank(severity: &Value) -> usize {
         .unwrap_or(SEVERITIES.len())
 }
 
-/// The hypotheses of one root, each a list of their places in the report:
-/// two or more of one file and one family of class ([`family`]), one of
-/// them still open (confirmed, or tried). Inputs that slip past one check,
-/// one list or one parser are variants of one hole, and one fix at its
-/// root shuts them all. In the order the report first names each.
-pub fn roots(report: &Value) -> Vec<Vec<usize>> {
-    let list = report["hypotheses"].as_array().cloned().unwrap_or_default();
-    let key = |one: &Value| {
-        let file = one["file"]
-            .as_str()
-            .unwrap_or_default()
-            .trim()
-            .trim_start_matches("./")
-            .to_owned();
-        let class = one["class"].as_str().unwrap_or_default().trim().to_owned();
-        (!file.is_empty() && !class.is_empty()).then(|| (file, family(&class)))
-    };
-    let mut keys: Vec<(String, String)> = Vec::new();
-    let mut groups: Vec<Vec<usize>> = Vec::new();
-    for (at, one) in list.iter().enumerate() {
-        let Some(said) = key(one) else {
-            continue;
-        };
-        match keys.iter().position(|had| *had == said) {
-            Some(group) => groups[group].push(at),
-            None => {
-                keys.push(said);
-                groups.push(vec![at]);
-            }
-        }
+/// What one hypothesis says is at fault, compared: the cause devflow names
+/// ([`cause_of`]), else the function, rule or list its attacker named
+/// (`root`) as the code writes it, without `()` or quotes; `None` when it
+/// says neither.
+fn basis_of(one: &Value) -> Option<String> {
+    if let Some(cause) = cause_of(one["cause"].as_str().unwrap_or_default()) {
+        return Some(format!("cause:{cause}"));
     }
-    let open = |at: &usize| matches!(list[*at]["status"].as_str(), Some("confirmed" | "tried"));
-    groups
-        .into_iter()
-        .filter(|group| group.len() >= 2 && group.iter().any(open))
-        .collect()
+    let root = one["root"]
+        .as_str()
+        .unwrap_or_default()
+        .trim()
+        .trim_matches(|ch: char| matches!(ch, '`' | '"' | '\''))
+        .trim_end_matches("()")
+        .to_ascii_lowercase();
+    (!root.is_empty()).then(|| format!("root:{root}"))
 }
 
-/// Each family of [`roots`] as a report shows it: its id, class and file,
-/// its variants, how many were confirmed, the worst severity among the open
-/// ones, and the one fix devflow says for its class.
+/// A hypothesis' file as families compare it: no `./`.
+fn family_file(one: &Value) -> String {
+    one["file"]
+        .as_str()
+        .unwrap_or_default()
+        .trim()
+        .trim_start_matches("./")
+        .to_owned()
+}
+
+/// The hypotheses of one root, each a list of their places in the report:
+/// two or more **confirmed** of one file and one family of class
+/// ([`family`]) whose attacker named one cause for them, the same function,
+/// rule or list ([`basis_of`]). One that names none joins the only root of
+/// its file and family, else stands with the others that name none.
+/// Inputs that slip past one check, one list or one parser are variants of
+/// one hole, and one fix at its root shuts them all; a refuted, tried or
+/// not_run one is no variant. In the order the report first names each.
+pub fn roots(report: &Value) -> Vec<Vec<usize>> {
+    let list = report["hypotheses"].as_array().cloned().unwrap_or_default();
+    // Each group: its file, family of class, what is at fault, and members.
+    let mut groups: Vec<(String, String, Option<String>, Vec<usize>)> = Vec::new();
+    let mut loose: Vec<(usize, String, String)> = Vec::new();
+    for (at, one) in list.iter().enumerate() {
+        let file = family_file(one);
+        let class = one["class"].as_str().unwrap_or_default().trim();
+        if one["status"] != "confirmed" || file.is_empty() || class.is_empty() {
+            continue;
+        }
+        let family = family(class);
+        let Some(basis) = basis_of(one) else {
+            loose.push((at, file, family));
+            continue;
+        };
+        match groups
+            .iter_mut()
+            .find(|(f, c, b, _)| *f == file && *c == family && b.as_deref() == Some(&basis))
+        {
+            Some(group) => group.3.push(at),
+            None => groups.push((file, family, Some(basis), vec![at])),
+        }
+    }
+    for (at, file, family) in loose {
+        let based: Vec<usize> = (0..groups.len())
+            .filter(|at| {
+                let (f, c, b, _) = &groups[*at];
+                *f == file && *c == family && b.is_some()
+            })
+            .collect();
+        let none = groups
+            .iter()
+            .position(|(f, c, b, _)| *f == file && *c == family && b.is_none());
+        match (based.as_slice(), none) {
+            ([only], _) => groups[*only].3.push(at),
+            (_, Some(group)) => groups[group].3.push(at),
+            _ => groups.push((file, family, None, vec![at])),
+        }
+    }
+    let mut roots: Vec<Vec<usize>> = groups
+        .into_iter()
+        .map(|(_, _, _, mut members)| {
+            members.sort_unstable();
+            members
+        })
+        .filter(|members| members.len() >= 2)
+        .collect();
+    roots.sort_by_key(|members| members[0]);
+    roots
+}
+
+/// The cause the most of `members` name, devflow's name for it; the first
+/// named on a tie. `None` when none names one devflow knows.
+fn shared_cause(members: &[&Value]) -> Option<&'static str> {
+    let named: Vec<&'static str> = members
+        .iter()
+        .filter_map(|one| cause_of(one["cause"].as_str().unwrap_or_default()))
+        .collect();
+    let times = |cause: &str| named.iter().filter(|other| **other == cause).count();
+    let most = named.iter().map(|cause| times(cause)).max()?;
+    named.iter().copied().find(|cause| times(cause) == most)
+}
+
+/// The one fix a family's variants share, in devflow's words: their cause's
+/// ([`CAUSES`]), else their class's, else where the attack's are.
+fn family_fix(class: &str, first: &Value, cause: Option<&str>) -> &'static str {
+    if let Some(fix) = cause.and_then(cause_fix) {
+        return fix;
+    }
+    match worded_as(class, first) {
+        "other" => "The attack's proposed fixes are in the run's attack.json: one change at the root should shut every variant.",
+        worded => said_of(worded).1,
+    }
+}
+
+/// Each family of [`roots`] as a report shows it: its id, class, file and
+/// cause, its confirmed variants, the worst severity among them, what an
+/// attacker gets, the one fix (its cause's, [`family_fix`]), and whether
+/// one of them was proven only by timing.
 fn families(report: &Value, known: &Known) -> Vec<Value> {
     let list = report["hypotheses"].as_array().cloned().unwrap_or_default();
     roots(report)
         .iter()
         .enumerate()
         .map(|(at, members)| {
-            let first = &list[members[0]];
+            let variants: Vec<&Value> = members.iter().map(|member| &list[*member]).collect();
+            let first = variants[0];
             let class = class_of(&first["class"]);
-            let open: Vec<&Value> = members
-                .iter()
-                .map(|member| &list[*member])
-                .filter(|one| matches!(one["status"].as_str(), Some("confirmed" | "tried")))
-                .collect();
-            let confirmed = open.iter().filter(|one| one["status"] == "confirmed").count();
-            let severity = open
+            let cause = shared_cause(&variants);
+            let severity = variants
                 .iter()
                 .map(|one| one_of(&one["severity"], &SEVERITIES))
                 .min_by_key(rank)
                 .unwrap_or(Value::Null);
             json!({
-                "id": format!("f{}", at + 1), "class": class,
+                "id": format!("f{}", at + 1), "class": class, "cause": cause,
                 "file": repo_path(&first["file"], known),
-                "variants": members.iter().map(|member| json!({
-                    "id": id_of(&list[*member]["id"]),
-                    "status": one_of(&list[*member]["status"], &STATUSES),
-                    "line": list[*member]["line"].as_u64(),
+                "variants": variants.iter().map(|one| json!({
+                    "id": id_of(&one["id"]),
+                    "status": one_of(&one["status"], &STATUSES),
+                    "severity": one_of(&one["severity"], &SEVERITIES),
+                    "line": one["line"].as_u64(),
                 })).collect::<Vec<_>>(),
-                "confirmed": confirmed, "severity": severity,
-                "fix": match worded_as(&class, first) {
-                    "other" => "The attack's proposed fixes are in the run's attack.json: one change at the root should shut every variant.",
-                    worded => said_of(worded).1,
-                },
+                "confirmed": variants.len(), "severity": severity,
+                "impact": impact_of(&class, "confirmed", first),
+                "fix": family_fix(&class, first, cause),
+                "timing": variants.iter().any(|one| proof_kind(one) == "timing"),
             })
         })
         .collect()
@@ -975,8 +1133,8 @@ fn merged_lines(shown: &[Value]) -> String {
         .collect()
 }
 
-/// Each family as one line: its class and file, how many of its variants
-/// were confirmed, each variant, and the one fix.
+/// Each family as one line: its class and file, its confirmed variants,
+/// the cause they share when the attack named one, and the one fix.
 fn family_lines(families: &[Value]) -> String {
     families
         .iter()
@@ -985,14 +1143,16 @@ fn family_lines(families: &[Value]) -> String {
                 .as_array()
                 .into_iter()
                 .flatten()
-                .map(|one| format!("{} {}", cell(&one["id"]), cell(&one["status"])))
+                .map(|one| cell(&one["id"]))
                 .collect();
+            let cause = family["cause"]
+                .as_str()
+                .map_or_else(String::new, |cause| format!(", cause `{cause}`"));
             format!(
-                "- {} {} in `{}`: {} of {} confirmed ({}). One fix: {}\n",
+                "- {} {} in `{}`: {} confirmed variants ({}){cause}. One fix: {}\n",
                 cell(&family["id"]),
                 cell(&family["class"]),
                 cell(&family["file"]),
-                family["confirmed"],
                 variants.len(),
                 variants.join(", "),
                 cell(&family["fix"])
@@ -1122,7 +1282,7 @@ pub fn markdown(report: &Value, known: &Known) -> String {
     }
     let families = families(report, known);
     if !families.is_empty() {
-        out.push_str("\n## Holes by root\n\nVariants of one file and one class are one hole: one fix at its root shuts them all.\n\n");
+        out.push_str("\n## Holes by root\n\nConfirmed variants of one cause (one function, rule or list) are one hole: one fix at its root shuts them all. A refuted or unconfirmed hypothesis is no variant.\n\n");
         out.push_str(&family_lines(&families));
     }
     let merged = merged_lines(&shown);
@@ -1188,38 +1348,136 @@ pub fn sarif(report: &Value, known: &Known) -> Value {
     })
 }
 
-/// One issue draft per confirmed hypothesis: its class, severity, place,
-/// impact, fix and run, all in devflow's words.
-pub fn drafts(report: &Value, known: &Known) -> Vec<Value> {
-    hypotheses(report, known)
-        .into_iter()
-        .filter(|one| one["status"] == "confirmed")
+/// What every draft ends with: what it carries, and what it leaves to the
+/// person.
+const BEFORE_POSTING: &str = "## Before posting\nThis draft carries none of the attack's own words, so no payload or secret goes with it. The attack's account is in the run's attack.json: add what the issue needs in your own words.\n";
+
+/// What a draft says of the hypotheses in it proven only by timing: how
+/// many runs agreed, and that such a proof is trusted less. Nothing when
+/// none was.
+fn timing_caveat(ones: &[&Value]) -> String {
+    let timed: Vec<String> = ones
+        .iter()
+        .filter(|one| one["proof_kind"] == "timing")
         .map(|one| {
-            let title = format!(
-                "[security] {} in {}:{}",
-                text(&one, "class"),
-                cell(&one["file"]),
-                one["line"]
-            );
-            let body = format!(
-                "**Severity:** {}\n**Where:** `{}:{}`\n**Class:** {}\n**Found by:** devflow's attack, run {} of {}\n**Confirmed by:** {}\n**Proof:** {}\n\n## Impact\n{}\n\n## Fix\n{}\n\n## Before posting\nThis draft carries none of the attack's own words, so no payload or secret goes with it. The attack's account is in the run's attack.json: add what the issue needs in your own words.\n",
-                cell(&one["severity"]),
-                cell(&one["file"]),
-                one["line"],
-                text(&one, "class"),
-                text(report, "run"),
-                text(report, "item"),
-                match text(&one, "verified_by") {
-                    "sandbox" => "devflow's sandbox, running its exploit test",
-                    _ => "the session's run of its exploit test",
-                },
-                proof_said(&one),
-                text(&one, "impact"),
-                text(&one, "fix"),
-            );
-            json!({ "id": one["id"], "title": title, "severity": one["severity"], "body": body })
+            let runs = one["timing"]["runs"]
+                .as_u64()
+                .map_or_else(String::new, |runs| {
+                    let red = one["timing"]["red"].as_u64().unwrap_or_default();
+                    format!(", red in {red} of {runs} runs")
+                });
+            format!("{}{runs}", cell(&one["id"]))
         })
-        .collect()
+        .collect();
+    if timed.is_empty() {
+        return String::new();
+    }
+    format!(
+        "\n## Confidence\nProven by timing only, less sure: {}. A proof by time is read over several runs and trusted less than one that counts what the code does, since the machine's load moves it: confirm it by count before posting.\n",
+        timed.join("; ")
+    )
+}
+
+/// Who confirmed a hypothesis, as a draft says it.
+fn confirmed_by(one: &Value) -> &'static str {
+    match text(one, "verified_by") {
+        "sandbox" => "devflow's sandbox, running its exploit test",
+        _ => "the session's run of its exploit test",
+    }
+}
+
+/// A family's draft: one hole, its confirmed variants each with who
+/// confirmed it and its proof, and the one fix at its root.
+fn family_draft(report: &Value, family: &Value, variants: &[&Value]) -> Value {
+    let lines: Vec<String> = variants.iter().map(|one| one["line"].to_string()).collect();
+    let each: String = variants
+        .iter()
+        .map(|one| {
+            format!(
+                "- {} at line {}, {}: {}; {}\n",
+                cell(&one["id"]),
+                one["line"],
+                cell(&one["severity"]),
+                ran_by(one),
+                proof_said(one)
+            )
+        })
+        .collect();
+    let cause = family["cause"]
+        .as_str()
+        .map_or_else(String::new, |cause| format!("**Cause:** `{cause}`\n"));
+    let title = format!(
+        "[security] {} in {}: {} variants of one hole",
+        text(family, "class"),
+        cell(&family["file"]),
+        variants.len()
+    );
+    let body = format!(
+        "**Severity:** {}\n**Where:** `{}`, lines {}\n**Class:** {}\n{cause}**Found by:** devflow's attack, run {} of {}\n\n## Variants\nOne hole, confirmed {} ways: one change at its root shuts them all.\n{each}\n## Impact\n{}\n\n## Fix\n{}\n{}\n{BEFORE_POSTING}",
+        cell(&family["severity"]),
+        cell(&family["file"]),
+        lines.join(", "),
+        text(family, "class"),
+        text(report, "run"),
+        text(report, "item"),
+        variants.len(),
+        text(family, "impact"),
+        text(family, "fix"),
+        timing_caveat(variants),
+    );
+    json!({ "id": family["id"], "title": title, "severity": family["severity"], "body": body,
+            "variants": variants.iter().map(|one| one["id"].clone()).collect::<Vec<_>>() })
+}
+
+/// A draft of a confirmed hypothesis no family holds: its class, severity,
+/// place, impact, fix and run.
+fn one_draft(report: &Value, one: &Value) -> Value {
+    let title = format!(
+        "[security] {} in {}:{}",
+        text(one, "class"),
+        cell(&one["file"]),
+        one["line"]
+    );
+    let body = format!(
+        "**Severity:** {}\n**Where:** `{}:{}`\n**Class:** {}\n**Found by:** devflow's attack, run {} of {}\n**Confirmed by:** {}\n**Proof:** {}\n\n## Impact\n{}\n\n## Fix\n{}\n{}\n{BEFORE_POSTING}",
+        cell(&one["severity"]),
+        cell(&one["file"]),
+        one["line"],
+        text(one, "class"),
+        text(report, "run"),
+        text(report, "item"),
+        confirmed_by(one),
+        proof_said(one),
+        text(one, "impact"),
+        text(one, "fix"),
+        timing_caveat(&[one]),
+    );
+    json!({ "id": one["id"], "title": title, "severity": one["severity"], "body": body })
+}
+
+/// The issue drafts, all in devflow's words: one per family, with its
+/// variants and the one fix at its root, then one per confirmed hypothesis
+/// no family holds.
+pub fn drafts(report: &Value, known: &Known) -> Vec<Value> {
+    let shown = hypotheses(report, known);
+    let mut drafts: Vec<Value> = roots(report)
+        .iter()
+        .zip(families(report, known))
+        .map(|(members, family)| {
+            let variants: Vec<&Value> = members
+                .iter()
+                .filter_map(|member| shown.get(*member))
+                .collect();
+            family_draft(report, &family, &variants)
+        })
+        .collect();
+    drafts.extend(
+        shown
+            .iter()
+            .filter(|one| one["status"] == "confirmed" && one["family"].is_null())
+            .map(|one| one_draft(report, one)),
+    );
+    drafts
 }
 
 /// The confirmed hypotheses whose severity is in `block_on`, as [`shown`]:

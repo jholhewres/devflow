@@ -133,9 +133,27 @@ impl Project {
         yaml: &str,
         hypotheses: Value,
     ) -> (Value, String) {
+        self.attack_answered(
+            card,
+            base,
+            head,
+            yaml,
+            json!({ "version": 1, "hypotheses": hypotheses }),
+        )
+    }
+
+    /// [`Project::attack`], its attacker answering `answer` whole.
+    fn attack_answered(
+        &self,
+        card: &str,
+        base: &str,
+        head: &str,
+        yaml: &str,
+        answer: Value,
+    ) -> (Value, String) {
         let bin = self.root.join(format!("bin-{card}"));
         std::fs::create_dir_all(&bin).expect("bin");
-        let claude = fake_claude(&bin, &json!({ "version": 1, "hypotheses": hypotheses }));
+        let claude = fake_claude(&bin, &answer);
         let reach =
             move |_: config::Agent| -> Result<String, String> { Ok(claude.display().to_string()) };
         let redact = |text: &str| text.to_owned();
@@ -574,4 +592,44 @@ fn a_hole_one_run_names_crypto_and_another_tls_is_run_again_once() {
     assert_eq!(merged["run"], tls.as_str(), "{shown:#}");
     let md = devflow_engine::attack_report::markdown(&report, &Default::default());
     assert!(md.contains(&format!("took in 1: h1 of run {tls}")), "{md}");
+}
+
+/// The attacker names what is at fault in each hypothesis run again, by
+/// the id it was shown; a cause devflow does not name, or an id it never
+/// showed, is dropped. A cause an earlier run kept comes back with it.
+#[test]
+fn the_attacker_names_the_cause_of_what_ran_again_and_it_is_kept() {
+    let project = project();
+    let card = "card_1";
+    let mut named = confirmed_before();
+    named["title"] = json!("a cookie of another user is accepted");
+    named["line"] = json!(40);
+    named["cause"] = json!("unverified-token");
+    named["exploit"]["test"] = json!("other user");
+    project.earlier(
+        card,
+        &project.first,
+        &[(confirmed_before(), JEST_RED), (named, "exit 1\n")],
+    );
+    let yaml = "version: 1\nstages:\n  attack: { run: sensitive, test: 'sh \"$DEVFLOW_EXPLOIT\"', sandbox: off }\n";
+    let answer = json!({ "version": 1, "hypotheses": [],
+        "causes": { "again-1": "Unverified Token", "again-2": "made-up", "again-9": "unbounded-input" } });
+    let (report, prompt) =
+        project.attack_answered(card, &project.first, &project.second, yaml, answer);
+    assert!(prompt.contains("\"id\":\"again-1\""), "{prompt}");
+    assert!(
+        prompt.contains("Name in `causes` the cause of each"),
+        "{prompt}"
+    );
+    let causes: Vec<&str> = report["hypotheses"]
+        .as_array()
+        .expect("hypotheses")
+        .iter()
+        .map(|one| one["cause"].as_str().unwrap_or("-"))
+        .collect();
+    assert_eq!(
+        causes,
+        ["unverified-token", "unverified-token"],
+        "{report:#}"
+    );
 }

@@ -322,10 +322,13 @@ fn a_class_never_seen_keeps_its_name_and_the_words_nearest_it() {
     }
 }
 
-/// The attacker is told every class devflow names.
+/// The attacker is told every class and every cause devflow names.
 #[test]
-fn the_attacker_is_given_every_class_devflow_names() {
+fn the_attacker_is_given_every_class_and_cause_devflow_names() {
     for (name, _, _) in CLASSES.iter().filter(|(name, _, _)| *name != "other") {
+        assert!(crate::attack::ASK.contains(name), "{name}");
+    }
+    for (name, _) in CAUSES {
         assert!(crate::attack::ASK.contains(name), "{name}");
     }
 }
@@ -777,17 +780,17 @@ fn rooted() -> Value {
     })
 }
 
-/// Variants of one root are one family: one file and one family of class,
-/// two or more, one still open. The JSON lists each family once with its
-/// variants, how many were confirmed and one fix; the markdown gives each
-/// one line; each hypothesis names its family.
+/// Variants of one root are one family: two or more confirmed of one file
+/// and one family of class, a refuted, tried or not_run one left out. The
+/// JSON lists each family once with its variants, how many and one fix;
+/// the markdown gives each one line; each hypothesis names its family.
 #[test]
 fn variants_of_one_root_are_one_family_with_one_fix() {
     let report = rooted();
     assert_eq!(
         roots(&report),
-        [vec![0, 1, 9, 11], vec![2, 3, 8, 10]],
-        "two roots; the redos and dos of one file stand apart, and two refuted alone make none"
+        [vec![0, 1, 9, 11], vec![2, 8]],
+        "two roots; the redos and dos of one file stand apart, and refuted, tried or not_run make none"
     );
     let known = Known::of(&report);
     let shown = json_of(&report, &known);
@@ -798,8 +801,8 @@ fn variants_of_one_root_are_one_family_with_one_fix() {
     assert_eq!(families[0]["confirmed"], 4);
     assert_eq!(families[1]["class"], "ssrf");
     assert_eq!(families[1]["confirmed"], 2);
-    assert_eq!(families[1]["variants"].as_array().map(Vec::len), Some(4));
-    assert_eq!(families[1]["fix"], said_of("ssrf").1);
+    assert_eq!(families[1]["variants"].as_array().map(Vec::len), Some(2));
+    assert_eq!(families[1]["fix"], said_of("ssrf").1, "no cause named");
     let named: Vec<&str> = shown["hypotheses"]
         .as_array()
         .expect("hypotheses")
@@ -808,12 +811,14 @@ fn variants_of_one_root_are_one_family_with_one_fix() {
         .collect();
     assert_eq!(
         named,
-        ["f1", "f1", "f2", "f2", "-", "-", "-", "-", "f2", "f1", "f2", "f1"]
+        ["f1", "f1", "f2", "-", "-", "-", "-", "-", "f2", "f1", "-", "f1"]
     );
     let md = markdown(&report, &known);
     assert!(md.contains("## Holes by root"), "{md}");
     assert!(
-        md.contains("- f2 ssrf in `src/net/blocklist.ts`: 2 of 4 confirmed (h3 confirmed, h4 refuted, h9 confirmed, h11 tried). One fix: "),
+        md.contains(
+            "- f2 ssrf in `src/net/blocklist.ts`: 2 confirmed variants (h3, h9). One fix: "
+        ),
         "{md}"
     );
     let section = md.split("## Holes by root").nth(1).expect("section");
@@ -828,6 +833,108 @@ fn variants_of_one_root_are_one_family_with_one_fix() {
     let text = shown.to_string();
     for leak in LEAKS {
         assert!(!text.contains(leak), "{leak} in {text}");
+    }
+}
+
+/// What the attack says is at fault decides the family: variants of one
+/// cause, or of one function, rule or list, are one hole and its fix is the
+/// cause's, in devflow's words; another cause in the same file is another
+/// family. One that names none joins the only root of its file and class.
+#[test]
+fn a_family_is_one_cause_with_its_own_fix() {
+    let mut report = rooted();
+    let list = report["hypotheses"].as_array_mut().expect("list");
+    for at in [0, 1, 9] {
+        list[at]["cause"] = json!("pattern-parsed-markup");
+    }
+    // h12 names none: it joins the only root of its file and class.
+    list[2]["cause"] = json!("Hand Kept Blocklist");
+    list[8]["root"] = json!("`isBlocked()`");
+    list[3]["status"] = json!("confirmed");
+    list[3]["root"] = json!("isblocked");
+    let known = Known::of(&report);
+    let families = json_of(&report, &known)["families"].clone();
+    assert_eq!(
+        roots(&report),
+        [vec![0, 1, 9, 11], vec![3, 8]],
+        "{families:#}"
+    );
+    assert_eq!(families[0]["cause"], "pattern-parsed-markup");
+    assert_eq!(
+        families[0]["fix"],
+        cause_fix("pattern-parsed-markup").expect("fix")
+    );
+    assert!(families[0]["fix"]
+        .as_str()
+        .expect("fix")
+        .contains("real HTML parser"));
+    assert_eq!(families[1]["cause"], Value::Null, "by the root they name");
+    let md = markdown(&report, &known);
+    assert!(
+        md.contains("- f1 prompt-injection in `src/html/extract.ts`: 4 confirmed variants (h1, h2, h10, h12), cause `pattern-parsed-markup`. One fix: Parse the markup with a real HTML parser"),
+        "{md}"
+    );
+    // The blocklist's own cause, on one hypothesis, is a hole of its own.
+    report["hypotheses"][8]["cause"] = json!("hand-kept-blocklist");
+    report["hypotheses"][8]["root"] = Value::Null;
+    report["hypotheses"][3]["status"] = json!("refuted");
+    let families = json_of(&report, &Known::of(&report))["families"].clone();
+    assert_eq!(families[1]["cause"], "hand-kept-blocklist");
+    assert!(families[1]["fix"]
+        .as_str()
+        .expect("fix")
+        .contains("IANA special-purpose address registries"));
+    assert_eq!(cause_of("made-up"), None);
+}
+
+/// One draft per family, with each variant, who confirmed it and its proof,
+/// and the one fix; one per confirmed hypothesis no family holds. A proof
+/// by timing says in its draft that it is trusted less.
+#[test]
+fn one_draft_per_family_and_per_hypothesis_no_family_holds() {
+    let mut report = rooted();
+    for one in report["hypotheses"].as_array_mut().expect("list") {
+        one["verified"] = json!({ "by": "sandbox" });
+        if one["class"]
+            .as_str()
+            .is_some_and(|class| class.contains("prompt"))
+        {
+            one["cause"] = json!("pattern-parsed-markup");
+        }
+    }
+    report["hypotheses"][4]["exploit"] = json!({ "timing": true });
+    report["hypotheses"][4]["verified"]["timing"] = json!({ "runs": 3, "red": 3 });
+    let known = Known::of(&report);
+    let drafts = drafts(&report, &known);
+    let ids: Vec<&str> = drafts.iter().filter_map(|one| one["id"].as_str()).collect();
+    assert_eq!(ids, ["f1", "f2", "h5", "h6"], "{drafts:#?}");
+    assert_eq!(
+        drafts[0]["title"],
+        "[security] prompt-injection in src/html/extract.ts: 4 variants of one hole"
+    );
+    let body = drafts[0]["body"].as_str().expect("body");
+    for said in [
+        "**Where:** `src/html/extract.ts`, lines 133, 10, 122, 90",
+        "**Cause:** `pattern-parsed-markup`",
+        "- h1 at line 133, low: confirmed by devflow's sandbox; ",
+        "- h12 at line 90, low:",
+        "## Fix\nParse the markup with a real HTML parser",
+        "## Before posting",
+    ] {
+        assert!(body.contains(said), "{said} missing: {body}");
+    }
+    assert!(!body.contains("## Confidence"), "{body}");
+    let redos = drafts[2]["body"].as_str().expect("body");
+    assert!(
+        redos.contains("## Confidence\nProven by timing only, less sure: h5, red in 3 of 3 runs."),
+        "{redos}"
+    );
+    let mut written = Vec::new();
+    for draft in &drafts {
+        written.push(format!("{}\n{}", draft["title"], draft["body"]));
+    }
+    for leak in LEAKS {
+        assert!(!written.concat().contains(leak), "{leak}");
     }
 }
 
