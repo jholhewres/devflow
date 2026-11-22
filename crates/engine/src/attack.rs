@@ -1900,14 +1900,17 @@ fn estimates_apart(report: &mut Value) {
 
 /// The report's families: the hypotheses of one root
 /// ([`crate::attack_report::roots`]), each with its variants' ids, and each
-/// hypothesis of one with its family's id.
+/// hypothesis of one with its family's id. A confirmed hole carried is a
+/// variant still open, named `carried-N` by its place among those carried,
+/// and says its family too.
 fn rooted(report: &mut Value) {
     let roots = crate::attack_report::roots(report);
-    let list = report["hypotheses"].as_array_mut();
-    let Some(list) = list else {
+    let mut carried = report["carried"].as_array().cloned().unwrap_or_default();
+    let Some(list) = report["hypotheses"].as_array_mut() else {
         return;
     };
-    for one in list.iter_mut() {
+    let own = list.len();
+    for one in list.iter_mut().chain(carried.iter_mut()) {
         if let Some(fields) = one.as_object_mut() {
             fields.remove("family");
         }
@@ -1915,20 +1918,35 @@ fn rooted(report: &mut Value) {
     let mut families = Vec::new();
     for (at, members) in roots.iter().enumerate() {
         let id = format!("f{}", at + 1);
-        let first = &list[members[0]];
+        let hole = |member: usize| match member.checked_sub(own) {
+            None => &list[member],
+            Some(carried_at) => &carried[carried_at],
+        };
+        let first = hole(members[0]);
         let cause = members
             .iter()
-            .find_map(|member| list[*member]["cause"].as_str())
+            .find_map(|member| hole(*member)["cause"].as_str())
             .map(str::to_owned);
+        let named = |member: usize| match member.checked_sub(own) {
+            None => list[member]["id"].clone(),
+            Some(carried_at) => json!(format!("carried-{}", carried_at + 1)),
+        };
         families.push(json!({
             "id": id, "class": crate::attack_report::family(&text(first, "class")),
             "file": first["file"], "cause": cause,
-            "variants": members.iter().map(|member| list[*member]["id"].clone()).collect::<Vec<_>>(),
-            "confirmed": members.iter().filter(|member| list[**member]["status"] == "confirmed").count(),
+            "variants": members.iter().map(|member| named(*member)).collect::<Vec<_>>(),
+            "confirmed": members.iter().filter(|member| **member < own && list[**member]["status"] == "confirmed").count(),
+            "carried": members.iter().filter(|member| **member >= own).count(),
         }));
         for member in members {
-            list[*member]["family"] = json!(id);
+            match member.checked_sub(own) {
+                None => list[*member]["family"] = json!(id),
+                Some(carried_at) => carried[carried_at]["family"] = json!(id),
+            }
         }
+    }
+    if report["carried"].is_array() {
+        report["carried"] = json!(carried);
     }
     report["families"] = json!(families);
 }
@@ -2319,24 +2337,36 @@ fn scanner_answered(answer: &Value) -> Vec<Value> {
 
 /// Each scanner finding with the attacker's word on it: reachable, with its
 /// call path and fix; unreachable; or `null` when it said nothing.
-/// The paths hypotheses and scanner findings name that are files of the
-/// commit attacked, which a report shows as they are: what the attack wrote
-/// into the checkout since, an exploit's own path above all, is not one.
-fn in_repo(root: &Path, head: &str, hypotheses: &[Value], scanner: &[Value]) -> Vec<String> {
+/// The paths hypotheses, the holes carried and scanner findings name that
+/// are files of the commit attacked, which a report shows as they are: what
+/// the attack wrote into the checkout since, an exploit's own path above
+/// all, is not one.
+fn in_repo(
+    root: &Path,
+    head: &str,
+    hypotheses: &[Value],
+    carried: &[Value],
+    scanner: &[Value],
+) -> Vec<String> {
     let exploits: Vec<&str> = hypotheses
         .iter()
+        .chain(carried)
         .filter_map(|one| one["exploit"]["path"].as_str())
         .collect();
-    let mut found: Vec<String> = hypotheses
+    let mut named: Vec<&str> = hypotheses
         .iter()
+        .chain(carried)
         .chain(scanner)
         .filter_map(|one| one["file"].as_str())
-        .filter(|file| !exploits.contains(file) && crate::git::has_file_at(root, head, file))
-        .map(str::to_owned)
+        .filter(|file| !exploits.contains(file))
         .collect();
-    found.sort();
-    found.dedup();
-    found
+    named.sort_unstable();
+    named.dedup();
+    named
+        .into_iter()
+        .filter(|file| crate::git::has_file_at(root, head, file))
+        .map(str::to_owned)
+        .collect()
 }
 
 fn scanner_reached(given: &[Value], said: &[Value]) -> Vec<Value> {
@@ -2939,7 +2969,7 @@ pub fn attacked(given: &Given) -> Result<Done, String> {
         "proposed_cases": answers.cases,
         "flow": given.flow.map(|flowed| json!({ "name": flowed.name, "repos": flowed.repos })),
         "scanner": scanner_reached(&scanner, &answers.scanner_said),
-        "in_repo": in_repo(given.root, given.git.head, &hypotheses, &scanner),
+        "in_repo": in_repo(given.root, given.git.head, &hypotheses, &carried, &scanner),
         "scanner_left_out": scanner_left_out(given.evidence),
         "dropped_cases": answers.dropped_cases,
         "threat_model": threat,

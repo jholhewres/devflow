@@ -1015,7 +1015,7 @@ fn the_report_keeps_the_families_of_one_root() {
     assert_eq!(
         report["families"],
         json!([{ "id": "f1", "class": "ssrf", "file": "src/block.ts", "cause": null,
-                 "variants": ["h1", "h2"], "confirmed": 2 }])
+                 "variants": ["h1", "h2"], "confirmed": 2, "carried": 0 }])
     );
     assert!(
         report["hypotheses"][2].get("family").is_none(),

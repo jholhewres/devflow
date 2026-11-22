@@ -1531,3 +1531,115 @@ fn a_variant_shown_shut_does_not_shut_one_it_took_in_at_its_place() {
     assert_eq!(report["hypotheses"][0]["line"], 531, "{report:#}");
     assert_eq!(report["hypotheses"][0]["exploit"]["test"], "tag");
 }
+
+/// Fourteen holes an earlier run confirmed, past the cap of twelve: the two
+/// carried, in a file no hypothesis of this run names, keep their file and
+/// line in every report, are in the SARIF said carried, stay one family of
+/// their root and keep a draft. A class said otherwise is shown beside
+/// devflow's name in attack-report.json.
+#[test]
+fn two_holes_carried_past_the_cap_keep_their_place_draft_sarif_and_family() {
+    let project = project();
+    let card = "card_1";
+    const POOL: &str = "src/db/pool.rs";
+    std::fs::create_dir_all(project.checkout.join("src/db")).expect("folder");
+    std::fs::write(project.checkout.join(POOL), "let pool = connect();\n").expect("code");
+    git(&project.checkout, &["add", "-A"]);
+    git(&project.checkout, &["commit", "-q", "-m", "pool"]);
+    let head = git(&project.checkout, &["rev-parse", "HEAD"]);
+    let codes: Vec<String> = (1..=14).map(|n| format!("exit 1 # hole {n}\n")).collect();
+    let mut kept: Vec<(Value, &str)> = (1..=12u64)
+        .map(|n| (high_hole(n), codes[n as usize - 1].as_str()))
+        .collect();
+    kept[0].0["class_said"] = json!("session");
+    for (n, line) in [(13u64, 14u64), (14, 30)] {
+        kept.push((
+            json!({ "title": format!("pool {n} trusts any certificate"), "class": "transport",
+                "class_said": "tls", "cause": "unverified-peer", "file": POOL, "line": line,
+                "severity": "low", "status": "confirmed", "reason": "shown",
+                "exploit": { "path": format!("tests/security/pool{n}.test.ts"), "test": format!("pool {n}") } }),
+            codes[n as usize - 1].as_str(),
+        ));
+    }
+    let first = project.earlier(card, &project.first, &kept);
+    let (report, _) = project.attack(card, &project.first, &head, SANDBOX_OFF, json!([]));
+    assert_eq!(report["run_again_capped"], 2, "{report:#}");
+    let carried = report["carried"].as_array().expect("carried");
+    assert_eq!(carried.len(), 2, "{report:#}");
+    // attack.json: one family of the two, each carried one naming it.
+    assert_eq!(
+        report["families"],
+        json!([{ "id": "f1", "class": "transport", "file": POOL, "cause": "unverified-peer",
+                 "variants": ["carried-1", "carried-2"], "confirmed": 0, "carried": 2 }]),
+        "{report:#}"
+    );
+    assert_eq!(carried[0]["family"], "f1");
+
+    let known = devflow_engine::attack_report::Known::of(&report);
+    let shown = devflow_engine::attack_report::json_of(&report, &known);
+    let places: Vec<(Value, Value)> = shown["carried"]
+        .as_array()
+        .expect("carried")
+        .iter()
+        .map(|one| (one["file"].clone(), one["line"].clone()))
+        .collect();
+    assert_eq!(
+        places,
+        [(json!(POOL), json!(14)), (json!(POOL), json!(30))],
+        "{shown:#}"
+    );
+    assert_eq!(shown["carried"][0]["family"], "f1", "{shown:#}");
+    assert_eq!(shown["carried"][0]["draft"], "f1", "{shown:#}");
+    let family = &shown["families"][0];
+    assert_eq!(family["carried"], 2, "{shown:#}");
+    assert_eq!(family["variants"][0]["status"], "carried", "{shown:#}");
+    assert_eq!(family["variants"][0]["id"], "h13", "{shown:#}");
+    assert_eq!(family["variants"][0]["run"], first.as_str(), "{shown:#}");
+    assert!(family["fix"]
+        .as_str()
+        .expect("fix")
+        .starts_with("Verify the peer's certificate"));
+    // The class its attacker said, beside devflow's name for it.
+    let session = shown["hypotheses"]
+        .as_array()
+        .expect("hypotheses")
+        .iter()
+        .find(|one| one["class_said"] == "session")
+        .expect("class_said shown");
+    assert_eq!(session["class"], "authn", "{session:#}");
+
+    let md = devflow_engine::attack_report::markdown(&report, &known);
+    assert!(md.contains(&format!("`{POOL}:14`")), "{md}");
+    assert!(md.contains(&format!("h13 of run {first}, carried")), "{md}");
+
+    let sarif = devflow_engine::attack_report::sarif(&report, &known);
+    let carried_results: Vec<&Value> = sarif["runs"][0]["results"]
+        .as_array()
+        .expect("results")
+        .iter()
+        .filter(|one| one["properties"]["carried"] == true)
+        .collect();
+    assert_eq!(carried_results.len(), 2, "{sarif:#}");
+    for (one, line) in carried_results.iter().zip([14, 30]) {
+        let place = &one["locations"][0]["physicalLocation"];
+        assert_eq!(place["artifactLocation"]["uri"], POOL, "{one:#}");
+        assert_eq!(place["region"]["startLine"], line, "{one:#}");
+        assert_eq!(one["level"], "note", "{one:#}");
+        assert_eq!(one["ruleId"], "attack/transport", "{one:#}");
+    }
+
+    let drafts = devflow_engine::attack_report::drafts(&report, &known);
+    let pool = drafts
+        .iter()
+        .find(|one| one["id"] == "f1")
+        .expect("the family's draft");
+    let body = pool["body"].as_str().expect("body");
+    assert!(body.contains(&format!("`{POOL}`, lines 14, 30")), "{body}");
+    assert!(
+        body.contains(&format!(
+            "- h13 of run {first} at line 14, low: confirmed by the exploit test"
+        )),
+        "{body}"
+    );
+    assert_eq!(pool["variants"], json!(["carried-1", "carried-2"]));
+}

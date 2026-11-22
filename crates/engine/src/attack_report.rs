@@ -480,6 +480,24 @@ fn unnamed(said: &str) -> bool {
             .all(|part| !part.is_empty() && part.len() <= 24)
 }
 
+/// The word an attacker said a hole's class is, beside devflow's name for
+/// it (`class`), as a report shows it: a plain word or a few joined by
+/// hyphens, lowercase, no digit ([`unnamed`]), never devflow's own name
+/// again; `null` for any other.
+fn class_said(value: &Value, class: &str) -> Value {
+    let said = value
+        .as_str()
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase()
+        .replace(['_', ' '], "-");
+    if said != class && unnamed(&said) {
+        json!(said)
+    } else {
+        Value::Null
+    }
+}
+
 /// A hypothesis' class as a report shows it: its family ([`family`]), which
 /// devflow names or which keeps its own name when it is a plain one
 /// ([`unnamed`]); `other` when it is neither.
@@ -874,7 +892,8 @@ fn shown(one: &Value, known: &Known) -> Value {
         "id": id_of(&one["id"]), "status": status,
         "severity": one_of(&one["severity"], &SEVERITIES),
         "estimated_severity": one_of(&one["estimated_severity"], &SEVERITIES),
-        "class": class, "cause": cause_of(one["cause"].as_str().unwrap_or_default()),
+        "class": class, "class_said": class_said(&one["class_said"], &class),
+        "cause": cause_of(one["cause"].as_str().unwrap_or_default()),
         "file": repo_path(&one["file"], known), "line": one["line"].as_u64(),
         "impact": impact_of(&class, said, one), "fix": fix_of(&class, said, one),
         "verified_by": one_of(&one["verified"]["by"], &["sandbox", "session"]),
@@ -968,16 +987,28 @@ fn family_file(one: &Value) -> String {
         .to_owned()
 }
 
-/// The hypotheses of one root, each a list of their places in the report:
-/// two or more **confirmed** of one file and one family of class
-/// ([`family`]) whose attacker named one cause for them, the same function,
-/// rule or list ([`basis_of`]). One that names none joins the only root of
-/// its file and family, else stands with the others that name none.
-/// Inputs that slip past one check, one list or one parser are variants of
-/// one hole, and one fix at its root shuts them all; a refuted, tried or
-/// not_run one is no variant. In the order the report first names each.
+/// What families are made of: the report's hypotheses, then the holes it
+/// carried, each as it ended where it was shown. A carried hole an earlier
+/// run confirmed is a variant still open, though not run again this time.
+fn holes(report: &Value) -> Vec<Value> {
+    let listed = |key: &str| report[key].as_array().cloned().unwrap_or_default();
+    let mut holes = listed("hypotheses");
+    holes.extend(listed("carried"));
+    holes
+}
+
+/// The hypotheses of one root, each a list of their places in the report,
+/// its hypotheses first and then the holes it carried ([`holes`]: a place
+/// past the hypotheses is one carried): two or more **confirmed** of one
+/// file and one family of class ([`family`]) whose attacker named one cause
+/// for them, the same function, rule or list ([`basis_of`]). One that names
+/// none joins the only root of its file and family, else stands with the
+/// others that name none. Inputs that slip past one check, one list or one
+/// parser are variants of one hole, and one fix at its root shuts them all;
+/// a refuted, tried or not_run one is no variant. In the order the report
+/// first names each.
 pub fn roots(report: &Value) -> Vec<Vec<usize>> {
-    let list = report["hypotheses"].as_array().cloned().unwrap_or_default();
+    let list = holes(report);
     // Each group: its file, family of class, what is at fault, and members.
     let mut groups: Vec<(String, String, Option<String>, Vec<usize>)> = Vec::new();
     let mut loose: Vec<(usize, String, String)> = Vec::new();
@@ -1057,12 +1088,14 @@ fn family_fix(class: &str, first: &Value, cause: Option<&str>) -> &'static str {
 /// attacker gets, the one fix (its cause's, [`family_fix`]), and whether
 /// one of them was proven only by timing.
 fn families(report: &Value, known: &Known) -> Vec<Value> {
-    let list = report["hypotheses"].as_array().cloned().unwrap_or_default();
+    let list = holes(report);
+    let own = report["hypotheses"].as_array().map_or(0, Vec::len);
     roots(report)
         .iter()
         .enumerate()
         .map(|(at, members)| {
             let variants: Vec<&Value> = members.iter().map(|member| &list[*member]).collect();
+            let carried = members.iter().filter(|member| **member >= own).count();
             let first = variants[0];
             let class = class_of(&first["class"]);
             let cause = shared_cause(&variants);
@@ -1074,13 +1107,26 @@ fn families(report: &Value, known: &Known) -> Vec<Value> {
             json!({
                 "id": format!("f{}", at + 1), "class": class, "cause": cause,
                 "file": repo_path(&first["file"], known),
-                "variants": variants.iter().map(|one| json!({
-                    "id": id_of(&one["id"]),
-                    "status": one_of(&one["status"], &STATUSES),
-                    "severity": one_of(&one["severity"], &SEVERITIES),
-                    "line": one["line"].as_u64(),
-                })).collect::<Vec<_>>(),
-                "confirmed": variants.len(), "severity": severity,
+                "variants": members.iter().map(|member| {
+                    let one = &list[*member];
+                    if *member < own {
+                        json!({
+                            "id": id_of(&one["id"]),
+                            "status": one_of(&one["status"], &STATUSES),
+                            "severity": one_of(&one["severity"], &SEVERITIES),
+                            "line": one["line"].as_u64(),
+                        })
+                    } else {
+                        // Still open, by the run that showed it.
+                        json!({
+                            "id": id_of(&one["again"]["id"]), "run": run_of(&one["again"]["run"]),
+                            "status": "carried",
+                            "severity": one_of(&one["severity"], &SEVERITIES),
+                            "line": one["line"].as_u64(),
+                        })
+                    }
+                }).collect::<Vec<_>>(),
+                "confirmed": variants.len() - carried, "carried": carried, "severity": severity,
                 "impact": impact_of(&class, "confirmed", first),
                 "fix": family_fix(&class, first, cause),
                 "timing": variants.iter().any(|one| proof_kind(one) == "timing"),
@@ -1103,11 +1149,20 @@ fn run_cap_hit(report: &Value) -> bool {
 /// that showed it, how it ended there, its class, severity and place, and
 /// why it was carried ([`crate::attack::CARRIED`]).
 fn carried(report: &Value, known: &Known) -> Vec<Value> {
+    let own = report["hypotheses"].as_array().map_or(0, Vec::len);
+    let roots = roots(report);
+    let family = |at: usize| {
+        roots
+            .iter()
+            .position(|members| members.contains(&(own + at)))
+            .map(|family| json!(format!("f{}", family + 1)))
+    };
     report["carried"]
         .as_array()
         .into_iter()
         .flatten()
-        .map(|one| {
+        .enumerate()
+        .map(|(at, one)| {
             json!({
                 "id": id_of(&one["again"]["id"]), "run": run_of(&one["again"]["run"]),
                 "item": name_of(&one["again"]["item"]),
@@ -1115,7 +1170,13 @@ fn carried(report: &Value, known: &Known) -> Vec<Value> {
                 "severity": one_of(&one["severity"], &SEVERITIES),
                 "class": class_of(&one["class"]),
                 "file": repo_path(&one["file"], known), "line": one["line"].as_u64(),
+                "cause": cause_of(one["cause"].as_str().unwrap_or_default()),
                 "carried": one_of(&one["carried"], &crate::attack::CARRIED),
+                "family": family(at),
+                // Its draft: its family's, else its own, when it was confirmed.
+                "draft": (one["status"] == "confirmed").then(|| {
+                    family(at).unwrap_or_else(|| json!(format!("carried-{}", at + 1)))
+                }),
             })
         })
         .collect()
@@ -1339,7 +1400,7 @@ fn family_lines(families: &[Value]) -> String {
                 .as_array()
                 .into_iter()
                 .flatten()
-                .map(|one| cell(&one["id"]))
+                .map(variant_said)
                 .collect();
             let cause = family["cause"]
                 .as_str()
@@ -1355,6 +1416,16 @@ fn family_lines(families: &[Value]) -> String {
             )
         })
         .collect()
+}
+
+/// A family's variant as a line names it: its id, and for one carried, the
+/// run that showed it.
+fn variant_said(one: &Value) -> String {
+    if one["status"] == "carried" {
+        format!("{} of run {}, carried", cell(&one["id"]), cell(&one["run"]))
+    } else {
+        cell(&one["id"])
+    }
 }
 
 /// A proof as a line says it: red at the base, green at HEAD. A confirmed
@@ -1589,7 +1660,8 @@ pub fn sarif(report: &Value, known: &Known) -> Value {
                         cell(&one["run"])
                     ) },
                     "locations": location(&one),
-                    "properties": { "severity": one["severity"], "carried": one["carried"] },
+                    "properties": { "severity": one["severity"], "carried": true,
+                        "carriedWhy": one["carried"], "run": one["run"], "id": one["id"] },
                 })
             }),
     );
@@ -1651,15 +1723,22 @@ fn family_draft(report: &Value, family: &Value, variants: &[&Value]) -> Value {
     let lines: Vec<String> = variants.iter().map(|one| one["line"].to_string()).collect();
     let each: String = variants
         .iter()
-        .map(|one| {
-            format!(
+        .map(|one| match one["status"].as_str() {
+            Some("carried") => format!(
+                "- {} of run {} at line {}, {}: {CARRIED_SAID}\n",
+                cell(&one["id"]),
+                cell(&one["run"]),
+                one["line"],
+                cell(&one["severity"]),
+            ),
+            _ => format!(
                 "- {} at line {}, {}: {}; {}\n",
                 cell(&one["id"]),
                 one["line"],
                 cell(&one["severity"]),
                 ran_by(one),
                 proof_said(one)
-            )
+            ),
         })
         .collect();
     let cause = family["cause"]
@@ -1685,7 +1764,10 @@ fn family_draft(report: &Value, family: &Value, variants: &[&Value]) -> Value {
         timing_caveat(variants),
     );
     json!({ "id": family["id"], "title": title, "severity": family["severity"], "body": body,
-            "variants": variants.iter().map(|one| one["id"].clone()).collect::<Vec<_>>() })
+            "variants": variants.iter().map(|one| match one["status"].as_str() {
+                Some("carried") => one["draft"].clone(),
+                _ => one["id"].clone(),
+            }).collect::<Vec<_>>() })
 }
 
 /// A draft of a confirmed hypothesis no family holds: its class, severity,
@@ -1714,12 +1796,68 @@ fn one_draft(report: &Value, one: &Value) -> Value {
     json!({ "id": one["id"], "title": title, "severity": one["severity"], "body": body })
 }
 
+/// How a draft says a carried hole was confirmed.
+const CARRIED_SAID: &str = "confirmed by the exploit test of the run named, which this run kept; carried, not run again at this HEAD";
+
+/// The holes carried, each as a draft says it: devflow's words for its
+/// class, cause and place, named by the run that showed it, under the
+/// name this run keeps it by (`carried-N`, as its exploit).
+fn carried_shown(report: &Value, known: &Known) -> Vec<Value> {
+    report["carried"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .enumerate()
+        .map(|(at, one)| {
+            let class = class_of(&one["class"]);
+            json!({
+                "id": id_of(&one["again"]["id"]), "run": run_of(&one["again"]["run"]),
+                "item": name_of(&one["again"]["item"]),
+                "draft": format!("carried-{}", at + 1), "status": "carried",
+                "was": one_of(&one["status"], &STATUSES),
+                "severity": one_of(&one["severity"], &SEVERITIES), "class": class,
+                "file": repo_path(&one["file"], known), "line": one["line"].as_u64(),
+                "impact": impact_of(&class, "confirmed", one),
+                "fix": fix_of(&class, "confirmed", one),
+            })
+        })
+        .collect()
+}
+
+/// A draft of a confirmed hole carried to the next run that no family
+/// holds, as the run that showed it would draft it: it is still open.
+fn carried_draft(report: &Value, one: &Value) -> Value {
+    let title = format!(
+        "[security] {} in {}:{}",
+        text(one, "class"),
+        cell(&one["file"]),
+        one["line"]
+    );
+    let body = format!(
+        "**Severity:** {}\n**Where:** `{}:{}`\n**Class:** {}\n**Found by:** devflow's attack, run {} of {}, carried by run {}\n**Confirmed by:** {CARRIED_SAID}\n**Proof:** not proven yet: once fixed, `prove` runs it at its base and at HEAD\n\n## Impact\n{}\n\n## Fix\n{}\n\n{BEFORE_POSTING}",
+        cell(&one["severity"]),
+        cell(&one["file"]),
+        one["line"],
+        text(one, "class"),
+        cell(&one["run"]),
+        cell(&one["item"]),
+        text(report, "run"),
+        text(one, "impact"),
+        text(one, "fix"),
+    );
+    json!({ "id": one["draft"], "title": title, "severity": one["severity"], "body": body })
+}
+
 /// The issue drafts, all in devflow's words: one per family, with its
 /// variants and the one fix at its root, then one per confirmed hypothesis
-/// no family holds.
+/// no family holds, then one per confirmed hole carried that no family
+/// holds: a hole carried is still open, so its draft is not lost.
 pub fn drafts(report: &Value, known: &Known) -> Vec<Value> {
-    let shown = hypotheses(report, known);
-    let mut drafts: Vec<Value> = roots(report)
+    let mut shown = hypotheses(report, known);
+    let own = shown.len();
+    shown.extend(carried_shown(report, known));
+    let roots = roots(report);
+    let mut drafts: Vec<Value> = roots
         .iter()
         .zip(families(report, known))
         .map(|(members, family)| {
@@ -1731,10 +1869,19 @@ pub fn drafts(report: &Value, known: &Known) -> Vec<Value> {
         })
         .collect();
     drafts.extend(
-        shown
+        shown[..own]
             .iter()
             .filter(|one| one["status"] == "confirmed" && one["family"].is_null())
             .map(|one| one_draft(report, one)),
+    );
+    let in_family = |at: usize| roots.iter().any(|members| members.contains(&at));
+    drafts.extend(
+        shown
+            .iter()
+            .enumerate()
+            .skip(own)
+            .filter(|(at, one)| one["was"] == "confirmed" && !in_family(*at))
+            .map(|(_, one)| carried_draft(report, one)),
     );
     drafts
 }

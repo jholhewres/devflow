@@ -178,7 +178,10 @@ fn a_confirmed_hole_carried_is_in_the_sarif_in_devflows_words() {
     assert_eq!(results.len(), 2, "{said:#}");
     assert_eq!(results[1]["ruleId"], "attack/secrets");
     assert_eq!(results[1]["level"], "note");
-    assert_eq!(results[1]["properties"]["carried"], "cap");
+    assert_eq!(results[1]["properties"]["carried"], true);
+    assert_eq!(results[1]["properties"]["carriedWhy"], "cap");
+    assert_eq!(results[1]["properties"]["run"], "20261118T120000Z");
+    assert_eq!(results[1]["properties"]["id"], "h19");
     assert!(results[1]["message"]["text"]
         .as_str()
         .expect("message")
@@ -1086,4 +1089,131 @@ fn a_hand_kept_list_is_fixed_as_its_class_says() {
     let draft = &drafts(&report, &Known::of(&report))[0];
     let body = draft["body"].as_str().expect("body");
     assert!(!body.contains("IANA"), "{body}");
+}
+
+/// attack-report.json shows the class its attacker said beside devflow's
+/// name, as a plain word: never devflow's own name again, nor a word that
+/// could carry anything else.
+#[test]
+fn the_json_report_shows_the_class_said_beside_devflows_name() {
+    let said = |class: &str, class_said: &str| {
+        let mut report = report();
+        report["hypotheses"][0]["class"] = json!(class);
+        report["hypotheses"][0]["class_said"] = json!(class_said);
+        json_of(&report, &none())["hypotheses"][0]["class_said"].clone()
+    };
+    assert_eq!(said("xss", "Stored XSS"), "stored-xss");
+    assert_eq!(said("integrity", "provenance"), "provenance");
+    assert_eq!(said("xss", "xss"), Value::Null);
+    assert_eq!(said("xss", "xss-2026"), Value::Null);
+    assert_eq!(said("ssrf", "http://10.0.0.5/admin"), Value::Null);
+    assert_eq!(
+        json_of(&report(), &none())["hypotheses"][0]["class_said"],
+        Value::Null
+    );
+}
+
+/// A confirmed hole carried past the cap is still open: it stays a variant
+/// of its root's family, said carried by the run that showed it, and one no
+/// family holds keeps a draft of its own, at its file and line.
+#[test]
+fn a_hole_carried_stays_in_its_family_and_keeps_its_draft() {
+    let mut report = rooted();
+    report["run_again_cap"] = json!(12);
+    report["carried"] = json!([
+        { "title": SAID[9], "reason": SAID[0], "class": "prompt-injection",
+          "file": "src/html/extract.ts", "line": 36, "severity": "medium", "status": "confirmed",
+          "carried": "cap", "cause": "pattern-parsed-markup",
+          "again": { "item": "item_1", "run": "20261118T120000Z", "id": "h14", "was": "confirmed" },
+          "exploit": { "test": SAID[3], "saved": "exploits/carried-1/a.test.ts" } },
+        { "title": SAID[7], "reason": SAID[8], "class": "crypto", "file": "src/app/service.ts",
+          "line": 14, "severity": "low", "status": "confirmed", "carried": "cap",
+          "cause": "unverified-peer",
+          "again": { "item": "item_1", "run": "20261118T120000Z", "id": "h15", "was": "confirmed" },
+          "exploit": { "test": SAID[3], "saved": "exploits/carried-2/b.test.ts" } },
+        { "title": SAID[7], "class": "authz", "file": "src/b.ts", "line": 5, "severity": "medium",
+          "status": "not_run", "carried": "not_named",
+          "again": { "item": "item_1", "run": "20261118T120000Z", "id": "h3", "was": "not_run" } },
+    ]);
+    // h1, h2, h10 and h12 are the extractor's family: the carried one joins it.
+    let known = Known::of(&report);
+    assert_eq!(roots(&report)[0], [0, 1, 9, 11, 12]);
+    let shown = json_of(&report, &known);
+    let family = &shown["families"][0];
+    assert_eq!(family["confirmed"], 4, "{family:#}");
+    assert_eq!(family["carried"], 1, "{family:#}");
+    assert_eq!(family["variants"][4]["status"], "carried", "{family:#}");
+    assert_eq!(family["variants"][4]["id"], "h14", "{family:#}");
+    assert_eq!(
+        family["variants"][4]["run"], "20261118T120000Z",
+        "{family:#}"
+    );
+    assert_eq!(
+        family["severity"], "medium",
+        "the worst of them, carried too"
+    );
+    assert_eq!(shown["carried"][0]["family"], "f1", "{shown:#}");
+    assert_eq!(shown["carried"][1]["draft"], "carried-2", "{shown:#}");
+    assert_eq!(
+        shown["carried"][2]["draft"],
+        Value::Null,
+        "not run: no draft"
+    );
+    let md = markdown(&report, &known);
+    assert!(
+        md.contains(
+            "5 confirmed variants (h1, h2, h10, h12, h14 of run 20261118T120000Z, carried)"
+        ),
+        "{md}"
+    );
+    let drafts = drafts(&report, &known);
+    let extractor = drafts
+        .iter()
+        .find(|one| one["id"] == "f1")
+        .expect("family draft");
+    let body = extractor["body"].as_str().expect("body");
+    assert!(body.contains("lines 10, 36, 90, 122, 133"), "{body}");
+    assert!(
+        body.contains(
+            "- h14 of run 20261118T120000Z at line 36, medium: confirmed by the exploit test"
+        ),
+        "{body}"
+    );
+    assert_eq!(extractor["variants"][1], "carried-1", "{extractor:#}");
+    // The certificate one stands alone: a draft of its own.
+    let alone = drafts
+        .iter()
+        .find(|one| one["id"] == "carried-2")
+        .expect("its own draft");
+    let body = alone["body"].as_str().expect("body");
+    assert!(
+        body.contains("**Where:** `src/app/service.ts:14`"),
+        "{body}"
+    );
+    assert!(
+        body.contains("run 20261118T120000Z of item_1, carried by run 20261119T120000Z"),
+        "{body}"
+    );
+    assert!(
+        body.contains("## Fix\nVerify the peer's certificate and name"),
+        "{body}"
+    );
+    assert!(!drafts.iter().any(|one| one["id"] == "carried-3"));
+    let said = [
+        md,
+        serde_json::to_string(&shown).expect("json"),
+        serde_json::to_string(&drafts).expect("drafts"),
+    ];
+    for text in &said {
+        for leak in LEAKS {
+            assert!(!text.contains(leak), "{leak} leaked: {text}");
+        }
+    }
+    // Each is written as a file of its own.
+    let dir = tempfile::tempdir().expect("dir");
+    let files = written(dir.path(), &report).expect("written");
+    assert!(
+        files.contains(&"drafts/carried-2.md".to_owned()),
+        "{files:?}"
+    );
 }
