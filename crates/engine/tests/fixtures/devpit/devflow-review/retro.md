@@ -34,5 +34,5 @@ path). Never write an exploit into the checkout. The answer's `report`, and
 `retro-report.md` beside findings.json, say each finding confirmed, not
 confirmed or not run, with where its exploit is. An attack on the range
 (`attack` with `base` and `head` and no item) keeps its exploits in the
-project's vault the same way; `devflow attack promote <range> <hypothesis>`
+project's vault the same way; `devflow attack <range> --promote <hypothesis>`
 copies one into the repository at its path once its fix lands.

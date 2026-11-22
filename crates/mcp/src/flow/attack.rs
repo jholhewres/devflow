@@ -169,7 +169,7 @@ pub fn on_range(
     answer["attacked"] = json!(label);
     answer["vault"] = json!(done.folder);
     answer["next"] = json!(format!(
-        "The exploits stay in the vault, outside the repository. `devflow attack promote {label} <hypothesis> --run {}` copies one into the repository at its path, once its fix lands.",
+        "The exploits stay in the vault, outside the repository. `devflow attack {label} --promote <hypothesis> --run {}` copies one into the repository at its path, once its fix lands.",
         done.stamp
     ));
     Ok(answer)

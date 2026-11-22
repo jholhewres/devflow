@@ -229,9 +229,10 @@ it touched since the deploy.
 
 An attack on a range (`attack` with `base` and `head`, no item) keeps its run
 and exploits in the same vault, and its spend counts against the project's
-month like any other. `devflow attack promote <range> <hypothesis> --run
+month like any other. `devflow attack <range> --promote <hypothesis> --run
 <run>` copies one exploit into the repository at its own path once its fix
-lands, refusing a path that leads out of it. devflow refuses a vault that
+lands, refusing a path that leads out of it (before 0.7.0 it was
+`devflow attack promote <range> <hypothesis>`). devflow refuses a vault that
 would resolve inside the checkout before it makes any folder of it.
 
 ## How to read the hypotheses

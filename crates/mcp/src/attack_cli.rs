@@ -37,8 +37,9 @@ pub fn reporting(root: &std::path::Path, item: &str, run: &str, format: &str) ->
     ExitCode::SUCCESS
 }
 
-/// `devflow attack promote`: an exploit an attack kept, in the vault or in
-/// an item's run, copied into the repository at its path.
+/// `devflow attack <item|range> --promote <hypothesis>`: an exploit an
+/// attack kept, in the vault or in an item's run, copied into the
+/// repository at its path.
 pub fn promoting(
     root: &std::path::Path,
     subject: &str,
@@ -47,7 +48,7 @@ pub fn promoting(
 ) -> ExitCode {
     use devflow_engine::{attack, vault};
     let failed = |why: String| {
-        eprintln!("devflow attack promote: {why}");
+        eprintln!("devflow attack --promote: {why}");
         ExitCode::FAILURE
     };
     let project = project::Project::at(root);

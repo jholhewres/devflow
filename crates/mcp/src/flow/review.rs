@@ -504,7 +504,7 @@ pub fn standalone(
         };
         answer["vault"] = json!(vault.display().to_string());
         answer["next"] = json!(format!(
-            "Prove the retro (devflow-review): for each finding of findings.json, write its exploit test under {} (outside the repository, one folder per finding), run it, then call review with {}, run \"{}\" and verified: one {{ finding, result, evidence, test: the exploit's path }} each. Never write it into the checkout: `devflow attack promote` brings an attack's exploit in once its fix lands.",
+            "Prove the retro (devflow-review): for each finding of findings.json, write its exploit test under {} (outside the repository, one folder per finding), run it, then call review with {}, run \"{}\" and verified: one {{ finding, result, evidence, test: the exploit's path }} each. Never write it into the checkout: `devflow attack <range> --promote <hypothesis>` brings an attack's exploit in once its fix lands.",
             vault.display(),
             asked.subject.again(),
             done.stamp

@@ -101,15 +101,16 @@ enum Command {
     /// The attack stage on a work item: devflow-security tries to exploit its
     /// change headless and keeps attack.json in a run of the item.
     Attack {
-        /// The work item's id; or `promote`, then the item or range and the
-        /// hypothesis whose exploit is copied into the repository.
+        /// The work item's id, or with `--promote` the item or range whose
+        /// attack kept the exploit.
         #[arg(required_unless_present = "range")]
         item: Option<String>,
-        /// With `promote`: the item or range, then the hypothesis.
-        #[arg(num_args = 0..=2)]
-        promote: Vec<String>,
-        /// With `promote`: the attack run; the newest when not said.
-        #[arg(long, value_name = "RUN", conflicts_with_all = ["prove", "report"])]
+        /// Copy this hypothesis's exploit, kept by the item's or range's
+        /// attack, into the repository at its path, instead of attacking.
+        #[arg(long, value_name = "HYPOTHESIS", conflicts_with_all = ["prove", "report", "base", "flow"])]
+        promote: Option<String>,
+        /// With `--promote`: the attack run; the newest when not said.
+        #[arg(long, value_name = "RUN", requires = "promote")]
         run: Option<String>,
         /// Where the diff starts, when not where the item started.
         #[arg(long)]
@@ -131,7 +132,7 @@ enum Command {
         /// Attack a release range, `A..B`, headless for CI: SARIF and JUnit
         /// are written, and the exit code is 1 when a confirmed exploit is
         /// in review.block_on, 2 when the attack could not run.
-        #[arg(long, value_name = "A..B", conflicts_with_all = ["item", "base", "prove", "report", "flow", "run"])]
+        #[arg(long, value_name = "A..B", conflicts_with_all = ["item", "base", "prove", "report", "flow", "promote", "run"])]
         range: Option<String>,
         /// With `--range`: where the SARIF goes.
         #[arg(
@@ -283,22 +284,10 @@ fn main() -> ExitCode {
         }
         Command::Attack {
             item: Some(item),
-            promote,
+            promote: Some(hypothesis),
             run,
             ..
-        } if item == "promote" => match promote.as_slice() {
-            [subject, hypothesis] => {
-                attack_cli::promoting(&root, subject, hypothesis, run.as_deref())
-            }
-            _ => {
-                eprintln!("devflow attack promote <item or range> <hypothesis> [--run RUN]");
-                ExitCode::FAILURE
-            }
-        },
-        Command::Attack { promote, run, .. } if !promote.is_empty() || run.is_some() => {
-            eprintln!("devflow attack takes one item; `--run` and two names are for `devflow attack promote`");
-            ExitCode::FAILURE
-        }
+        } => attack_cli::promoting(&root, &item, &hypothesis, run.as_deref()),
         Command::Attack {
             item: Some(item),
             report: Some(run),
@@ -342,3 +331,7 @@ fn main() -> ExitCode {
         } => cli::confirm_stage(&root, &name, &consent::Consent::of_user()),
     }
 }
+
+#[cfg(test)]
+#[path = "main_tests.rs"]
+mod tests;

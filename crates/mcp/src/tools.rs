@@ -153,7 +153,7 @@ pub static TOOLS: [Tool; 19] = [
             "item": item_field(),
             "base": { "type": "string", "description": "The branch or commit the diff starts from, when it is not where the item started or the default branch." },
             "flow": { "type": "string", "description": "With `item`: a flow of the project's workspace manifest (workspace.json in devflow's folder), whose writer, reader and contract across repositories the attack reads with the change; a hole across them names each side's fix." },
-            "head": { "type": "string", "description": "Without `item`, with `base`: attack the range base..head. Its run and each exploit are kept in the project's vault, outside the checkout, for `devflow attack promote`." },
+            "head": { "type": "string", "description": "Without `item`, with `base`: attack the range base..head. Its run and each exploit are kept in the project's vault, outside the checkout, for `devflow attack <range> --promote <hypothesis>`." },
             "mode": { "type": "string", "enum": ["retro"], "description": "With a range: it is already merged and in production, so what it confirms is followed up." },
             "run": { "type": "string", "description": "The attack's run, which `verified` completes or `prove` proves: an item's, or a range's, given with the same `base` and `head`." },
             "prove": { "type": "boolean", "description": "With `run`, once fixed: run each confirmed exploit again in the sandbox at the commit it was confirmed on (red, the hole shown) and at HEAD (green, the hole shut), and keep the proof on its hypothesis. The gate closes a hypothesis the sandbox confirmed only on that proof." },
