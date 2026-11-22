@@ -189,8 +189,11 @@ pub fn on_item(
         &review::comment(&done, &links(project, &run, &done.files())),
     );
     let mut answer = review::summary(&done);
+    // An attack that ran and answered counts; one that failed is due again.
+    let attacked = super::gate::newest(&runs, &item.id, devflow_engine::attack::REPORT)
+        .is_some_and(|(_, report)| devflow_engine::attack::failed(&report).is_none());
     let due = pinned.as_ref().is_some_and(|(_, _, files, diff, _)| {
-        devflow_engine::models::attack_on(config, files, diff)
+        devflow_engine::models::attack_next(config, files, diff, attacked)
     });
     if due
         && answer["next"]

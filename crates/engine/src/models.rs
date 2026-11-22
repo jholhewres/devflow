@@ -114,6 +114,14 @@ pub fn attack_on(config: &Config, files: &[String], diff: &str) -> bool {
     }
 }
 
+/// Whether a review sends its item on to the attack: it is due on this diff
+/// and, unless it runs per-item, has not run on the item yet. With
+/// `sensitive` one attack is enough: a fix is proven by its exploit test
+/// turning green, not by attacking again.
+pub fn attack_next(config: &Config, files: &[String], diff: &str, attacked: bool) -> bool {
+    attack_on(config, files, diff) && (!attacked || attack_run(config) == AttackRun::PerItem)
+}
+
 /// The configuration a review asked for the attack by name runs with: a
 /// release's attack, or one more on any diff. Refused while it is off.
 pub fn attack_asked(config: &Config) -> Result<Config, String> {

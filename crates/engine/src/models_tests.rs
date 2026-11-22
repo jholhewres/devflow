@@ -175,3 +175,25 @@ fn only_per_item_and_sensitive_read_a_diff_for_the_attack() {
     let unnamed = parse("version: 1\n").expect("config");
     assert!(!attack_reads_the_diff(&unnamed), "no attack stage is off");
 }
+
+/// A review sends its item on to the attack while it is due and has not run
+/// on the item; with `per-item`, after every change. One attack is enough
+/// with `sensitive`: the fix is proven by its exploit test, not by another.
+#[test]
+fn a_review_sends_its_item_to_the_attack_once_unless_per_item() {
+    let files = ["src/auth.rs".to_owned()];
+    let diff = "+x\n".repeat(500);
+    for (run, before, after) in [
+        ("sensitive", true, false),
+        ("per-item", true, true),
+        ("release", false, false),
+        ("off", false, false),
+    ] {
+        let config = parse(&format!(
+            "version: 1\nstages:\n  attack: {{ run: {run} }}\n"
+        ))
+        .expect("config");
+        assert_eq!(attack_next(&config, &files, &diff, false), before, "{run}");
+        assert_eq!(attack_next(&config, &files, &diff, true), after, "{run}");
+    }
+}
