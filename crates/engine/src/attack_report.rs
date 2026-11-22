@@ -412,17 +412,43 @@ fn name_of(value: &Value) -> Value {
     }
 }
 
-/// A hypothesis' id as the attack numbers them: `h1`, `s2`.
+/// A hypothesis' id as the attack numbers them: `h1`, `s2`, and `h3-2`
+/// for an id an attacker said twice.
 fn id_of(value: &Value) -> Value {
+    let digits = |part: &str| !part.is_empty() && part.chars().all(|ch| ch.is_ascii_digit());
     match value.as_str() {
-        Some(id)
-            if (2..=8).contains(&id.len())
-                && id.starts_with(|ch: char| ch.is_ascii_lowercase())
-                && id[1..].chars().all(|ch| ch.is_ascii_digit()) =>
-        {
-            json!(id)
+        Some(id) if id.len() <= 12 && id.starts_with(|ch: char| ch.is_ascii_lowercase()) => {
+            let (number, again) = id[1..].split_once('-').unwrap_or((&id[1..], "0"));
+            if number.len() <= 7 && digits(number) && again.len() <= 2 && digits(again) {
+                json!(id)
+            } else {
+                Value::Null
+            }
         }
         _ => Value::Null,
+    }
+}
+
+/// A run as devflow stamps it: `20261119T120000Z`, or `-2` after it for a
+/// second run of that second.
+fn run_of(value: &Value) -> Value {
+    let Some(run) = value.as_str() else {
+        return Value::Null;
+    };
+    let (stamp, again) = run.split_once('-').unwrap_or((run, "0"));
+    let bytes = stamp.as_bytes();
+    let stamped = bytes.len() == 16
+        && bytes[8] == b'T'
+        && bytes[15] == b'Z'
+        && bytes[..8]
+            .iter()
+            .chain(&bytes[9..15])
+            .all(u8::is_ascii_digit);
+    let again = (1..=2).contains(&again.len()) && again.chars().all(|ch| ch.is_ascii_digit());
+    if stamped && again {
+        json!(run)
+    } else {
+        Value::Null
     }
 }
 
@@ -509,6 +535,25 @@ fn side(value: &Value) -> Value {
     })
 }
 
+/// What a hypothesis took in, as a report shows each: its id and run (the
+/// run that kept it, or this one for an attacker's own), its item, how it
+/// had ended, its class and line.
+fn merged_shown(one: &Value) -> Option<Vec<Value>> {
+    let merged = one["merged"].as_array()?;
+    Some(
+        merged
+            .iter()
+            .map(|gone| {
+                json!({
+                    "id": id_of(&gone["id"]), "run": run_of(&gone["run"]),
+                    "item": name_of(&gone["again"]["item"]),
+                    "was": one_of(&gone["again"]["was"], &STATUSES),
+                    "class": class_of(&gone["class"]), "line": gone["line"].as_u64(),
+                })
+            })
+            .collect(),
+    )
+}
 /// A hypothesis as a report shows it: only fields devflow sets, the
 /// sentences devflow says of its class, and the repositories a flow's
 /// fixes touch.
@@ -529,7 +574,7 @@ fn shown(one: &Value, known: &Known) -> Value {
         "fixes_in": one["fixes"].as_array().map(|fixes| {
             fixes.iter().map(|fix| name_of(&fix["repo"])).collect::<Vec<_>>()
         }),
-        "merged": one["merged"].as_array().map(Vec::len),
+        "merged": merged_shown(one),
     })
 }
 
@@ -563,13 +608,24 @@ fn hypotheses(report: &Value, known: &Known) -> Vec<Value> {
         .collect()
 }
 
-/// The report as JSON: the run, its verdict and numbers, and every
-/// hypothesis as [`shown`].
+/// Whether a cap, of time or dollars, ended an attacker's turn.
+fn run_cap_hit(report: &Value) -> bool {
+    report["budget"]["run_cap_hit"] == true
+        || report["attackers"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|one| one["cap_hit"] == true)
+}
+
+/// The report as JSON: the run, its verdict and numbers, whether a cap
+/// ended a turn, and every hypothesis as [`shown`].
 pub fn json_of(report: &Value, known: &Known) -> Value {
     json!({
         "item": report["item"], "run": report["run"], "base": report["base"], "head": report["head"],
         "mode": report["mode"], "verdict": report["verdict"], "counts": report["counts"],
         "metrics": report["metrics"],
+        "run_cap_hit": run_cap_hit(report),
         "hypotheses": hypotheses(report, known),
         "exploits": exploits_shown(report, known),
         "scanner": {
@@ -641,6 +697,28 @@ fn ran_by(one: &Value) -> String {
     }
 }
 
+/// Each hypothesis that took others in, one line each: how many, and each
+/// one's id and the run that kept it.
+fn merged_lines(shown: &[Value]) -> String {
+    shown
+        .iter()
+        .filter_map(|one| {
+            let merged = one["merged"]
+                .as_array()
+                .filter(|merged| !merged.is_empty())?;
+            let each: Vec<String> = merged
+                .iter()
+                .map(|gone| format!("{} of run {}", cell(&gone["id"]), cell(&gone["run"])))
+                .collect();
+            Some(format!(
+                "- {} took in {}: {}\n",
+                cell(&one["id"]),
+                merged.len(),
+                each.join(", ")
+            ))
+        })
+        .collect()
+}
 /// A proof as a line says it: red at the base, green at HEAD. A confirmed
 /// hypothesis not yet proven says so: confirmed is not proven.
 fn proof_said(one: &Value) -> String {
@@ -695,6 +773,11 @@ pub fn markdown(report: &Value, known: &Known) -> String {
             metrics["cost_usd"].as_f64().unwrap_or_default(),
             metrics["duration_ms"].as_u64().unwrap_or_default() / 60_000
         ));
+    }
+    if run_cap_hit(report) {
+        out.push_str(
+            "A cap ended an attacker's turn (`run_cap_hit`): it may have found more past it.\n",
+        );
     }
     if let Some(path) = threat_path(report) {
         out.push_str(&format!(
@@ -754,6 +837,11 @@ pub fn markdown(report: &Value, known: &Known) -> String {
     if !across.is_empty() {
         out.push_str("\n## Fixes on each side of the flow\n\nThe repositories each fix touches; the fixes are in attack.json.\n\n");
         out.push_str(&across.concat());
+    }
+    let merged = merged_lines(&shown);
+    if !merged.is_empty() {
+        out.push_str("\n## What each hypothesis took in\n\nOne hole earlier runs or other attackers named again, merged into the one kept.\n\n");
+        out.push_str(&merged);
     }
     out.push_str(
         "\n| Id | Status | Severity | Class | Where | Ran | Proof |\n|---|---|---|---|---|---|---|\n",

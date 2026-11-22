@@ -379,11 +379,19 @@ pub fn open_before(runs: &crate::runs::Runs, card: &str, root: &Path, head: &str
     again
 }
 
-/// What a hypothesis merged into another leaves on it: its id, class,
-/// place and title, and who found it or which run kept it, so the one kept
-/// says what it took in. Never its exploit.
+/// What a hypothesis merged into another leaves on it: its id and run, its
+/// class, place and title, and who found it or which run kept it, so the one
+/// kept says what it took in. Never its exploit. One an earlier run kept is
+/// named by that run and the id it had there; an attacker's own, by the id
+/// it gave it, its run set once the run is made ([`runs_named`]).
 fn trail(one: &Value) -> Value {
-    let mut said = json!({ "id": one["id"], "class": one["class"], "file": one["file"],
+    let again = &one["again"];
+    let (id, run) = if again.is_object() {
+        (again["id"].clone(), again["run"].clone())
+    } else {
+        (one["id"].clone(), Value::Null)
+    };
+    let mut said = json!({ "id": id, "run": run, "class": one["class"], "file": one["file"],
         "line": one["line"], "title": one["title"] });
     for key in ["found_by", "again"] {
         if !one[key].is_null() {
@@ -391,6 +399,18 @@ fn trail(one: &Value) -> Value {
         }
     }
     said
+}
+
+/// Each merged hypothesis of this run named by it: an attacker's own, not
+/// kept by an earlier run.
+fn runs_named(hypotheses: &mut [Value], stamp: &str) {
+    for one in hypotheses.iter_mut() {
+        for gone in one["merged"].as_array_mut().into_iter().flatten() {
+            if gone["run"].is_null() {
+                gone["run"] = json!(stamp);
+            }
+        }
+    }
 }
 
 /// `gone` kept on `kept`'s `merged` as one hole with it, with what `gone`
@@ -563,6 +583,13 @@ fn plain_id(id: &str) -> String {
         .collect()
 }
 
+/// An id as the attack numbers them: a lowercase letter and digits (`h1`).
+fn numbered(id: &str) -> bool {
+    (2..=8).contains(&id.len())
+        && id.starts_with(|ch: char| ch.is_ascii_lowercase())
+        && id[1..].chars().all(|ch| ch.is_ascii_digit())
+}
+
 /// The attacker's answer, held to its shape: each hypothesis named, placed
 /// and given a status; a `confirmed` it could not have run is `tried`.
 pub fn read_answer(said: &str) -> Result<Value, String> {
@@ -622,8 +649,9 @@ fn hypothesis(one: &Value, at: usize) -> Result<Value, String> {
     if reason.is_empty() {
         return wrong("says why in `reason`");
     }
+    // An id as the attack numbers them, `h1`; any other is numbered so.
     let id = match plain_id(&text(one, "id")) {
-        id if !id.is_empty() => id,
+        id if numbered(&id) => id,
         _ => format!("h{}", at + 1),
     };
     let mut kept = json!({
@@ -1371,6 +1399,16 @@ fn strength(one: &Value) -> u8 {
 /// each other. Numbered again `h1`, `h2`, so each keeps a folder of
 /// exploits of its own.
 pub fn consolidated(found: Vec<(String, Vec<Value>)>) -> Vec<Value> {
+    let mut kept = merged_across(found);
+    for (at, one) in kept.iter_mut().enumerate() {
+        one["id"] = json!(format!("h{}", at + 1));
+    }
+    kept
+}
+
+/// [`consolidated`] before it numbers them: each keeps the id its attacker
+/// gave it, which the trail of one merged later names.
+fn merged_across(found: Vec<(String, Vec<Value>)>) -> Vec<Value> {
     let mut kept: Vec<Value> = Vec::new();
     for (who, list) in found {
         let before = kept.len();
@@ -1400,9 +1438,6 @@ pub fn consolidated(found: Vec<(String, Vec<Value>)>) -> Vec<Value> {
             one["found_by"] = json!([who]);
             kept.push(one);
         }
-    }
-    for (at, one) in kept.iter_mut().enumerate() {
-        one["id"] = json!(format!("h{}", at + 1));
     }
     kept
 }
@@ -1781,7 +1816,7 @@ fn hypotheses_of(
     refuted: &[Value],
     again: &mut [Value],
 ) -> Vec<Value> {
-    let mut hypotheses = consolidated(found);
+    let mut hypotheses = merged_across(found);
     for one in hypotheses.iter_mut() {
         let fixes = given
             .flow
@@ -1928,6 +1963,7 @@ pub fn attacked(given: &Given) -> Result<Done, String> {
         one["id"] = json!(format!("h{}", hypotheses.len() + 1));
         hypotheses.push(one);
     }
+    runs_named(&mut hypotheses, &stamp);
     kept_apart(&path, &mut hypotheses)?;
     let current = threat_model.unwrap_or_default();
     let threat = threat_proposed(&path, &threat_path, &current, &answers.proposed)?;

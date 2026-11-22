@@ -500,7 +500,7 @@ fn a_hole_one_run_names_crypto_and_another_tls_is_run_again_once() {
         )],
         1_789_000_000,
     );
-    project.earlier_at(
+    let tls = project.earlier_at(
         card,
         &project.first,
         &[
@@ -556,5 +556,22 @@ fn a_hole_one_run_names_crypto_and_another_tls_is_run_again_once() {
         .expect("kept");
     assert_eq!(kept["merged"][0]["class"], "TLS", "{kept:#}");
     assert!(kept["merged"][0]["again"]["run"].is_string(), "{kept:#}");
+    // Named by the run that kept it and the id it had there, never null.
+    assert_eq!(kept["merged"][0]["id"], "h1", "{kept:#}");
+    assert_eq!(kept["merged"][0]["run"], tls.as_str(), "{kept:#}");
     assert_eq!(report["budget"]["run_cap_hit"], false);
+    // The JSON report says the same, and whether a cap ended a turn.
+    let shown = devflow_engine::attack_report::json_of(&report, &Default::default());
+    assert_eq!(shown["run_cap_hit"], false, "{shown:#}");
+    let at = report["hypotheses"]
+        .as_array()
+        .expect("hypotheses")
+        .iter()
+        .position(|one| one["class"] == "crypto")
+        .expect("kept");
+    let merged = &shown["hypotheses"][at]["merged"][0];
+    assert_eq!(merged["id"], "h1", "{shown:#}");
+    assert_eq!(merged["run"], tls.as_str(), "{shown:#}");
+    let md = devflow_engine::attack_report::markdown(&report, &Default::default());
+    assert!(md.contains(&format!("took in 1: h1 of run {tls}")), "{md}");
 }

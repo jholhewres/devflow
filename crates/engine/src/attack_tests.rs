@@ -690,6 +690,37 @@ fn the_attacker_is_told_to_assert_bounds_never_wall_clock_time() {
     assert!(ASK.contains("not wall-clock time"), "{ASK}");
 }
 
+/// A hypothesis merged into another is named on its trail by an id and a
+/// run: the run that kept it and its id there, or this run and the id its
+/// attacker gave it.
+#[test]
+fn a_merged_hypothesis_is_named_by_its_id_and_its_run() {
+    let mut kept = json!({ "title": "a", "class": "ssrf", "file": "a.ts", "line": 3 });
+    let earlier = json!({ "title": "b", "class": "ssrf", "file": "a.ts", "line": 4,
+        "again": { "item": "card_1", "run": "20261121T031245Z", "id": "h2", "was": "confirmed" } });
+    let own = json!({ "id": "h7", "title": "c", "class": "ssrf", "file": "a.ts", "line": 5, "found_by": ["claude/large"] });
+    merge_into(&mut kept, &earlier);
+    merge_into(&mut kept, &own);
+    let mut list = vec![kept];
+    runs_named(&mut list, "20261122T142204Z");
+    let named: Vec<(&str, &str)> = list[0]["merged"]
+        .as_array()
+        .expect("merged")
+        .iter()
+        .map(|one| {
+            (
+                one["id"].as_str().unwrap_or("-"),
+                one["run"].as_str().unwrap_or("-"),
+            )
+        })
+        .collect();
+    assert_eq!(
+        named,
+        [("h2", "20261121T031245Z"), ("h7", "20261122T142204Z")]
+    );
+    assert_eq!(list[0]["merged"][0]["again"]["was"], "confirmed");
+}
+
 #[test]
 fn the_hypothesis_kept_says_what_it_took_in() {
     let h = |line: i64, class: &str, title: &str, exploit: bool| {
@@ -725,6 +756,7 @@ fn the_hypothesis_kept_says_what_it_took_in() {
         "the exploit's stands, the rest are its trail"
     );
     assert_eq!(merged[0]["found_by"], json!(["claude/large"]));
+    assert_eq!(merged[0]["id"], "h1", "the id its attacker gave it");
     assert!(
         !kept[0]["merged"].to_string().contains("secret code"),
         "never an exploit"

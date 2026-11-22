@@ -511,7 +511,11 @@ fn the_json_report_lists_the_confirmed_exploits_and_what_holds_them() {
     report["hypotheses"][1]["status"] = json!("confirmed");
     report["hypotheses"][1]["exploit"] = json!({ "test": SAID[1] });
     report["hypotheses"][1]["verified"] = json!({ "by": "session" });
-    report["hypotheses"][0]["merged"] = json!([{ "title": SAID[1] }, { "title": SAID[2] }]);
+    report["hypotheses"][0]["merged"] = json!([
+        { "title": SAID[1], "id": "h2", "run": "20261118T090000Z",
+          "again": { "item": "item_1", "run": "20261118T090000Z", "id": "h2", "was": "confirmed" } },
+        { "title": SAID[2], "id": "h4", "run": "20261119T120000Z", "found_by": ["codex/default"] },
+    ]);
     let shown = json_of(&report, &none());
     let exploits: Vec<(Value, Value)> = shown["exploits"]
         .as_array()
@@ -526,9 +530,64 @@ fn the_json_report_lists_the_confirmed_exploits_and_what_holds_them() {
             (json!("h2"), json!("evidence"))
         ]
     );
-    assert_eq!(shown["hypotheses"][0]["merged"], 2);
+    let merged: Vec<(Value, Value)> = shown["hypotheses"][0]["merged"]
+        .as_array()
+        .expect("merged")
+        .iter()
+        .map(|one| (one["id"].clone(), one["run"].clone()))
+        .collect();
+    assert_eq!(
+        merged,
+        [
+            (json!("h2"), json!("20261118T090000Z")),
+            (json!("h4"), json!("20261119T120000Z"))
+        ]
+    );
+    assert_eq!(shown["hypotheses"][0]["merged"][0]["was"], "confirmed");
     let text = shown.to_string();
     for leak in LEAKS {
         assert!(!text.contains(leak), "{leak} in {text}");
+    }
+}
+
+/// attack-report.json says whether a cap ended a turn, as attack.json does,
+/// and the markdown says so in its header.
+#[test]
+fn the_json_report_says_whether_a_cap_ended_a_turn() {
+    let mut report = report();
+    assert_eq!(json_of(&report, &none())["run_cap_hit"], false);
+    assert!(!markdown(&report, &none()).contains("run_cap_hit"));
+    report["budget"] = json!({ "run_capped_by": "time", "run_cap_hit": true });
+    assert_eq!(json_of(&report, &none())["run_cap_hit"], true);
+    let md = markdown(&report, &none());
+    assert!(
+        md.contains("A cap ended an attacker's turn (`run_cap_hit`)"),
+        "{md}"
+    );
+    // An attacker's own cap counts though the budget did not say it.
+    let mut report = self::report();
+    report["attackers"] = json!([{ "agent": "claude", "cap_hit": true }]);
+    assert_eq!(json_of(&report, &none())["run_cap_hit"], true);
+}
+
+/// Each hypothesis that took others in says so in one line of the markdown:
+/// how many, and each one's id and run. A trail entry an attacker wrote odd
+/// fields into shows `<…>`, never its words.
+#[test]
+fn the_markdown_says_in_one_line_what_each_hypothesis_took_in() {
+    let mut report = report();
+    report["hypotheses"][0]["merged"] = json!([
+        { "id": "h2", "run": "20261118T090000Z", "title": SAID[1] },
+        { "id": "h18", "run": "20261121T031245Z-1", "title": SAID[2] },
+        { "id": "../h1", "run": SAID[0], "title": SAID[3] },
+    ]);
+    let md = markdown(&report, &none());
+    assert!(
+        md.contains("- h1 took in 3: h2 of run 20261118T090000Z, h18 of run 20261121T031245Z-1, <…> of run <…>\n"),
+        "{md}"
+    );
+    assert_eq!(md.matches(" took in ").count(), 1, "{md}");
+    for leak in LEAKS {
+        assert!(!md.contains(leak), "{leak} in {md}");
     }
 }
