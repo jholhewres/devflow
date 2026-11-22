@@ -147,9 +147,19 @@ step.
 
 The attack is a stage of its own, after review (`devflow-attack`): review reads
 and judges, the attack acts. When it is due (`stages.attack.run`: `sensitive`,
-the default, on a diff past small or on a sensitive path; `per-item` on every
-card; `release` only when asked with `"attack": true`), the answer's
-`next` says so, and on `approve` it runs before the completion.
+what `devflow setup` writes, on a diff past small or on a sensitive path;
+`per-item` on every card; `release` only when asked with `"attack":
+true`; `off`, never, when the file names no attack stage) and has not run on
+the card yet (with `per-item`, after every change), the answer's `next`
+says so, and on `approve` it runs before the completion. A review after the
+fix of what an attack confirmed sends the card on to the completion: the
+fix is proven by its exploit test or its proof (`devflow-attack`, step 3),
+not by attacking again.
+
+`"attack": true` runs the attack right after this review, by name, and is
+refused while the attack stage is `off`. Its answer comes under this
+answer's `attack` key, or `{ "error": … }`: follow `devflow-attack` from its
+step 2.
 
 A review made before the attack was its own stage may still hold findings
 with `origin: attack`. Each holds the card only once proven: write its
@@ -164,8 +174,8 @@ exploit test from its `poc` and run it (red is the hole, shown), record it with
 `verified` takes a PoC run at any severity; only `review.block_on` decides what
 holds, and a confirmed exploit test stays green from then on. A PoC that
 needs the running application runs only against a target in force
-(`security.targets`, confirmed by the person on a terminal), named as
-`target`; a step a model refuses is `not_run`, never worked around.
+(`security.targets` the person confirmed, on a terminal or in the attack's
+question, or a service of `security.stack`), named as `target`; a step a model refuses is `not_run`, never worked around.
 
 Done when the attack is due and named in `next`, or is not due; and each
 older attack finding is proven or stays unconfirmed with its reason.

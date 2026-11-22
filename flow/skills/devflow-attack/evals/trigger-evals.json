@@ -1,0 +1,82 @@
+[
+  {
+    "query": "Item 22's review approved it and the attack is due. Go on.",
+    "should_trigger": true
+  },
+  {
+    "query": "Try to exploit the change on item 22 before we finish it.",
+    "should_trigger": true
+  },
+  {
+    "query": "Pentest the open-link feature in item 22.",
+    "should_trigger": true
+  },
+  {
+    "query": "Attack the release range v1.4.0..v1.5.0 before we tag it.",
+    "should_trigger": true
+  },
+  {
+    "query": "The review's next says the attack is due on this diff. Run it.",
+    "should_trigger": true
+  },
+  {
+    "query": "The attack left two hypotheses tried. Run their exploits and record what they showed.",
+    "should_trigger": true
+  },
+  {
+    "query": "I committed the fix for the SSRF the sandbox confirmed. Prove it.",
+    "should_trigger": true
+  },
+  {
+    "query": "Can someone abuse the new import endpoint? Write exploit tests and see.",
+    "should_trigger": true
+  },
+  {
+    "query": "Run devflow's attack on what was merged last week, it is already in production.",
+    "should_trigger": true
+  },
+  {
+    "query": "Is the path handling in item 16 exploitable? Show me, don't guess.",
+    "should_trigger": true
+  },
+  {
+    "query": "Review item 22's change.",
+    "should_trigger": false
+  },
+  {
+    "query": "Implement item 22.",
+    "should_trigger": false
+  },
+  {
+    "query": "Item 22's attack found nothing that holds. Wrap it up.",
+    "should_trigger": false
+  },
+  {
+    "query": "Set stages.attack.run to per-item in this project's devflow config.",
+    "should_trigger": false
+  },
+  {
+    "query": "Explain what the SSRF check in fetch.py does.",
+    "should_trigger": false
+  },
+  {
+    "query": "Add a payload case for ReDoS to the project's own cases.",
+    "should_trigger": false
+  },
+  {
+    "query": "Write the threat model for the tasks CLI from scratch.",
+    "should_trigger": false
+  },
+  {
+    "query": "Fix the failing test in tests/test_cli.py.",
+    "should_trigger": false
+  },
+  {
+    "query": "Plan the reports epic into items.",
+    "should_trigger": false
+  },
+  {
+    "query": "What work items are there right now?",
+    "should_trigger": false
+  }
+]

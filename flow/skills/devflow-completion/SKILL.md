@@ -42,6 +42,10 @@ execution stage: it runs every configured check and [[keeps the reports in the r
 { [["item": "<item]] id>", "criteria": [{ "criterion": "<checkbox text>", "tests": ["<test id>"] }] }
 ```
 
+An exploit test the review or the attack confirmed is wanted green in this
+run too: pass it in `red`, with what it shows now, or among a criterion's
+tests. Left out, the gate fails on it.
+
 Read the whole answer: each check, its counts, its exit. When [[devflow#2::devflow]] does not
 offer the tool, run each check's `run` command from `devflow.yaml` yourself and
 keep the last lines of its output.
@@ -60,6 +64,7 @@ the cleanup:
 | checks green | `<check>`: <n> passed, 0 failed | yes |
 | review clear | findings verdict `approve`, nothing in `block_on` | <review time> |
 | no debug left | `grep -rn "\[DEBUG-"` finds nothing | yes |
+| attack, where due | it ran on the [[item]] (after the last change with `per-item`); each exploit test it confirmed green; each sandbox-confirmed hypothesis at `block_on` proven | <attack run, proof time> |
 
 What counts:
 
@@ -97,8 +102,12 @@ and answers `result` (`passed` or `failed`) with what is `missing`. When [[devfl
 does not offer the tool, post that comment yourself with {{tool:comment}}.
 
 The gate passes when n equals m, every check is green and no finding is in
-`review.block_on`. When it fails, reply with what is missing and which stage
-fixes it (execution, or review), and end the turn: no handoff as finished, no
+`review.block_on`; where the attack is due, also when it ran on the [[item]]
+(after the last change with `per-item`) and did not fail, each exploit test
+the review or the attack confirmed is green in the newest run, and each
+hypothesis the sandbox confirmed at `block_on` is proven after the last
+change. When it fails, reply with what is missing and which stage fixes it
+(execution, review or the attack, `devflow-attack`), and end the turn: no handoff as finished, no
 [[{{tool:finish}}, which devflow]] refuses anyway while the gate fails. Where
 [[devflow's]] hooks are on, a turn that ends with the gate failing is sent back
 with the same list.

@@ -57,7 +57,9 @@ detected checks, each as a script under `.devpit/devflow/scripts/`, a
 detected E2E command under `stages.execution.release` (run once for a
 release, not for each card); one reviewer, with the security persona, and
 `review.scale: true`; findings merged as they are (`consolidate: none`); the
-`devflow-done` gate; Decisions in `shadow` when a key exists, with no brief
+attack stage on a sensitive diff (`stages.attack.run: sensitive`: past small,
+or touching a sensitive path, which runs a large model); the `devflow-done`
+gate; Decisions in `shadow` when a key exists, with no brief
 rubric and the plan rubric as advice.
 
 Show the preview as a short list (stages, each check with its command and the
@@ -182,14 +184,22 @@ an item of a list by its place, or by its name: a stage by its name, a
 reviewer by its persona, a check by its `name`; a name two items share is
 refused, with their places.
 
-`review.attack` (`off` unless said; `sensitive`, `per-item` or `release`, or
-`{ run: per-item, model: large }`) adds `devflow-security`'s attack to the
-review: only a finding an exploit test confirmed holds the card.
-`security.targets` lists the project's own running instances it may send
-requests to (loopback, `localhost`, `host.docker.internal` or a docker
-service's name); like `enabled`, it is the person's: `devpit_devflow_set` refuses it and the
-person runs `devflow config set security.targets '["http://localhost:8080"]'`
-in a terminal, which shows each target and asks them to confirm it.
+`stages.attack` is a stage of its own after review (`devflow-attack`):
+`run` (`off` when the file names no attack stage; `sensitive` when it names
+one with no `run`, and what `devflow setup` writes; `per-item`; `release`),
+`model`, `test` (the command that runs one exploit test), `sandbox` and
+`image`, `regression`, `attackers` and `concurrency`, and `budget`, which only
+the person sets. `review.attack` is its older name: saying both makes the
+file invalid. Only an exploit test that ran confirms a hypothesis.
+`security.targets` lists the project's own running instances the attack may
+send requests to (loopback, `localhost`, `host.docker.internal` or a docker
+service's name), and `security.stack` a compose file whose services are
+targets too; like `enabled`, they are the person's: `devpit_devflow_set` and
+`devpit_devflow_setup` refuse `security.*`, and the person confirms them in a
+terminal (`devflow config set security.targets
+'["http://localhost:8080"]'` shows each target and asks) or ticks them in
+the question the attack asks through the client. `devflow setup --attack`,
+in a terminal, asks everything the attack needs at once.
 
 Two optional fields keep a check off what it shares. `requires` is a probe run
 first, such as `pg_isready -q`: when it fails the check is not run rather than

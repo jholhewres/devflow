@@ -33,6 +33,9 @@ back `verified` (`finding`, `result`, `evidence`, `test`: the exploit's
 path). Never write an exploit into the checkout. The answer's `report`, and
 `retro-report.md` beside findings.json, say each finding confirmed, not
 confirmed or not run, with where its exploit is. An attack on the range
-(`attack` with `base` and `head` and no item) keeps its exploits in the
-project's vault the same way; `devflow attack <range> --promote <hypothesis>`
-copies one into the repository at its path once its fix lands.
+(`attack` with `base` and `head`, `"mode": "retro"` and no item) keeps its
+run and exploits in the project's vault the same way: its answer's `next`
+says so, never to copy one into the checkout. Its `verified` and `prove`
+go with the same `base` and `head` and the attack's `run`; `devflow attack
+<range> --promote <hypothesis> --run <run>` copies one into the repository
+at its path once its fix lands.

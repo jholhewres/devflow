@@ -75,6 +75,13 @@ failing line goes into `red`; the guard turns it green, and the test is the
 proof. A case you cannot make fail never showed the hole was there: say so
 rather than map a test that passed on its first run.
 
+A hole the attack confirmed (`devflow-attack`) comes back here with its
+exploit test, already seen red: that test is the regression test. Keep it at
+its path, fix the hole until it turns green, and pass it to
+`devpit_devflow_evidence` in `red` with what it shows now. One the sandbox confirmed
+at `block_on` is closed by its proof once the fix is committed
+(`devflow-attack`, step 3), not by attacking again.
+
 Done when each criterion's test was seen red, with its failing line kept, and
 is now green, and the verify command passes.
 
