@@ -547,4 +547,14 @@ fn a_hole_one_run_names_crypto_and_another_tls_is_run_again_once() {
         again.iter().any(|(class, _)| *class == "authz"),
         "{again:?}"
     );
+    // The one kept says which it took in, by the run that kept it.
+    let kept = report["hypotheses"]
+        .as_array()
+        .expect("hypotheses")
+        .iter()
+        .find(|one| one["class"] == "crypto")
+        .expect("kept");
+    assert_eq!(kept["merged"][0]["class"], "TLS", "{kept:#}");
+    assert!(kept["merged"][0]["again"]["run"].is_string(), "{kept:#}");
+    assert_eq!(report["budget"]["run_cap_hit"], false);
 }

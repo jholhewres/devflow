@@ -481,3 +481,54 @@ fn the_header_says_what_the_attack_read_and_nothing_an_attacker_set_there() {
     assert!(md.contains("Run 20261119T120000Z, aaaa..bbbb."), "{md}");
     assert!(!md.contains("IGNORE"), "{md}");
 }
+
+#[test]
+fn classes_said_their_own_way_are_shown_by_devflows_name_and_words() {
+    for (said, class) in [
+        ("stored-xss", "xss"),
+        ("Reflected XSS", "xss"),
+        ("dos", "dos"),
+        ("denial_of_service", "dos"),
+        ("crypto", "crypto"),
+        ("tls", "transport"),
+        ("session", "authn"),
+    ] {
+        let mut report = report();
+        report["hypotheses"][1]["class"] = json!(said);
+        let shown = json_of(&report, &none());
+        assert_eq!(shown["hypotheses"][1]["class"], class, "{said}");
+        assert_ne!(
+            shown["hypotheses"][1]["impact"],
+            said_of("other").0,
+            "{said}"
+        );
+    }
+}
+
+#[test]
+fn the_json_report_lists_the_confirmed_exploits_and_what_holds_them() {
+    let mut report = report();
+    report["hypotheses"][1]["status"] = json!("confirmed");
+    report["hypotheses"][1]["exploit"] = json!({ "test": SAID[1] });
+    report["hypotheses"][1]["verified"] = json!({ "by": "session" });
+    report["hypotheses"][0]["merged"] = json!([{ "title": SAID[1] }, { "title": SAID[2] }]);
+    let shown = json_of(&report, &none());
+    let exploits: Vec<(Value, Value)> = shown["exploits"]
+        .as_array()
+        .expect("exploits")
+        .iter()
+        .map(|one| (one["id"].clone(), one["held_by"].clone()))
+        .collect();
+    assert_eq!(
+        exploits,
+        [
+            (json!("h1"), json!("proof")),
+            (json!("h2"), json!("evidence"))
+        ]
+    );
+    assert_eq!(shown["hypotheses"][0]["merged"], 2);
+    let text = shown.to_string();
+    for leak in LEAKS {
+        assert!(!text.contains(leak), "{leak} in {text}");
+    }
+}

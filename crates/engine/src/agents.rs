@@ -182,13 +182,19 @@ pub enum Unreviewed {
     TimedOut,
 }
 
+/// Why a turn that ran out of its time gave no answer.
+pub const TIMED_OUT: &str = "gave no answer in the time the review had";
+/// Why a turn that spent its dollars (Claude Code's `--max-budget-usd`)
+/// gave no answer.
+pub const BUDGET_SPENT: &str = "it spent its run budget (--max-budget-usd) before answering";
+
 impl Unreviewed {
     pub fn reason(&self) -> String {
         match self {
             Unreviewed::Missing => "not installed".to_owned(),
             Unreviewed::SignedOut(said) => format!("not signed in: {said}"),
             Unreviewed::Failed(why) => why.clone(),
-            Unreviewed::TimedOut => "gave no answer in the time the review had".to_owned(),
+            Unreviewed::TimedOut => TIMED_OUT.to_owned(),
         }
     }
 }
@@ -302,6 +308,9 @@ pub fn answer_of(cli: Cli, stdout: &str) -> Result<(String, Option<f64>), String
         return Err(format!(
             "it used its {CLAUDE_TURNS} turns without answering"
         ));
+    }
+    if printed.get("subtype").and_then(Value::as_str) == Some("error_max_budget_usd") {
+        return Err(BUDGET_SPENT.to_owned());
     }
     if printed.get("is_error").and_then(Value::as_bool) == Some(true) {
         let said = printed.get(field).and_then(Value::as_str).unwrap_or("");

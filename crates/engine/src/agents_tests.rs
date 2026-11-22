@@ -277,3 +277,10 @@ fn every_reader_is_held_to_reading_and_one_that_cannot_be_is_refused() {
         refused.reason()
     );
 }
+
+#[test]
+fn a_claude_turn_that_spent_its_budget_says_so() {
+    let said = r#"{"type":"result","subtype":"error_max_budget_usd","is_error":true,"total_cost_usd":3.01}"#;
+    assert_eq!(answer_of(Cli::Claude, said), Err(BUDGET_SPENT.to_owned()));
+    assert_eq!(Unreviewed::TimedOut.reason(), TIMED_OUT);
+}

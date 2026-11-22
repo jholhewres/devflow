@@ -80,7 +80,7 @@ impl Known {
 
 /// The classes a hole is named by: each with what an attacker gets and
 /// what shuts it, in devflow's words. Any other class is `other`.
-const CLASSES: [(&str, &str, &str); 17] = [
+const CLASSES: [(&str, &str, &str); 20] = [
     (
         "ssrf",
         "The server sends requests to a destination an attacker chooses: internal services, a cloud's metadata or any host it reaches.",
@@ -162,6 +162,21 @@ const CLASSES: [(&str, &str, &str); 17] = [
         "Deserialize only plain data of the types expected, never objects, from input.",
     ),
     (
+        "dos",
+        "Input makes the service spend time or memory without bound: a request, or a few, tie it up for everyone.",
+        "Bound what input may cost before the work starts: its size and depth, the steps it sets off, and the memory it may take.",
+    ),
+    (
+        "crypto",
+        "Data is protected by cryptography an attacker can break or get around: a weak hash, a fixed key or nonce, a cipher without integrity.",
+        "Use the platform's vetted primitives as documented: a slow salted hash for passwords, random keys and nonces, authenticated encryption.",
+    ),
+    (
+        "transport",
+        "A connection trusts a peer it does not check: an attacker in its path reads or changes what passes.",
+        "Verify the peer's certificate and name on every connection, and never fall back to plain text.",
+    ),
+    (
         "other",
         "The attack confirmed this hole with an exploit test: what it lets an attacker do is in the run's attack.json.",
         "The attack's proposed fix is in the run's attack.json.",
@@ -169,7 +184,7 @@ const CLASSES: [(&str, &str, &str); 17] = [
 ];
 
 /// Other names a class is said by.
-const ALSO: [(&str, &str); 14] = [
+const ALSO: [(&str, &str); 23] = [
     ("path-traversal", "traversal"),
     ("directory-traversal", "traversal"),
     ("lfi", "traversal"),
@@ -184,6 +199,15 @@ const ALSO: [(&str, &str); 14] = [
     ("redirect", "open-redirect"),
     ("secret", "secrets"),
     ("cross-site-scripting", "xss"),
+    ("stored-xss", "xss"),
+    ("reflected-xss", "xss"),
+    ("dom-xss", "xss"),
+    ("denial-of-service", "dos"),
+    ("tls", "transport"),
+    ("ssl", "transport"),
+    ("cryptography", "crypto"),
+    ("session", "authn"),
+    ("jwt", "authn"),
 ];
 
 /// Classes attackers name one kind of hole by, each with the family it is
@@ -505,7 +529,28 @@ fn shown(one: &Value, known: &Known) -> Value {
         "fixes_in": one["fixes"].as_array().map(|fixes| {
             fixes.iter().map(|fix| name_of(&fix["repo"])).collect::<Vec<_>>()
         }),
+        "merged": one["merged"].as_array().map(Vec::len),
     })
+}
+
+/// Each confirmed hypothesis with an exploit test, and what holds it: the
+/// session's run (`evidence`, green from then on) or the sandbox's proof
+/// (`proof`). The test's name is the attack's own words, kept in attack.json.
+fn exploits_shown(report: &Value, known: &Known) -> Vec<Value> {
+    report["hypotheses"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|one| one["status"] == "confirmed" && one["exploit"]["test"].is_string())
+        .map(|one| {
+            let by = one_of(&one["verified"]["by"], &["sandbox", "session"]);
+            let held_by = if by == "sandbox" { "proof" } else { "evidence" };
+            json!({
+                "id": id_of(&one["id"]), "file": repo_path(&one["file"], known),
+                "line": one["line"].as_u64(), "verified_by": by, "held_by": held_by,
+            })
+        })
+        .collect()
 }
 
 /// The hypotheses as [`shown`].
@@ -526,6 +571,7 @@ pub fn json_of(report: &Value, known: &Known) -> Value {
         "mode": report["mode"], "verdict": report["verdict"], "counts": report["counts"],
         "metrics": report["metrics"],
         "hypotheses": hypotheses(report, known),
+        "exploits": exploits_shown(report, known),
         "scanner": {
             "reachable": scanned(report, known, true),
             "rest": scanned(report, known, false),

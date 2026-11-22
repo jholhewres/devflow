@@ -676,3 +676,57 @@ fn a_green_run_that_ran_no_test_refutes_nothing() {
     ));
     assert!(!none_ran("ok  \texample.test/shop\t0.002s\n"));
 }
+
+#[test]
+fn a_cap_hit_is_a_turn_its_time_or_dollars_ended() {
+    assert!(cap_hit(crate::agents::TIMED_OUT));
+    assert!(cap_hit(crate::agents::BUDGET_SPENT));
+    assert!(!cap_hit("not signed in: run claude login"));
+}
+
+#[test]
+fn the_attacker_is_told_to_assert_bounds_never_wall_clock_time() {
+    assert!(ASK.contains("never how long it takes"), "{ASK}");
+    assert!(ASK.contains("not wall-clock time"), "{ASK}");
+}
+
+#[test]
+fn the_hypothesis_kept_says_what_it_took_in() {
+    let h = |line: i64, class: &str, title: &str, exploit: bool| {
+        let mut one = json!({ "id": "h1", "file": "src/db.ts", "line": line, "class": class, "title": title, "status": "tried" });
+        if exploit {
+            one["exploit"] = json!({ "path": "tests/x.ts", "test": "x", "code": "secret code" });
+        }
+        one
+    };
+    let kept = consolidated(vec![
+        (
+            "claude/large".to_owned(),
+            vec![h(7, "tls", "no CA check", false)],
+        ),
+        (
+            "codex/default".to_owned(),
+            vec![h(8, "ssl", "rejectUnauthorized", true)],
+        ),
+        (
+            "gemini/default".to_owned(),
+            vec![h(7, "transport", "any peer", false)],
+        ),
+    ]);
+    assert_eq!(kept.len(), 1, "{kept:#?}");
+    let merged = kept[0]["merged"].as_array().expect("merged");
+    let titles: Vec<&str> = merged
+        .iter()
+        .filter_map(|one| one["title"].as_str())
+        .collect();
+    assert_eq!(
+        titles,
+        ["no CA check", "any peer"],
+        "the exploit's stands, the rest are its trail"
+    );
+    assert_eq!(merged[0]["found_by"], json!(["claude/large"]));
+    assert!(
+        !kept[0]["merged"].to_string().contains("secret code"),
+        "never an exploit"
+    );
+}
