@@ -108,7 +108,7 @@ fn one_issue_draft_per_confirmed_hypothesis_in_devflows_words() {
 }
 
 /// A field the attack wrote where devflow expects one of its own is left
-/// out, and a class devflow does not name is `other`.
+/// out, and a class that is no plain name is `other`.
 #[test]
 fn a_field_devflow_sets_is_shown_only_as_devflow_would_set_it() {
     let mut report = report();
@@ -127,7 +127,7 @@ fn a_field_devflow_sets_is_shown_only_as_devflow_would_set_it() {
     assert_eq!(one["class"], "other");
     assert_eq!(one["proof"]["base"]["commit"], Value::Null);
     assert_eq!(one["proof"]["base"]["result"], "red");
-    assert_eq!(shown["hypotheses"][1]["class"], "other");
+    assert_eq!(shown["hypotheses"][1]["class"], "made-up");
     let md = markdown(&report, &none());
     assert!(!md.contains("<img"), "{md}");
     assert!(
@@ -237,8 +237,8 @@ fn a_findings_path_is_shown_only_when_devflow_found_it() {
     }
 }
 
-/// A class said in other words is the class devflow names; one it does not
-/// name still gets an impact and a fix that send the reader to attack.json.
+/// A class said in other words is the class devflow names, with its own
+/// impact and fix.
 #[test]
 fn a_class_said_otherwise_is_named_as_devflow_names_it() {
     for (said, class) in [
@@ -247,11 +247,86 @@ fn a_class_said_otherwise_is_named_as_devflow_names_it() {
         ("xss", "xss"),
         ("open_redirect", "open-redirect"),
         ("idor", "authz"),
-        ("made-up", "other"),
+        ("indirect prompt injection", "prompt-injection"),
+        ("log-injection", "injection"),
+        ("pii-leak", "info-disclosure"),
     ] {
         assert_eq!(class_of(&json!(said)), class, "{said}");
         let (impact, fix) = said_of(class);
         assert!(!impact.is_empty() && !fix.is_empty(), "{class}");
+    }
+}
+
+/// Content passed off under a source it did not come from is an integrity
+/// hole, whatever its attacker calls it: devflow's words, and its own rule
+/// in the SARIF.
+#[test]
+fn an_integrity_hole_is_named_whatever_its_attacker_calls_it() {
+    for said in [
+        "provenance",
+        "Content Spoofing",
+        "content_injection",
+        "origin-confusion",
+        "cache-poisoning",
+        "header-spoofing",
+        "redirect-provenance",
+    ] {
+        let mut report = report();
+        report["hypotheses"][0]["class"] = json!(said);
+        let shown = json_of(&report, &none());
+        assert_eq!(shown["hypotheses"][0]["class"], "integrity", "{said}");
+        assert_eq!(shown["hypotheses"][0]["impact"], said_of("integrity").0);
+        let sarif = sarif(&report, &none());
+        assert_eq!(sarif["runs"][0]["results"][0]["ruleId"], "attack/integrity");
+    }
+}
+
+/// A class devflow has never seen keeps its own name in the markdown, the
+/// SARIF and the drafts, and is said in the words of the class its attacker
+/// said it is nearest; with none, its impact sends the reader to
+/// attack.json. A class that is no plain name is still `other`.
+#[test]
+fn a_class_never_seen_keeps_its_name_and_the_words_nearest_it() {
+    let mut report = report();
+    report["hypotheses"][0]["class"] = json!("Quota Bypass");
+    let shown = json_of(&report, &none());
+    assert_eq!(shown["hypotheses"][0]["class"], "quota-bypass");
+    assert_eq!(shown["hypotheses"][0]["impact"], said_of("other").0);
+    assert!(markdown(&report, &none()).contains("| quota-bypass |"));
+    let sarif = sarif(&report, &none());
+    assert_eq!(
+        sarif["runs"][0]["results"][0]["ruleId"],
+        "attack/quota-bypass"
+    );
+    let drafts = drafts(&report, &none());
+    assert!(
+        drafts[0]["title"]
+            .as_str()
+            .expect("title")
+            .contains("quota-bypass"),
+        "{drafts:?}"
+    );
+    report["hypotheses"][0]["near"] = json!("access control");
+    let shown = &json_of(&report, &none())["hypotheses"][0];
+    assert_eq!(shown["class"], "quota-bypass");
+    assert_eq!(shown["impact"], said_of("authz").0);
+    assert_eq!(shown["fix"], said_of("authz").1);
+    report["hypotheses"][0]["status"] = json!("refuted");
+    let refuted = &json_of(&report, &none())["hypotheses"][0];
+    assert!(refuted["impact"]
+        .as_str()
+        .expect("impact")
+        .starts_with("Refuted: the hole is not there. Were it there, an action"));
+    for said in ["winter2026", "a/b", "ghp_0123456789abcdefABCDEF", "x"] {
+        assert_eq!(class_of(&json!(said)), "other", "{said}");
+    }
+}
+
+/// The attacker is told every class devflow names.
+#[test]
+fn the_attacker_is_given_every_class_devflow_names() {
+    for (name, _, _) in CLASSES.iter().filter(|(name, _, _)| *name != "other") {
+        assert!(crate::attack::ASK.contains(name), "{name}");
     }
 }
 

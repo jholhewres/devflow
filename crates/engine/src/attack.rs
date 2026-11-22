@@ -47,7 +47,8 @@ This reading attacks the change: it does not list risks, it proves them.\n\
 4. `severity` is how bad the hole is if it is there, whatever its status: a refuted or not_run one keeps the severity it would have, never lowered to `info` for being refuted; devflow keeps it apart as the estimate. A hypothesis you could not reproduce stays at its severity and holds nothing: only an exploit test that was run confirms a hypothesis.\n\
 Read only: change no file of the checkout.\n\n\
 Your whole reply is one JSON object, with no prose around it:\n\
-{ \"version\": 1, \"hypotheses\": [ { \"id\": \"h1\", \"title\": \"<the hole, one line>\", \"class\": \"<ssrf, injection, traversal, redos, authz, secrets, prompt-injection or another word>\", \"file\": \"<path at HEAD>\", \"line\": 1, \"severity\": \"critical|high|medium|low|info\", \"status\": \"tried|refuted|not_run\", \"reason\": \"<what the exploit shows, or why refuted or not run>\", \"impact\": \"<what an attacker gets, without the payload>\", \"fix\": \"<the change that shuts it>\", \"from\": \"<the review finding's id when it started from one>\", \"control\": \"<for a refuted one: the file of the control that stops it>\", \"exploit\": { \"path\": \"<where the test belongs in the repository>\", \"test\": \"<the test's name, as the runner names it>\", \"code\": \"<the whole test file>\", \"timing\": false, \"target\": \"<the stack's target it reaches, said exactly as listed; left out when it reaches none>\" } } ], \"scanner\": [ { \"id\": \"<s1, s2…: a scanner finding given below>\", \"reachable\": true, \"path\": \"<from untrusted input to the vulnerable call, file:line → … → file:line; or why nothing reaches it>\", \"fix\": \"<the upgrade or change that shuts it>\" } ], \"cases\": [ { \"class\": \"<ssrf, redos, traversal, sqli, nosqli, xxe, deserialization or prompt-injection>\", \"from\": \"<for prompt-injection: user, tool or document, who wrote the text>\", \"input\": \"<a neutral input that would catch this hole again, with no URL, no port and no user@: an address kept for documentation (192.0.2.1, 198.51.100.7, 2001:db8::1) or a .test name; no dotted word ends in a top-level name: write a file's or a call's name in backticks, as a relative path or a call (`./main.rs`, `src/App.java`, `subprocess.call()`); no secret, no real name>\", \"want\": \"rejected|inert|fast, or data for prompt-injection\", \"why\": \"<the hole it catches>\" } ], \"threat_model\": \"<the project's threat model as it should read after this attack: its assets, the untrusted inputs with file:line, the trust boundaries and their controls, and the hypotheses tried with their result>\" }\n\
+{ \"version\": 1, \"hypotheses\": [ { \"id\": \"h1\", \"title\": \"<the hole, one line>\", \"class\": \"<one of devflow's classes below, or another word>\", \"near\": \"<when class is another word: the one of devflow's classes it is nearest>\", \"file\": \"<path at HEAD>\", \"line\": 1, \"severity\": \"critical|high|medium|low|info\", \"status\": \"tried|refuted|not_run\", \"reason\": \"<what the exploit shows, or why refuted or not run>\", \"impact\": \"<what an attacker gets, without the payload>\", \"fix\": \"<the change that shuts it>\", \"from\": \"<the review finding's id when it started from one>\", \"control\": \"<for a refuted one: the file of the control that stops it>\", \"exploit\": { \"path\": \"<where the test belongs in the repository>\", \"test\": \"<the test's name, as the runner names it>\", \"code\": \"<the whole test file>\", \"timing\": false, \"target\": \"<the stack's target it reaches, said exactly as listed; left out when it reaches none>\" } } ], \"scanner\": [ { \"id\": \"<s1, s2…: a scanner finding given below>\", \"reachable\": true, \"path\": \"<from untrusted input to the vulnerable call, file:line → … → file:line; or why nothing reaches it>\", \"fix\": \"<the upgrade or change that shuts it>\" } ], \"cases\": [ { \"class\": \"<ssrf, redos, traversal, sqli, nosqli, xxe, deserialization or prompt-injection>\", \"from\": \"<for prompt-injection: user, tool or document, who wrote the text>\", \"input\": \"<a neutral input that would catch this hole again, with no URL, no port and no user@: an address kept for documentation (192.0.2.1, 198.51.100.7, 2001:db8::1) or a .test name; no dotted word ends in a top-level name: write a file's or a call's name in backticks, as a relative path or a call (`./main.rs`, `src/App.java`, `subprocess.call()`); no secret, no real name>\", \"want\": \"rejected|inert|fast, or data for prompt-injection\", \"why\": \"<the hole it catches>\" } ], \"threat_model\": \"<the project's threat model as it should read after this attack: its assets, the untrusted inputs with file:line, the trust boundaries and their controls, and the hypotheses tried with their result>\" }\n\
+devflow's classes: ssrf, injection, sqli, nosqli, command-injection, xss, csrf, open-redirect, traversal, redos, authn, authz, secrets, prompt-injection, xxe, deserialization, dos, crypto, transport, info-disclosure, integrity.\n\
 `exploit` is required for `tried` and left out otherwise. Do not try again a hypothesis listed as refuted before. Say of each scanner finding given whether untrusted input reaches it, with the call path.\n";
 
 /// What the attack is given.
@@ -467,12 +468,16 @@ fn left_open(one: &Value, run_folder: &Path, label: &str, run: &str) -> Option<V
     if one["exploit"]["timing"] == true || reads_clock(&code) {
         exploit["timing"] = json!(true);
     }
-    Some(json!({
+    let mut found = json!({
         "title": one["title"], "class": one["class"], "file": one["file"],
         "line": one["line"], "severity": one["severity"], "status": "tried",
         "reason": one["reason"], "exploit": exploit,
         "again": { "item": label, "run": run, "id": one["id"], "was": one["status"] },
-    }))
+    });
+    if one["near"].is_string() {
+        found["near"] = one["near"].clone();
+    }
+    Some(found)
 }
 
 /// What the attack read: a range already in production (`retro`), another
@@ -694,6 +699,11 @@ fn hypothesis(one: &Value, at: usize) -> Result<Value, String> {
         "line": one.get("line").and_then(Value::as_u64).unwrap_or(1).max(1),
         "severity": severity, "status": status, "reason": reason,
     });
+    // What a class devflow does not name is nearest, said by the attacker.
+    let near: String = text(one, "near").chars().take(40).collect();
+    if !near.is_empty() {
+        kept["near"] = json!(near);
+    }
     let from = text(one, "from");
     kept["from"] = json!(if from.starts_with('r') {
         from

@@ -79,7 +79,9 @@ impl Known {
 }
 
 /// The classes a hole is named by: each with what an attacker gets and
-/// what shuts it, in devflow's words. Any other class is `other`.
+/// what shuts it, in devflow's words. Any other class keeps its own name
+/// when it is a plain one, said in the words of the class nearest it
+/// ([`class_of`], [`worded_as`]).
 const CLASSES: &[(&str, &str, &str)] = &[
     (
         "ssrf",
@@ -182,6 +184,11 @@ const CLASSES: &[(&str, &str, &str)] = &[
         "Answer every caller the same way whatever the cause, and keep the details in logs only the team reads.",
     ),
     (
+        "integrity",
+        "Content is taken as coming from a source it did not come from, or as whole when it was changed: an attacker passes their own content off under a trusted origin or name.",
+        "Keep where content truly came from (its final origin after redirects, its signature or digest), and store or show it only under that source, refusing what does not match.",
+    ),
+    (
         "other",
         "The attack confirmed this hole with an exploit test: what it lets an attacker do is in the run's attack.json.",
         "The attack's proposed fix is in the run's attack.json.",
@@ -222,6 +229,32 @@ const ALSO: &[(&str, &str)] = &[
     ("disclosure", "info-disclosure"),
     ("enumeration", "info-disclosure"),
     ("user-enumeration", "info-disclosure"),
+    ("provenance", "integrity"),
+    ("content-spoofing", "integrity"),
+    ("content-injection", "integrity"),
+    ("spoofing", "integrity"),
+    ("origin-confusion", "integrity"),
+    ("origin-spoofing", "integrity"),
+    ("tampering", "integrity"),
+    ("data-tampering", "integrity"),
+    ("data-integrity", "integrity"),
+    ("cache-poisoning", "integrity"),
+];
+
+/// Parts of a class devflow does not name that tell its family, tried in
+/// order when nothing above names it: `header-spoofing` is an integrity
+/// hole, `pii-leak` a disclosure, `log-injection` an injection.
+const SAID_WITHIN: [(&str, &str); 10] = [
+    ("prompt", "prompt-injection"),
+    ("provenance", "integrity"),
+    ("spoof", "integrity"),
+    ("tamper", "integrity"),
+    ("poison", "integrity"),
+    ("leak", "info-disclosure"),
+    ("disclos", "info-disclosure"),
+    ("exposure", "info-disclosure"),
+    ("enumerat", "info-disclosure"),
+    ("inject", "injection"),
 ];
 
 /// Classes attackers name one kind of hole by, each with the family it is
@@ -255,29 +288,54 @@ pub fn on_one_line(one: &str, other: &str) -> bool {
 }
 
 /// The family a hypothesis' class is told apart in: its name as devflow
-/// says it ([`ALSO`]), or the one its neighbours share ([`FAMILIES`]). Any
-/// other class is a family of its own, whatever its case or separators.
+/// says it ([`ALSO`]), the one its neighbours share ([`FAMILIES`]), or the
+/// one a part of it tells ([`SAID_WITHIN`]). Any other class is a family of
+/// its own, whatever its case or separators.
 pub fn family(class: &str) -> String {
     let said = class.trim().to_ascii_lowercase().replace(['_', ' '], "-");
     let said = ALSO
         .iter()
         .find(|(also, _)| *also == said)
         .map_or(said.clone(), |(_, class)| (*class).to_owned());
-    FAMILIES
+    let said = FAMILIES
         .iter()
         .find(|(name, _)| *name == said)
+        .map_or(said, |(_, family)| (*family).to_owned());
+    if named(&said) {
+        return said;
+    }
+    SAID_WITHIN
+        .iter()
+        .find(|(part, _)| said.contains(part))
         .map_or(said, |(_, family)| (*family).to_owned())
 }
 
-/// A hypothesis' class as devflow names it: its family ([`family`]) when
-/// devflow names that class, else `other`.
-fn class_of(value: &Value) -> &'static str {
+/// Whether devflow names `class` and has its words for it.
+fn named(class: &str) -> bool {
+    CLASSES.iter().any(|(name, _, _)| *name == class)
+}
+
+/// A class devflow does not name, as a report shows it: a word or a few of
+/// lowercase letters joined by hyphens, no digit, so no token, address or
+/// path an attacker set there; any other is `other`.
+fn unnamed(said: &str) -> bool {
+    (2..=LONGEST_NAME).contains(&said.len())
+        && said.chars().all(|ch| ch.is_ascii_lowercase() || ch == '-')
+        && said
+            .split('-')
+            .all(|part| !part.is_empty() && part.len() <= 24)
+}
+
+/// A hypothesis' class as a report shows it: its family ([`family`]), which
+/// devflow names or which keeps its own name when it is a plain one
+/// ([`unnamed`]); `other` when it is neither.
+fn class_of(value: &Value) -> String {
     let said = family(value.as_str().unwrap_or_default());
-    CLASSES
-        .iter()
-        .map(|(name, _, _)| *name)
-        .find(|name| *name == said)
-        .unwrap_or("other")
+    if named(&said) || unnamed(&said) {
+        said
+    } else {
+        "other".to_owned()
+    }
 }
 
 /// What an attacker gets from a class of hole, and what shuts it.
@@ -286,6 +344,22 @@ fn said_of(class: &str) -> (&'static str, &'static str) {
         .iter()
         .find(|(name, _, _)| *name == class)
         .map_or(("", ""), |(_, impact, fix)| (*impact, *fix))
+}
+
+/// The class devflow names whose words a hypothesis is said in: its own,
+/// or for a class devflow does not name, the one its attacker said it is
+/// nearest (`near`); `other` when there is none.
+fn worded_as(class: &str, one: &Value) -> &'static str {
+    let devflows = |said: &str| {
+        CLASSES
+            .iter()
+            .map(|(name, _, _)| *name)
+            .find(|name| *name == said && *name != "other")
+    };
+    let near = family(one["near"].as_str().unwrap_or_default());
+    devflows(class)
+        .or_else(|| devflows(&near))
+        .unwrap_or("other")
 }
 
 /// A sentence as it reads after a colon: its first letter lowercase.
@@ -297,8 +371,10 @@ fn lowered(sentence: &str) -> String {
 }
 
 /// What a hypothesis of `class` lets an attacker do, as its `status` allows
-/// saying it: only a confirmed one is said to be there.
-fn impact_of(class: &str, status: &str) -> String {
+/// saying it: only a confirmed one is said to be there. A class devflow
+/// does not name is said in the words of the one nearest it ([`worded_as`]).
+fn impact_of(class: &str, status: &str, one: &Value) -> String {
+    let class = worded_as(class, one);
     let (impact, _) = said_of(class);
     let other = class == "other";
     match status {
@@ -312,10 +388,10 @@ fn impact_of(class: &str, status: &str) -> String {
 
 /// What shuts a hypothesis of `class`, as its `status` allows: a refuted
 /// one has nothing to fix.
-fn fix_of(class: &str, status: &str) -> &'static str {
+fn fix_of(class: &str, status: &str, one: &Value) -> &'static str {
     match status {
         "refuted" => "Nothing to fix: what stops it is in the run's attack.json.",
-        _ => said_of(class).1,
+        _ => said_of(worded_as(class, one)).1,
     }
 }
 
@@ -622,7 +698,7 @@ fn shown(one: &Value, known: &Known) -> Value {
         "estimated_severity": one_of(&one["estimated_severity"], &SEVERITIES),
         "class": class,
         "file": repo_path(&one["file"], known), "line": one["line"].as_u64(),
-        "impact": impact_of(class, said), "fix": fix_of(class, said),
+        "impact": impact_of(&class, said, one), "fix": fix_of(&class, said, one),
         "verified_by": one_of(&one["verified"]["by"], &["sandbox", "session"]),
         "proof_kind": proof_kind(one),
         "timing": timing["runs"].as_u64().map(|runs| json!({
@@ -755,9 +831,9 @@ fn families(report: &Value, known: &Known) -> Vec<Value> {
                     "line": list[*member]["line"].as_u64(),
                 })).collect::<Vec<_>>(),
                 "confirmed": confirmed, "severity": severity,
-                "fix": match class {
+                "fix": match worded_as(&class, first) {
                     "other" => "The attack's proposed fixes are in the run's attack.json: one change at the root should shut every variant.",
-                    _ => said_of(class).1,
+                    worded => said_of(worded).1,
                 },
             })
         })
