@@ -49,7 +49,7 @@ Read only: change no file of the checkout.\n\n\
 Your whole reply is one JSON object, with no prose around it:\n\
 { \"version\": 1, \"hypotheses\": [ { \"id\": \"h1\", \"title\": \"<the hole, one line>\", \"class\": \"<one of devflow's classes below, or another word>\", \"near\": \"<when class is another word: the one of devflow's classes it is nearest>\", \"file\": \"<path at HEAD>\", \"line\": 1, \"severity\": \"critical|high|medium|low|info\", \"status\": \"tried|refuted|not_run\", \"reason\": \"<what the exploit shows, or why refuted or not run>\", \"impact\": \"<what an attacker gets, without the payload>\", \"fix\": \"<the change that shuts it>\", \"from\": \"<the review finding's id when it started from one>\", \"control\": \"<for a refuted one: the file of the control that stops it>\", \"root\": \"<the function, rule or list at fault, by its name in the code>\", \"cause\": \"<what is at fault: one of devflow's causes below, or other>\", \"same_as\": \"<run/id of a hypothesis listed as refuted or not run before, when this is that one again>\", \"exploit\": { \"path\": \"<where the test belongs in the repository>\", \"test\": \"<the test's name, as the runner names it>\", \"code\": \"<the whole test file>\", \"timing\": false, \"target\": \"<the stack's target it reaches, said exactly as listed; left out when it reaches none>\" } } ], \"scanner\": [ { \"id\": \"<s1, s2…: a scanner finding given below>\", \"reachable\": true, \"path\": \"<from untrusted input to the vulnerable call, file:line → … → file:line; or why nothing reaches it>\", \"fix\": \"<the upgrade or change that shuts it>\" } ], \"cases\": [ { \"class\": \"<ssrf, redos, traversal, sqli, nosqli, xxe, deserialization or prompt-injection>\", \"from\": \"<for prompt-injection: user, tool or document, who wrote the text>\", \"input\": \"<a neutral input that would catch this hole again, with no URL, no port and no user@: an address kept for documentation (192.0.2.1, 198.51.100.7, 2001:db8::1) or a .test name; no dotted word ends in a top-level name: write a file's or a call's name in backticks, as a relative path or a call (`./main.rs`, `src/App.java`, `subprocess.call()`); no secret, no real name>\", \"want\": \"rejected|inert|fast, or data for prompt-injection\", \"why\": \"<the hole it catches>\" } ], \"threat_model\": \"<the project's threat model as it should read after this attack: its assets, the untrusted inputs with file:line, the trust boundaries and their controls, and the hypotheses tried with their result; an empty string when the threat model above still reads right>\", \"causes\": { \"<again-1, again-2…: one run again before you>\": \"<its cause>\" } }\n\
 devflow's classes: ssrf, injection, sqli, nosqli, command-injection, xss, csrf, open-redirect, traversal, redos, authn, authz, secrets, prompt-injection, xxe, deserialization, dos, crypto, transport, info-disclosure, integrity.\n\
-devflow's causes: hand-kept-blocklist (an address list kept by hand), check-then-connect (an address checked, then looked up again to connect), unchecked-redirect, pattern-parsed-markup (markup read with patterns, not a parser), unescaped-output, text-built-code (a query, command or template built from text), super-linear-work (work that grows faster than its input), unbounded-input, unverified-peer (a certificate or name not checked), unverified-token, missing-ownership-check, secret-in-reach, credentials-in-url, unresolved-path, origin-not-kept (content kept under an origin it did not come from).\n\
+devflow's causes: hand-kept-blocklist (a list kept by hand: of addresses, elements, names), check-then-connect (an address checked, then looked up again to connect), unchecked-redirect, pattern-parsed-markup (markup read with patterns, not a parser), unescaped-output, text-built-code (a query, command or template built from text), super-linear-work (work that grows faster than its input), unbounded-input, unverified-peer (a certificate or name not checked), unverified-token, missing-ownership-check, secret-in-reach, credentials-in-url, unresolved-path, origin-not-kept (content kept under an origin it did not come from).\n\
 `exploit` is required for `tried` and left out otherwise. Do not try again a hypothesis listed as refuted before; one listed as refuted or not run before that you name again carries `same_as`. Say of each scanner finding given whether untrusted input reaches it, with the call path.\n";
 
 /// What the attack is given.
@@ -259,9 +259,16 @@ pub fn not_run_before(earlier: Option<&Value>) -> Vec<Value> {
         return Vec::new();
     };
     let said = |one: &Value, run: &Value, id: &Value| {
-        json!({ "title": text(one, "title"), "class": one["class"], "file": one["file"],
-            "line": one["line"], "severity": one["severity"], "reason": one["reason"],
-            "run": run, "id": id })
+        let mut said = json!({ "title": text(one, "title"), "class": one["class"],
+            "file": one["file"], "line": one["line"], "severity": one["severity"],
+            "reason": one["reason"], "run": run, "id": id });
+        // What is at fault in it, so one proposed again elsewhere is known.
+        for key in ["cause", "root"] {
+            if one[key].is_string() {
+                said[key] = one[key].clone();
+            }
+        }
+        said
     };
     let own = earlier["hypotheses"]
         .as_array()
@@ -325,13 +332,63 @@ fn refuted_again(one: &Value, refuted: &[Value]) -> Option<usize> {
     })
 }
 
-/// What an earlier attack did not run that an answered hypothesis is again:
-/// the one it said it is (`same_as`), the same title of the same file, or
-/// one of the same file and family of class a few lines from it.
+/// What an earlier attack did not run that an answered hypothesis is again,
+/// the surest first: the one it said it is (`same_as`); the same title of
+/// the same file, or one of the same file and family of class a few lines
+/// from it; the same title of one family of class in another file; or the
+/// same fault in another file ([`same_fault`]). An attacker proposing it again elsewhere names
+/// the same hole by what is at fault, not by where it looked.
 fn not_run_again<'a>(one: &Value, not_run: &'a [Value]) -> Option<&'a Value> {
-    not_run.iter().find(|before| {
-        named_as(one, before) || same_hypothesis(before, one) || same_place(before, one)
-    })
+    let tests: [&dyn Fn(&Value) -> bool; 4] = [
+        &|before| named_as(one, before),
+        &|before| same_hypothesis(before, one) || same_place(before, one),
+        &|before| same_title(before, one) && same_family(before, one),
+        &|before| same_fault(before, one),
+    ];
+    tests
+        .iter()
+        .find_map(|test| not_run.iter().find(|before| test(before)))
+}
+
+/// Whether two hypotheses say the same title, in any file.
+fn same_title(one: &Value, other: &Value) -> bool {
+    let title = text(one, "title");
+    !title.is_empty() && text(other, "title").eq_ignore_ascii_case(&title)
+}
+
+/// Whether two hypotheses are of one family of class.
+fn same_family(one: &Value, other: &Value) -> bool {
+    crate::attack_report::family(&text(one, "class"))
+        == crate::attack_report::family(&text(other, "class"))
+}
+
+/// Whether two hypotheses name one fault: one family of class and one
+/// cause devflow names, at one target both name, the function, rule or
+/// list at fault (`root`) or the stack's target its exploit reaches. One
+/// that names no target is never matched by its cause alone: a not-run
+/// hole of that cause elsewhere may be another one, and would be lost.
+fn same_fault(one: &Value, other: &Value) -> bool {
+    let cause = |one: &Value| crate::attack_report::cause_of(&text(one, "cause"));
+    let both = |said: &dyn Fn(&Value) -> String| {
+        let (theirs, own) = (said(one), said(other));
+        !theirs.is_empty() && theirs == own
+    };
+    let root = |one: &Value| {
+        text(one, "root")
+            .trim_matches(|ch: char| matches!(ch, '`' | '"' | '\''))
+            .trim()
+            .trim_end_matches("()")
+            .to_ascii_lowercase()
+    };
+    let target = |one: &Value| {
+        text(&one["exploit"], "target")
+            .trim_end_matches('/')
+            .to_ascii_lowercase()
+    };
+    cause(one).is_some()
+        && cause(one) == cause(other)
+        && same_family(one, other)
+        && (both(&root) || both(&target))
 }
 
 /// A hypothesis's file as it is compared: no `./`.
@@ -342,10 +399,7 @@ fn hypothesis_file(one: &Value) -> String {
 /// Two hypotheses are the same one when they say the same title of the
 /// same file. Ids are numbered anew each run, so they never match.
 fn same_hypothesis(one: &Value, other: &Value) -> bool {
-    let title = text(one, "title");
-    !title.is_empty()
-        && text(other, "title").eq_ignore_ascii_case(&title)
-        && hypothesis_file(one) == hypothesis_file(other)
+    same_title(one, other) && hypothesis_file(one) == hypothesis_file(other)
 }
 
 /// The newest earlier attack report of `card`, from the runs' home only.
@@ -492,8 +546,18 @@ pub fn open_before(runs: &crate::runs::Runs, card: &str, root: &Path, head: &str
             // The newest run that kept it speaks for it, unless an older
             // one confirmed it (that exploit showed the hole) or only an
             // older one kept its exploit. One of a hole already kept is
-            // taken in, so what each took in is never lost.
-            match again.iter_mut().find(|had| same_hole(had, &found)) {
+            // taken in, so what each took in is never lost: the one it is
+            // by its title or exploit first, else one at its place that
+            // leaves no confirmed exploit unrun ([`held_apart`]).
+            let at = again
+                .iter()
+                .position(|had| same_hypothesis(had, &found) || same_exploit(had, &found))
+                .or_else(|| {
+                    again
+                        .iter()
+                        .position(|had| same_hole(had, &found) && !held_apart(had, &found))
+                });
+            match at.map(|at| &mut again[at]) {
                 Some(had) if speaks_over(&found, had) => {
                     let gone = std::mem::replace(had, found);
                     merge_into(had, &gone);
@@ -510,7 +574,24 @@ pub fn open_before(runs: &crate::runs::Runs, card: &str, root: &Path, head: &str
             }
         }
     }
+    unmerged_when_apart(&mut again);
     again
+}
+
+/// A hole kept on its own is not said taken in by another as well: an older
+/// run may have merged it at its place, its exploit unrun.
+fn unmerged_when_apart(again: &mut [Value]) {
+    let named = |one: &Value| (text(one, "run"), text(one, "id"));
+    let apart: Vec<(String, String)> = again.iter().map(|one| named(&one["again"])).collect();
+    for one in again.iter_mut() {
+        let own = named(&one["again"]);
+        if let Some(merged) = one["merged"].as_array_mut() {
+            merged.retain(|gone| {
+                let key = named(gone);
+                key.1.is_empty() || key == own || !apart.contains(&key)
+            });
+        }
+    }
 }
 
 /// Whether a run showed a hypothesis shut: refuted by its exploit going
@@ -537,7 +618,11 @@ fn shuts(gone: &Value, found: &Value) -> bool {
             .flatten()
             .any(|one| (text(one, "run"), text(one, "id")) == (run.clone(), id.clone()))
     };
-    (!run.is_empty() && !id.is_empty() && (named(gone) == (run.clone(), id.clone()) || took_in()))
+    // What it took in at its place only, a confirmed exploit of its own
+    // never run, is not shut by its green run ([`apart`]).
+    (!run.is_empty()
+        && !id.is_empty()
+        && (named(gone) == (run.clone(), id.clone()) || (took_in() && !apart(gone, found))))
         || (!path.is_empty() && !test.is_empty() && exploit(gone) == (path, test))
 }
 
@@ -656,6 +741,11 @@ fn not_named(not_run: &[Value], named: &[&Value], item: &str) -> Vec<Value> {
                 "line": before["line"], "severity": before["severity"],
                 "again": { "item": item, "run": before["run"], "id": before["id"], "was": "not_run" },
             });
+            for key in ["cause", "root"] {
+                if before[key].is_string() {
+                    said[key] = before[key].clone();
+                }
+            }
             said = carried(said, "not_named");
             // Why it was not run, as said then: the next attacker reads it.
             said["not_run_reason"] = before["reason"].clone();
@@ -671,7 +761,10 @@ fn carried_taken_in(hypotheses: &mut [Value], carried: Vec<Value>) -> Vec<Value>
     let mut kept = Vec::new();
     for one in carried {
         match hypotheses.iter_mut().find(|own| {
-            one["carried"] != "not_named" && own["status"] == "confirmed" && same_hole(own, &one)
+            one["carried"] != "not_named"
+                && own["status"] == "confirmed"
+                && same_hole(own, &one)
+                && !apart(own, &one)
         }) {
             Some(own) => {
                 takes_cause(own, &one);
@@ -788,16 +881,65 @@ fn merge_into(kept: &mut Value, gone: &Value) {
 /// one line), or one exploit, by its path and test or by its code. Attackers
 /// of different runs name one hole their own way.
 fn same_hole(one: &Value, other: &Value) -> bool {
-    fn code(one: &Value) -> &str {
-        one["exploit"]["code"].as_str().map_or("", str::trim)
+    same_hypothesis(one, other) || same_place(one, other) || same_exploit(one, other)
+}
+
+/// The code of a hypothesis's exploit, when it carries it.
+fn exploit_code(one: &Value) -> &str {
+    one["exploit"]["code"].as_str().map_or("", str::trim)
+}
+
+/// Whether two hypotheses run one exploit: its path and test, or its code.
+fn same_exploit(one: &Value, other: &Value) -> bool {
+    (one["exploit"]["path"].is_string()
+        && one["exploit"]["test"].is_string()
+        && one["exploit"]["path"] == other["exploit"]["path"]
+        && one["exploit"]["test"] == other["exploit"]["test"])
+        || (!exploit_code(one).is_empty() && exploit_code(one) == exploit_code(other))
+}
+
+/// Whether a hypothesis has an exploit of its own: its code, or the path
+/// and test a run kept it by.
+fn own_exploit(one: &Value) -> bool {
+    !exploit_code(one).is_empty()
+        || (one["exploit"]["path"].is_string() && one["exploit"]["test"].is_string())
+}
+
+/// Whether `one`, which an earlier run confirmed with an exploit of its
+/// own, stays apart from `kept` at its place: never taken in without that
+/// exploit running, unless it is the very same hole, by its title, or by
+/// its cause (or none named) at the same line. Two patterns of one function
+/// are two variants: each runs, and a family holds them together.
+fn apart(kept: &Value, one: &Value) -> bool {
+    let confirmed = one["again"]["was"] == "confirmed" || one["status"] == "confirmed";
+    confirmed && variant_apart(kept, one)
+}
+
+/// Whether `one`, with an exploit of its own, is another variant beside
+/// `kept` rather than `kept` said again: not its exploit nor its title, and
+/// not on its very line with its cause (or either naming none, as older
+/// reports do).
+fn variant_apart(kept: &Value, one: &Value) -> bool {
+    let line = |one: &Value| one["line"].as_u64().unwrap_or(1);
+    let causes_agree = match (kept["cause"].as_str(), one["cause"].as_str()) {
+        (Some(theirs), Some(own)) => theirs == own,
+        _ => true,
+    };
+    own_exploit(kept)
+        && own_exploit(one)
+        && !same_exploit(kept, one)
+        && !same_hypothesis(kept, one)
+        && !(line(kept) == line(one) && causes_agree)
+}
+
+/// Whether the one of `had` and `found` that would be taken in stays apart
+/// ([`apart`]): the one that speaks keeps its place ([`speaks_over`]).
+fn held_apart(had: &Value, found: &Value) -> bool {
+    if speaks_over(found, had) {
+        apart(found, had)
+    } else {
+        apart(had, found)
     }
-    same_hypothesis(one, other)
-        || same_place(one, other)
-        || (one["exploit"]["path"].is_string()
-            && one["exploit"]["test"].is_string()
-            && one["exploit"]["path"] == other["exploit"]["path"]
-            && one["exploit"]["test"] == other["exploit"]["test"])
-        || (!code(one).is_empty() && code(one) == code(other))
 }
 
 /// The code of a hypothesis's exploit, read back from the run that kept it;
@@ -2570,12 +2712,12 @@ fn hypotheses_of(
     // One the attacker found again stands as it ran again when that run
     // confirmed it; one that ran again unsettled leaves the attacker's own
     // exploit to show it, as does one proven only by time that the attacker
-    // writes again by count ([`timing_taken_in`]).
+    // writes again by count ([`timing_taken_in`]). Another variant beside
+    // it, with its own exploit, is run ([`variant_apart`]).
     hypotheses.retain(|one| {
-        match again
-            .iter_mut()
-            .find(|had| had["status"] == "confirmed" && same_hole(had, one))
-        {
+        match again.iter_mut().find(|had| {
+            had["status"] == "confirmed" && same_hole(had, one) && !variant_apart(had, one)
+        }) {
             // A count proof of a hole proven only by time is run.
             Some(had) if rewrites_timing(had, one) => true,
             Some(had) => {

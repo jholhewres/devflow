@@ -1276,3 +1276,89 @@ fn a_class_is_kept_by_devflows_name_with_the_attackers_word_beside_it() {
 fn the_attacker_writes_the_threat_model_only_when_it_should_change() {
     assert!(ASK.contains("an empty string when the threat model above still reads right"));
 }
+
+/// A hole carried past the cap, confirmed with an exploit of its own, is
+/// taken in by an attacker's confirmed hypothesis at its place only when it
+/// is the same hole: its title, or its cause at its line. Another variant
+/// beside it stays carried, to run next time.
+#[test]
+fn a_carried_variant_is_taken_in_only_as_the_same_hole() {
+    let hole = |title: &str, line: u64, test: &str| {
+        json!({ "title": title, "class": "redos", "cause": "super-linear-work", "file": "src/a.ts",
+            "line": line, "severity": "low", "status": "confirmed", "carried": "cap",
+            "again": { "item": "i", "run": "20261118T120000Z", "id": "h2", "was": "confirmed" },
+            "exploit": { "path": "tests/a.test.ts", "test": test, "code": format!("exit 1 # {test}") } })
+    };
+    let own = || {
+        let mut one = hole("unclosed script tags", 529, "script");
+        one["status"] = json!("confirmed");
+        one["carried"] = Value::Null;
+        one["again"] = Value::Null;
+        one
+    };
+    let mut hypotheses = vec![own()];
+    let kept = carried_taken_in(
+        &mut hypotheses,
+        vec![hole("the generic tag pattern", 531, "tag")],
+    );
+    assert_eq!(kept.len(), 1, "a variant two lines on stays carried");
+    assert!(hypotheses[0]["merged"].is_null());
+    let mut hypotheses = vec![own()];
+    let kept = carried_taken_in(
+        &mut hypotheses,
+        vec![hole("script tags, said again", 529, "again")],
+    );
+    assert!(kept.is_empty(), "its cause at its line: one hole");
+    assert_eq!(hypotheses[0]["merged"][0]["id"], "h2");
+    // One whose exploit is not kept leaves nothing unrun: it is taken in.
+    let mut missing = hole("the generic tag pattern", 531, "tag");
+    missing["exploit"] = json!({});
+    let mut hypotheses = vec![own()];
+    assert!(carried_taken_in(&mut hypotheses, vec![missing]).is_empty());
+}
+
+/// An attacker's own exploit of another variant beside a hole run again is
+/// run; one that says that hole again (its title, its exploit, or its line
+/// with its cause) is taken in.
+#[test]
+fn an_attackers_variant_beside_a_hole_run_again_is_another_one() {
+    let at = |title: &str, line: u64, test: &str, cause: Option<&str>| {
+        let mut one = json!({ "title": title, "class": "redos", "file": "src/a.ts", "line": line,
+            "status": "confirmed", "exploit": { "path": "tests/a.test.ts", "test": test, "code": format!("exit 1 # {test}") } });
+        if let Some(cause) = cause {
+            one["cause"] = json!(cause);
+        }
+        one
+    };
+    let had = at(
+        "unclosed script tags",
+        529,
+        "script",
+        Some("super-linear-work"),
+    );
+    let cause = Some("super-linear-work");
+    assert!(variant_apart(
+        &had,
+        &at("the generic tag pattern", 531, "tag", cause)
+    ));
+    assert!(!variant_apart(
+        &had,
+        &at("unclosed script tags", 531, "tag", cause)
+    ));
+    assert!(!variant_apart(&had, &at("said again", 529, "again", cause)));
+    assert!(!variant_apart(&had, &at("said again", 529, "again", None)));
+    assert!(variant_apart(
+        &had,
+        &at("said again", 529, "again", Some("unbounded-input"))
+    ));
+    assert!(!variant_apart(
+        &had,
+        &at("another title", 531, "script", cause)
+    ));
+    let mut no_exploit = at("the generic tag pattern", 531, "tag", cause);
+    no_exploit["exploit"] = json!({});
+    assert!(
+        !variant_apart(&had, &no_exploit),
+        "nothing of its own to run"
+    );
+}

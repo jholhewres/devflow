@@ -910,7 +910,7 @@ fn a_family_is_one_cause_with_its_own_fix() {
     assert_eq!(families[0]["cause"], "pattern-parsed-markup");
     assert_eq!(
         families[0]["fix"],
-        cause_fix("pattern-parsed-markup").expect("fix")
+        cause_fix("pattern-parsed-markup", "prompt-injection").expect("fix")
     );
     assert!(families[0]["fix"]
         .as_str()
@@ -1050,4 +1050,40 @@ fn a_draft_of_one_hypothesis_says_the_fix_of_its_cause() {
         fix,
         "Nothing to fix: what stops it is in the run's attack.json."
     );
+}
+
+/// A list kept by hand is fixed as its class says: an address list in an
+/// SSRF guard from the IANA registries, an element list in an HTML
+/// extractor from the parser's or the spec's own; in any other class, the
+/// class's own fix.
+#[test]
+fn a_hand_kept_list_is_fixed_as_its_class_says() {
+    let fix_for = |class: &str| {
+        let mut report = report();
+        report["hypotheses"][0]["class"] = json!(class);
+        report["hypotheses"][0]["cause"] = json!("hand-kept-blocklist");
+        json_of(&report, &none())["hypotheses"][0]["fix"]
+            .as_str()
+            .expect("fix")
+            .to_owned()
+    };
+    assert!(fix_for("ssrf").contains("IANA special-purpose"));
+    for class in ["prompt-injection", "xss", "stored-xss"] {
+        let fix = fix_for(class);
+        assert!(fix.contains("WHATWG rendering rules"), "{class}: {fix}");
+        assert!(!fix.contains("IANA"), "{class}: {fix}");
+    }
+    assert_eq!(fix_for("authz"), said_of("authz").1);
+    // A family's fix is its cause's in its class.
+    let mut report = rooted();
+    for at in [0, 1, 9, 11] {
+        report["hypotheses"][at]["cause"] = json!("hand-kept-blocklist");
+    }
+    let families = json_of(&report, &Known::of(&report))["families"].clone();
+    let fix = families[0]["fix"].as_str().expect("fix");
+    assert_eq!(families[0]["class"], "prompt-injection", "{families:#}");
+    assert!(fix.contains("WHATWG rendering rules"), "{fix}");
+    let draft = &drafts(&report, &Known::of(&report))[0];
+    let body = draft["body"].as_str().expect("body");
+    assert!(!body.contains("IANA"), "{body}");
 }

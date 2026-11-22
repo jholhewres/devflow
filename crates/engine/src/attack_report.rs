@@ -290,71 +290,130 @@ pub fn on_one_line(one: &str, other: &str) -> bool {
 }
 
 /// What is at fault in a hole, as devflow names it, each with the one
-/// change at the root that shuts every hole it causes, in devflow's words.
-/// The attacker names one per hypothesis (`cause`); a family's fix is the
+/// change at the root that shuts every hole it causes, in devflow's words:
+/// one fix for any class, or one per family of class ([`cause_fix`]). The
+/// attacker names one per hypothesis (`cause`); a family's fix is the
 /// cause its confirmed variants share.
-pub const CAUSES: [(&str, &str); 15] = [
+pub const CAUSES: [(&str, &[CauseFix]); 15] = [
     (
         "hand-kept-blocklist",
-        "Build the blocked address ranges from the IANA special-purpose address registries for IPv4 and IPv6, and test each of their entries, instead of a list of private, loopback and link-local ranges kept by hand.",
+        &[
+            (
+                &["ssrf"],
+                "Build the blocked address ranges from the IANA special-purpose address registries for IPv4 and IPv6, and test each of their entries, instead of a list of private, loopback and link-local ranges kept by hand.",
+            ),
+            (
+                &["xss", "prompt-injection", "markup"],
+                "Use the list the parser or the spec keeps (for HTML, the WHATWG rendering rules of what a browser does not render), and test each of its entries, instead of a list of elements kept by hand.",
+            ),
+        ],
     ),
     (
         "check-then-connect",
-        "Resolve the name once, check every address it resolves to, and connect to the address checked, so nothing changes between the check and the connection.",
+        &[(
+            ANY_CLASS,
+            "Resolve the name once, check every address it resolves to, and connect to the address checked, so nothing changes between the check and the connection.",
+        )],
     ),
     (
         "unchecked-redirect",
-        "Check each redirect's destination as the first request's is checked, and bound how many are followed.",
+        &[(
+            ANY_CLASS,
+            "Check each redirect's destination as the first request's is checked, and bound how many are followed.",
+        )],
     ),
     (
         "pattern-parsed-markup",
-        "Parse the markup with a real HTML parser and keep only what a browser renders, instead of matching patterns over the text.",
+        &[(
+            ANY_CLASS,
+            "Parse the markup with a real HTML parser and keep only what a browser renders, instead of matching patterns over the text.",
+        )],
     ),
     (
         "unescaped-output",
-        "Escape output for where it is written, with the template's own escaping, and never mark input as safe markup.",
+        &[(
+            ANY_CLASS,
+            "Escape output for where it is written, with the template's own escaping, and never mark input as safe markup.",
+        )],
     ),
     (
         "text-built-code",
-        "Pass input as parameters or an argument list, never by building a query, a command or a template from text.",
+        &[(
+            ANY_CLASS,
+            "Pass input as parameters or an argument list, never by building a query, a command or a template from text.",
+        )],
     ),
     (
         "super-linear-work",
-        "Replace the work whose cost grows faster than its input with one linear pass, a single cursor or a parser, and bound the input's size.",
+        &[(
+            ANY_CLASS,
+            "Replace the work whose cost grows faster than its input with one linear pass, a single cursor or a parser, and bound the input's size.",
+        )],
     ),
     (
         "unbounded-input",
-        "Bound what input may cost before the work starts: its size and depth, the steps and calls it sets off, and the memory it may take.",
+        &[(
+            ANY_CLASS,
+            "Bound what input may cost before the work starts: its size and depth, the steps and calls it sets off, and the memory it may take.",
+        )],
     ),
     (
         "unverified-peer",
-        "Verify the peer's certificate and name: turn the certificate check back on, and give the client the authority that signs the server's certificate.",
+        &[(
+            ANY_CLASS,
+            "Verify the peer's certificate and name: turn the certificate check back on, and give the client the authority that signs the server's certificate.",
+        )],
     ),
     (
         "unverified-token",
-        "Verify every token's signature, issuer, audience and expiry on the server before trusting any of its claims.",
+        &[(
+            ANY_CLASS,
+            "Verify every token's signature, issuer, audience and expiry on the server before trusting any of its claims.",
+        )],
     ),
     (
         "missing-ownership-check",
-        "Check on the server that the caller may act on the very record asked for, on every path to it.",
+        &[(
+            ANY_CLASS,
+            "Check on the server that the caller may act on the very record asked for, on every path to it.",
+        )],
     ),
     (
         "secret-in-reach",
-        "Move the secret to a store read at run time, out of the code, the environment others read, the logs and the responses, and rotate it.",
+        &[(
+            ANY_CLASS,
+            "Move the secret to a store read at run time, out of the code, the environment others read, the logs and the responses, and rotate it.",
+        )],
     ),
     (
         "credentials-in-url",
-        "Refuse a URL that carries credentials, or strip them, before it is stored, logged or followed.",
+        &[(
+            ANY_CLASS,
+            "Refuse a URL that carries credentials, or strip them, before it is stored, logged or followed.",
+        )],
     ),
     (
         "unresolved-path",
-        "Resolve the path, links included, and check it stays under its root before opening it.",
+        &[(
+            ANY_CLASS,
+            "Resolve the path, links included, and check it stays under its root before opening it.",
+        )],
     ),
     (
         "origin-not-kept",
-        "Keep the final origin content came from after redirects, and store or show it under that origin only, or refuse a redirect to another one.",
+        &[(
+            ANY_CLASS,
+            "Keep the final origin content came from after redirects, and store or show it under that origin only, or refuse a redirect to another one.",
+        )],
     ),
 ];
+
+/// One fix of a cause: the families of class it holds in, none for any,
+/// and the fix in devflow's words.
+pub type CauseFix = (&'static [&'static str], &'static str);
+
+/// A cause's fix that holds whatever the class of hole.
+const ANY_CLASS: &[&str] = &[];
 
 /// A cause as devflow names it ([`CAUSES`]), whatever its case or
 /// separators; `None` for any other.
@@ -366,11 +425,19 @@ pub fn cause_of(said: &str) -> Option<&'static str> {
         .find(|name| *name == said)
 }
 
-/// The fix devflow says for a cause it names.
-fn cause_fix(cause: &str) -> Option<&'static str> {
+/// The fix devflow says for a cause it names in a hole of `class`: the
+/// cause's own for any class, else the one for the class's family; `None`
+/// when the cause has none for it, its class's fix then standing. A list
+/// kept by hand is an address list in an SSRF guard and an element list in
+/// an HTML extractor, each with its own fix.
+fn cause_fix(cause: &str, class: &str) -> Option<&'static str> {
+    let family = family(class);
     CAUSES
         .iter()
-        .find(|(name, _)| *name == cause)
+        .find(|(name, _)| *name == cause)?
+        .1
+        .iter()
+        .find(|(families, _)| families.is_empty() || families.contains(&family.as_str()))
         .map(|(_, fix)| *fix)
 }
 
@@ -480,7 +547,7 @@ fn fix_of(class: &str, status: &str, one: &Value) -> &'static str {
     match status {
         "refuted" => "Nothing to fix: what stops it is in the run's attack.json.",
         _ => cause_of(one["cause"].as_str().unwrap_or_default())
-            .and_then(cause_fix)
+            .and_then(|cause| cause_fix(cause, worded_as(class, one)))
             .unwrap_or_else(|| said_of(worded_as(class, one)).1),
     }
 }
@@ -976,7 +1043,7 @@ fn shared_cause(members: &[&Value]) -> Option<&'static str> {
 /// The one fix a family's variants share, in devflow's words: their cause's
 /// ([`CAUSES`]), else their class's, else where the attack's are.
 fn family_fix(class: &str, first: &Value, cause: Option<&str>) -> &'static str {
-    if let Some(fix) = cause.and_then(cause_fix) {
+    if let Some(fix) = cause.and_then(|cause| cause_fix(cause, worded_as(class, first))) {
         return fix;
     }
     match worded_as(class, first) {

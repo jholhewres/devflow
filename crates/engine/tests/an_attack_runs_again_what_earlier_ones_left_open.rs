@@ -1279,3 +1279,255 @@ fn a_proof_shown_shut_shuts_what_it_took_in() {
     );
     assert_eq!(report["run_again"], 0, "{report:#}");
 }
+
+/// Two holes an earlier run confirmed in one function, two lines apart and
+/// of one cause, each with its own exploit: a newer run took the second in
+/// at its place, its exploit unrun. Each runs again, and the first no
+/// longer says it took the second in.
+#[test]
+fn a_confirmed_variant_beside_another_runs_again_with_its_own_exploit() {
+    let project = project();
+    let card = "card_1";
+    let redos = |title: &str, line: u64, test: &str| {
+        json!({ "title": title, "class": "redos", "cause": "super-linear-work", "file": SESSION,
+            "line": line, "severity": "medium", "status": "confirmed", "reason": "shown",
+            "exploit": { "path": "tests/security/process.test.ts", "test": test } })
+    };
+    let both = project.earlier_at(
+        card,
+        &project.first,
+        &[
+            (
+                redos("unclosed script tags take quadratic time", 529, "script"),
+                "exit 1 # script\n",
+            ),
+            (
+                redos("the generic tag pattern takes quadratic time", 531, "tag"),
+                "exit 1 # tag\n",
+            ),
+        ],
+        1_791_000_000,
+    );
+    let mut absorbed = redos("unclosed script tags take quadratic time", 529, "script");
+    absorbed["again"] = json!({ "item": card, "run": both, "id": "h1", "was": "confirmed" });
+    absorbed["merged"] = json!([{ "id": "h2", "run": both, "class": "redos", "line": 531,
+        "title": "the generic tag pattern takes quadratic time" }]);
+    project.earlier_at(
+        card,
+        &project.first,
+        &[(absorbed, "exit 1 # script\n")],
+        1_791_500_000,
+    );
+    let (report, _) = project.attack(
+        card,
+        &project.first,
+        &project.second,
+        SANDBOX_OFF,
+        json!([]),
+    );
+    assert_eq!(report["run_again"], 2, "{report:#}");
+    let mut lines: Vec<u64> = report["hypotheses"]
+        .as_array()
+        .expect("hypotheses")
+        .iter()
+        .filter_map(|one| one["line"].as_u64())
+        .collect();
+    lines.sort_unstable();
+    assert_eq!(lines, [529, 531], "{report:#}");
+    for one in report["hypotheses"].as_array().expect("hypotheses") {
+        let took_in: Vec<&str> = one["merged"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|gone| gone["id"].as_str())
+            .collect();
+        assert!(!took_in.contains(&"h2"), "{one:#}");
+    }
+    // Its exploit is its own, run again.
+    let tag = report["hypotheses"]
+        .as_array()
+        .expect("hypotheses")
+        .iter()
+        .find(|one| one["line"] == 531)
+        .expect("the tag pattern");
+    assert_eq!(tag["exploit"]["test"], "tag", "{tag:#}");
+    assert_eq!(tag["again"]["id"], "h2", "{tag:#}");
+}
+
+/// One hole two runs named their own way at the very same line, of one
+/// cause, is still one: it runs again once.
+#[test]
+fn a_confirmed_hole_said_again_at_its_line_with_its_cause_runs_once() {
+    let project = project();
+    let card = "card_1";
+    let at = |title: &str, test: &str| {
+        json!({ "title": title, "class": "redos", "cause": "super-linear-work", "file": SESSION,
+            "line": 529, "severity": "medium", "status": "confirmed", "reason": "shown",
+            "exploit": { "path": format!("tests/security/{test}.test.ts"), "test": test } })
+    };
+    project.earlier_at(
+        card,
+        &project.first,
+        &[(at("script tags take quadratic time", "by time"), "exit 1\n")],
+        1_791_000_000,
+    );
+    project.earlier_at(
+        card,
+        &project.first,
+        &[(
+            at("unclosed script makes processing quadratic", "by count"),
+            "exit 1\n",
+        )],
+        1_791_500_000,
+    );
+    let (report, _) = project.attack(
+        card,
+        &project.first,
+        &project.second,
+        SANDBOX_OFF,
+        json!([]),
+    );
+    assert_eq!(report["run_again"], 1, "{report:#}");
+    assert_eq!(
+        report["hypotheses"][0]["merged"].as_array().map(Vec::len),
+        Some(1),
+        "{report:#}"
+    );
+}
+
+/// A hypothesis an earlier attack did not run, proposed again by the
+/// attacker in another file and at another line, at the same fault (class,
+/// cause and root) or under the same title, is that one again: `again.was`
+/// not_run, and it is not carried.
+#[test]
+fn a_not_run_hole_proposed_again_in_another_file_by_its_fault_is_that_one() {
+    for (title, root) in [
+        (
+            "fetches leave from an address others allowlist",
+            "`isBlocked()`",
+        ),
+        ("Destinations that trust the network origin are reached", ""),
+    ] {
+        let project = project();
+        let card = "card_1";
+        let first = project.earlier(card, &project.first, &[(not_run_ssrf(), "exit 0\n")]);
+        let mut again = json!({ "id": "h1", "title": title, "class": "SSRF",
+            "cause": "hand-kept-blocklist", "file": "src/net/fetch.ts", "line": 170,
+            "severity": "medium", "status": "not_run", "reason": "no target named" });
+        if !root.is_empty() {
+            again["root"] = json!(root);
+        }
+        let (report, prompt) = project.attack(
+            card,
+            &project.first,
+            &project.second,
+            SANDBOX_OFF,
+            json!([again]),
+        );
+        // The attacker was told what is at fault in it.
+        let listed = prompt.split("## Not run before").nth(1).expect("listed");
+        assert!(
+            listed.contains("\"cause\":\"hand-kept-blocklist\""),
+            "{listed}"
+        );
+        assert_eq!(
+            report["hypotheses"][0]["again"],
+            json!({ "item": card, "run": first, "id": "h1", "was": "not_run" }),
+            "{title}: {report:#}"
+        );
+        assert_eq!(report["carried"], json!([]), "{title}: {report:#}");
+    }
+}
+
+/// One proposed elsewhere of the same cause but at another root, or naming
+/// no root to tell, is another hole: the earlier one stays carried, never
+/// lost to it.
+#[test]
+fn a_not_run_hole_of_the_same_cause_elsewhere_but_no_same_root_stays_carried() {
+    for root in [Some("PRIVATE_RANGES"), None] {
+        let project = project();
+        let card = "card_1";
+        let first = project.earlier(card, &project.first, &[(not_run_ssrf(), "exit 0\n")]);
+        let mut elsewhere = json!({ "id": "h1", "title": "another list misses a range",
+            "class": "ssrf", "cause": "hand-kept-blocklist", "file": "src/net/fetch.ts",
+            "line": 12, "severity": "low", "status": "not_run", "reason": "no target named" });
+        if let Some(root) = root {
+            elsewhere["root"] = json!(root);
+        }
+        let (report, _) = project.attack(
+            card,
+            &project.first,
+            &project.second,
+            SANDBOX_OFF,
+            json!([elsewhere]),
+        );
+        assert!(
+            report["hypotheses"][0]["again"].is_null(),
+            "{root:?}: {report:#}"
+        );
+        let carried = report["carried"].as_array().expect("carried");
+        assert_eq!(carried.len(), 1, "{root:?}: {report:#}");
+        assert_eq!(carried[0]["carried"], "not_named");
+        assert_eq!(
+            carried[0]["again"],
+            json!({ "item": card, "run": first, "id": "h1", "was": "not_run" })
+        );
+    }
+}
+
+/// An earlier not-run SSRF hole, at fault in `isBlocked`.
+fn not_run_ssrf() -> Value {
+    json!({ "title": "destinations that trust the network origin are reached",
+        "class": "ssrf", "cause": "hand-kept-blocklist", "root": "isBlocked", "file": "src/net/check.ts",
+        "line": 173, "severity": "medium", "status": "not_run", "reason": "needs a target" })
+}
+
+/// A run that showed one of two confirmed variants shut, having taken the
+/// other in at its place, does not shut that other: its own exploit runs.
+#[test]
+fn a_variant_shown_shut_does_not_shut_one_it_took_in_at_its_place() {
+    let project = project();
+    let card = "card_1";
+    let redos = |title: &str, line: u64, test: &str| {
+        json!({ "title": title, "class": "redos", "cause": "super-linear-work", "file": SESSION,
+            "line": line, "severity": "medium", "status": "confirmed", "reason": "shown",
+            "exploit": { "path": "tests/security/process.test.ts", "test": test } })
+    };
+    let both = project.earlier_at(
+        card,
+        &project.first,
+        &[
+            (
+                redos("unclosed script tags take quadratic time", 529, "script"),
+                "exit 1 # script\n",
+            ),
+            (
+                redos("the generic tag pattern takes quadratic time", 531, "tag"),
+                "exit 1 # tag\n",
+            ),
+        ],
+        1_791_000_000,
+    );
+    let mut green = redos("unclosed script tags take quadratic time", 529, "script");
+    green["status"] = json!("refuted");
+    green["ran"] = json!({ "result": "refuted", "reason": "green: the hole is not there" });
+    green["again"] = json!({ "item": card, "run": both, "id": "h1", "was": "confirmed" });
+    green["merged"] = json!([{ "id": "h2", "run": both, "class": "redos", "line": 531,
+        "title": "the generic tag pattern takes quadratic time" }]);
+    project.earlier_at(
+        card,
+        &project.first,
+        &[(green, "exit 0 # script\n")],
+        1_791_500_000,
+    );
+    let (report, _) = project.attack(
+        card,
+        &project.first,
+        &project.second,
+        SANDBOX_OFF,
+        json!([]),
+    );
+    assert_eq!(report["run_again"], 1, "{report:#}");
+    assert_eq!(report["hypotheses"][0]["line"], 531, "{report:#}");
+    assert_eq!(report["hypotheses"][0]["exploit"]["test"], "tag");
+}
