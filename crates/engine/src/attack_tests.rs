@@ -690,6 +690,38 @@ fn the_attacker_is_told_to_assert_bounds_never_wall_clock_time() {
     assert!(ASK.contains("not wall-clock time"), "{ASK}");
 }
 
+#[test]
+fn the_attacker_keeps_a_refuted_holes_severity() {
+    assert!(
+        ASK.contains("a refuted or not_run one keeps the severity it would have"),
+        "{ASK}"
+    );
+}
+
+/// A refuted hypothesis ends at `info`, its attacker's severity kept apart
+/// as the estimate; one confirmed after all takes it back.
+#[test]
+fn a_refuted_hypothesis_keeps_its_attackers_estimate_apart() {
+    let mut report = json!({ "hypotheses": [
+        { "id": "h1", "status": "refuted", "severity": "high", "class": "ssrf", "file": "a.ts" },
+        { "id": "h2", "status": "confirmed", "severity": "medium", "class": "ssrf", "file": "b.ts" },
+    ] });
+    settled(&mut report, &[Severity::High]);
+    assert_eq!(report["hypotheses"][0]["severity"], "info");
+    assert_eq!(report["hypotheses"][0]["estimated_severity"], "high");
+    assert!(report["hypotheses"][1].get("estimated_severity").is_none());
+    settled(&mut report, &[Severity::High]);
+    assert_eq!(
+        report["hypotheses"][0]["estimated_severity"], "high",
+        "settled again, the estimate stays the attacker's"
+    );
+    report["hypotheses"][0]["status"] = json!("confirmed");
+    settled(&mut report, &[Severity::High]);
+    assert_eq!(report["hypotheses"][0]["severity"], "high");
+    assert!(report["hypotheses"][0].get("estimated_severity").is_none());
+    assert_eq!(report["verdict"], "request_changes");
+}
+
 /// A hypothesis merged into another is named on its trail by an id and a
 /// run: the run that kept it and its id there, or this run and the id its
 /// attacker gave it.

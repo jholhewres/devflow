@@ -591,3 +591,87 @@ fn the_markdown_says_in_one_line_what_each_hypothesis_took_in() {
         assert!(!md.contains(leak), "{leak} in {md}");
     }
 }
+
+/// Information disclosure, in the words attackers say it, is a class of its
+/// own; a certificate left unchecked is `transport` however it is said.
+#[test]
+fn info_disclosure_and_transport_are_classes_whatever_they_are_called() {
+    for (said, class) in [
+        ("info-disclosure", "info-disclosure"),
+        ("Information Disclosure", "info-disclosure"),
+        ("info_leak", "info-disclosure"),
+        ("user-enumeration", "info-disclosure"),
+        ("sensitive data exposure", "info-disclosure"),
+        ("transport", "transport"),
+        ("TLS", "transport"),
+        ("ssl", "transport"),
+        ("certificate", "transport"),
+        ("mitm", "transport"),
+        ("insecure_transport", "transport"),
+        ("cipher", "crypto"),
+    ] {
+        let mut report = report();
+        report["hypotheses"][0]["class"] = json!(said);
+        let shown = json_of(&report, &none());
+        assert_eq!(shown["hypotheses"][0]["class"], class, "{said}");
+        assert_eq!(shown["hypotheses"][0]["impact"], said_of(class).0, "{said}");
+        let sarif = sarif(&report, &none());
+        assert_eq!(
+            sarif["runs"][0]["results"][0]["ruleId"],
+            format!("attack/{class}"),
+            "{said}"
+        );
+    }
+}
+
+/// Only a confirmed hypothesis is said to be there: a refuted one says it
+/// was refuted, and one not confirmed says so, whatever its class.
+#[test]
+fn a_refuted_hypothesis_is_never_said_to_be_there() {
+    let mut report = report();
+    for class in ["made-up", "ssrf", "info-disclosure"] {
+        report["hypotheses"][1]["class"] = json!(class);
+        for (status, opens, fix) in [
+            (
+                "refuted",
+                "Refuted: the hole is not there.",
+                Some("Nothing to fix"),
+            ),
+            ("tried", "Not confirmed: no exploit test showed it.", None),
+            ("not_run", "Not confirmed: no exploit test showed it.", None),
+        ] {
+            report["hypotheses"][1]["status"] = json!(status);
+            let shown = &json_of(&report, &none())["hypotheses"][1];
+            let impact = shown["impact"].as_str().expect("impact");
+            assert!(impact.starts_with(opens), "{class} {status}: {impact}");
+            assert!(!impact.contains("confirmed this hole"), "{impact}");
+            if let Some(fix) = fix {
+                assert!(shown["fix"].as_str().expect("fix").starts_with(fix));
+            }
+        }
+    }
+    report["hypotheses"][1]["class"] = json!("made-up");
+    report["hypotheses"][1]["status"] = json!("confirmed");
+    let shown = &json_of(&report, &none())["hypotheses"][1];
+    assert_eq!(shown["impact"], said_of("other").0);
+}
+
+/// A refuted hypothesis ends at `info`, and the attacker's estimate, were it
+/// there, is shown apart: in the JSON and beside it in the markdown.
+#[test]
+fn a_refuted_hypothesis_shows_the_attackers_estimate_apart() {
+    let mut report = report();
+    report["hypotheses"][1]["severity"] = json!("info");
+    report["hypotheses"][1]["estimated_severity"] = json!("high");
+    let shown = json_of(&report, &none());
+    assert_eq!(shown["hypotheses"][1]["severity"], "info");
+    assert_eq!(shown["hypotheses"][1]["estimated_severity"], "high");
+    assert_eq!(shown["hypotheses"][0]["estimated_severity"], Value::Null);
+    let md = markdown(&report, &none());
+    assert!(md.contains("| h2 | refuted | info (est. high) |"), "{md}");
+    report["hypotheses"][1]["estimated_severity"] = json!("high, trust me");
+    assert_eq!(
+        json_of(&report, &none())["hypotheses"][1]["estimated_severity"],
+        Value::Null
+    );
+}

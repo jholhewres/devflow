@@ -80,7 +80,7 @@ impl Known {
 
 /// The classes a hole is named by: each with what an attacker gets and
 /// what shuts it, in devflow's words. Any other class is `other`.
-const CLASSES: [(&str, &str, &str); 20] = [
+const CLASSES: &[(&str, &str, &str)] = &[
     (
         "ssrf",
         "The server sends requests to a destination an attacker chooses: internal services, a cloud's metadata or any host it reaches.",
@@ -177,6 +177,11 @@ const CLASSES: [(&str, &str, &str); 20] = [
         "Verify the peer's certificate and name on every connection, and never fall back to plain text.",
     ),
     (
+        "info-disclosure",
+        "The service tells an attacker what it should not: whether a record or an address exists, internal names, paths or versions, or another user's data.",
+        "Answer every caller the same way whatever the cause, and keep the details in logs only the team reads.",
+    ),
+    (
         "other",
         "The attack confirmed this hole with an exploit test: what it lets an attacker do is in the run's attack.json.",
         "The attack's proposed fix is in the run's attack.json.",
@@ -184,7 +189,7 @@ const CLASSES: [(&str, &str, &str); 20] = [
 ];
 
 /// Other names a class is said by.
-const ALSO: [(&str, &str); 23] = [
+const ALSO: &[(&str, &str)] = &[
     ("path-traversal", "traversal"),
     ("directory-traversal", "traversal"),
     ("lfi", "traversal"),
@@ -208,6 +213,15 @@ const ALSO: [(&str, &str); 23] = [
     ("cryptography", "crypto"),
     ("session", "authn"),
     ("jwt", "authn"),
+    ("information-disclosure", "info-disclosure"),
+    ("info-leak", "info-disclosure"),
+    ("information-leak", "info-disclosure"),
+    ("data-leak", "info-disclosure"),
+    ("data-exposure", "info-disclosure"),
+    ("sensitive-data-exposure", "info-disclosure"),
+    ("disclosure", "info-disclosure"),
+    ("enumeration", "info-disclosure"),
+    ("user-enumeration", "info-disclosure"),
 ];
 
 /// Classes attackers name one kind of hole by, each with the family it is
@@ -255,18 +269,10 @@ pub fn family(class: &str) -> String {
         .map_or(said, |(_, family)| (*family).to_owned())
 }
 
-/// A hypothesis' class as devflow names it.
+/// A hypothesis' class as devflow names it: its family ([`family`]) when
+/// devflow names that class, else `other`.
 fn class_of(value: &Value) -> &'static str {
-    let said = value
-        .as_str()
-        .unwrap_or_default()
-        .trim()
-        .to_ascii_lowercase()
-        .replace(['_', ' '], "-");
-    let said = ALSO
-        .iter()
-        .find(|(also, _)| *also == said)
-        .map_or(said.as_str(), |(_, class)| *class);
+    let said = family(value.as_str().unwrap_or_default());
     CLASSES
         .iter()
         .map(|(name, _, _)| *name)
@@ -280,6 +286,37 @@ fn said_of(class: &str) -> (&'static str, &'static str) {
         .iter()
         .find(|(name, _, _)| *name == class)
         .map_or(("", ""), |(_, impact, fix)| (*impact, *fix))
+}
+
+/// A sentence as it reads after a colon: its first letter lowercase.
+fn lowered(sentence: &str) -> String {
+    let mut chars = sentence.chars();
+    chars.next().map_or_else(String::new, |first| {
+        first.to_lowercase().chain(chars).collect()
+    })
+}
+
+/// What a hypothesis of `class` lets an attacker do, as its `status` allows
+/// saying it: only a confirmed one is said to be there.
+fn impact_of(class: &str, status: &str) -> String {
+    let (impact, _) = said_of(class);
+    let other = class == "other";
+    match status {
+        "confirmed" => impact.to_owned(),
+        "refuted" if other => "Refuted: the hole is not there. What it would have let an attacker do is in the run's attack.json.".to_owned(),
+        "refuted" => format!("Refuted: the hole is not there. Were it there, {}", lowered(impact)),
+        _ if other => "Not confirmed: no exploit test showed it. What it would let an attacker do is in the run's attack.json.".to_owned(),
+        _ => format!("Not confirmed: no exploit test showed it. Were it there, {}", lowered(impact)),
+    }
+}
+
+/// What shuts a hypothesis of `class`, as its `status` allows: a refuted
+/// one has nothing to fix.
+fn fix_of(class: &str, status: &str) -> &'static str {
+    match status {
+        "refuted" => "Nothing to fix: what stops it is in the run's attack.json.",
+        _ => said_of(class).1,
+    }
 }
 
 /// The prefixes a token is known by.
@@ -555,17 +592,20 @@ fn merged_shown(one: &Value) -> Option<Vec<Value>> {
     )
 }
 /// A hypothesis as a report shows it: only fields devflow sets, the
-/// sentences devflow says of its class, and the repositories a flow's
-/// fixes touch.
+/// sentences devflow says of its class as its status allows, and the
+/// repositories a flow's fixes touch.
 fn shown(one: &Value, known: &Known) -> Value {
     let class = class_of(&one["class"]);
-    let (impact, fix) = said_of(class);
+    let status = one_of(&one["status"], &STATUSES);
+    let said = status.as_str().unwrap_or("not_run");
     let proof = &one["proof"];
     json!({
-        "id": id_of(&one["id"]), "status": one_of(&one["status"], &STATUSES),
-        "severity": one_of(&one["severity"], &SEVERITIES), "class": class,
+        "id": id_of(&one["id"]), "status": status,
+        "severity": one_of(&one["severity"], &SEVERITIES),
+        "estimated_severity": one_of(&one["estimated_severity"], &SEVERITIES),
+        "class": class,
         "file": repo_path(&one["file"], known), "line": one["line"].as_u64(),
-        "impact": impact, "fix": fix,
+        "impact": impact_of(class, said), "fix": fix_of(class, said),
         "verified_by": one_of(&one["verified"]["by"], &["sandbox", "session"]),
         "proof": (!proof.is_null()).then(|| json!({
             "base": side(&proof["base"]), "head": side(&proof["head"]),
@@ -694,6 +734,14 @@ fn ran_by(one: &Value) -> String {
         "confirmed" => format!("confirmed by {by}"),
         "refuted" => format!("refuted by {by}"),
         _ => "not run by devflow".to_owned(),
+    }
+}
+
+/// A severity as a cell shows it: a refuted one's estimate beside it.
+fn severity_cell(one: &Value) -> String {
+    match one["estimated_severity"].as_str() {
+        Some(estimate) => format!("{} (est. {estimate})", cell(&one["severity"])),
+        None => cell(&one["severity"]),
     }
 }
 
@@ -851,7 +899,7 @@ pub fn markdown(report: &Value, known: &Known) -> String {
             "| {} | {} | {} | {} | `{}:{}` | {} | {} |\n",
             cell(&one["id"]),
             cell(&one["status"]),
-            cell(&one["severity"]),
+            severity_cell(one),
             cell(&one["class"]),
             cell(&one["file"]),
             one["line"],
