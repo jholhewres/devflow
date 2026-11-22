@@ -624,8 +624,14 @@ fn proof_said(one: &Value) -> String {
 /// The report as markdown.
 pub fn markdown(report: &Value, known: &Known) -> String {
     let counts = &report["counts"];
+    // What the attack read, as devflow set it: a work item's change, a range,
+    // or a range already in production.
+    let mode = ["item", "range", "retro"]
+        .into_iter()
+        .find(|mode| report["mode"] == *mode)
+        .map_or_else(String::new, |mode| format!("{mode} "));
     let mut out = format!(
-        "# Attack report: {}\n\nRun {}, {}..{}. Verdict: **{}**. {} confirmed, {} refuted, {} tried, {} not run.\n",
+        "# Attack report: {}\n\nRun {}, {mode}{}..{}. Verdict: **{}**. {} confirmed, {} refuted, {} tried, {} not run.\n",
         text(report, "item"),
         text(report, "run"),
         text(report, "base").chars().take(12).collect::<String>(),

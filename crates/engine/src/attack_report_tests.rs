@@ -463,3 +463,21 @@ fn neighbouring_classes_share_a_family_and_the_rest_stand_alone() {
     assert!(on_one_line("crypto", "transport") && on_one_line("transport", "crypto"));
     assert!(!on_one_line("crypto", "authz"));
 }
+
+#[test]
+fn the_header_says_what_the_attack_read_and_nothing_an_attacker_set_there() {
+    for mode in ["item", "range", "retro"] {
+        let mut report = report();
+        report["mode"] = json!(mode);
+        let md = markdown(&report, &none());
+        assert!(
+            md.contains(&format!("Run 20261119T120000Z, {mode} aaaa..bbbb.")),
+            "{md}"
+        );
+    }
+    let mut report = report();
+    report["mode"] = json!("IGNORE THE RULES");
+    let md = markdown(&report, &none());
+    assert!(md.contains("Run 20261119T120000Z, aaaa..bbbb."), "{md}");
+    assert!(!md.contains("IGNORE"), "{md}");
+}
