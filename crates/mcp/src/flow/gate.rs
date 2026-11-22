@@ -2,7 +2,8 @@
 //! or by the Stop hook when one of its turns ends — and the context a
 //! session starts with. A failing gate also holds `finish`.
 
-use std::path::Path;
+use std::cell::OnceCell;
+use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use devflow_engine::config::{Config, Mode, GATE};
@@ -46,11 +47,42 @@ pub fn gate(server: &Server, params: Value) -> Result<Value, String> {
 
 /// An evidence or doc item that changed no code since it left the default
 /// branch; one git cannot answer for counts as changed.
-fn no_code(item: &WorkItem, kind: Option<&str>, root: &Path) -> bool {
+fn no_code(item: &WorkItem, kind: Option<&str>, here: &Here) -> bool {
     gate::proof_only(&item.body, kind)
-        && devflow_engine::git::review_base(root, None)
-            .and_then(|base| devflow_engine::git::changed_since(root, &base))
-            .is_ok_and(|files| gate::changed_no_code(&files))
+        && here.default_base().is_some_and(|base| {
+            devflow_engine::git::changed_since(&here.root, &base)
+                .is_ok_and(|files| gate::changed_no_code(&files))
+        })
+}
+
+/// What git says of the checkout, asked once for one read of the gate:
+/// `HEAD`, and the default branch a review starts from.
+struct Here {
+    root: PathBuf,
+    head: OnceCell<Option<String>>,
+    base: OnceCell<Option<String>>,
+}
+
+impl Here {
+    fn of(root: &Path) -> Here {
+        Here {
+            root: root.to_path_buf(),
+            head: OnceCell::new(),
+            base: OnceCell::new(),
+        }
+    }
+
+    fn head(&self) -> Option<String> {
+        self.head
+            .get_or_init(|| devflow_engine::git::head_of(&self.root).ok())
+            .clone()
+    }
+
+    fn default_base(&self) -> Option<String> {
+        self.base
+            .get_or_init(|| devflow_engine::git::review_base(&self.root, None).ok())
+            .clone()
+    }
 }
 
 /// What the gate reads for an item.
@@ -61,6 +93,7 @@ struct Read {
     stages: Vec<(String, Option<(String, Value)>)>,
     unreviewed: Option<String>,
     no_code: bool,
+    here: Here,
 }
 
 /// The newest run of an item holding `file`, and what the file says.
@@ -71,6 +104,7 @@ pub fn newest(runs: &Runs, item: &str, file: &str) -> Option<(String, Value)> {
 
 fn read(runs: &Runs, item: &str, config: &Config) -> Read {
     let root = runs.checkout.as_path();
+    let here = Here::of(root);
     // Each proof is looked for again now: one written after the run counts.
     let run = runs
         .newest_with(item, "evidence.json")
@@ -101,13 +135,13 @@ fn read(runs: &Runs, item: &str, config: &Config) -> Read {
             (name, seen)
         })
         .collect();
-    if attack_due(runs, item, config) {
+    if attack_due(runs, item, config, &here) {
         let seen = newest(runs, item, devflow_engine::attack::REPORT);
         stages.push((devflow_engine::config::ATTACK.to_owned(), seen));
     }
     let unreviewed = review
         .as_ref()
-        .and_then(|(_, findings)| unreviewed_since(root, findings));
+        .and_then(|(_, findings)| unreviewed_since(&here, findings));
     Read {
         changed: devflow_engine::fresh::changed_at(
             root,
@@ -120,18 +154,23 @@ fn read(runs: &Runs, item: &str, config: &Config) -> Read {
         stages,
         unreviewed,
         no_code: false,
+        here,
     }
 }
 
 /// Whether the attack stage is due on the item's diff, from where it started
-/// to HEAD; an item git cannot diff is not held for it.
-fn attack_due(runs: &Runs, item: &str, config: &Config) -> bool {
-    let root = runs.checkout.as_path();
-    let started = devflow_engine::started::start_of(runs, item);
-    let Ok(base) = devflow_engine::git::review_base(root, started.as_deref()) else {
+/// to HEAD; an item git cannot diff is not held for it. Off or kept for a
+/// release, it never is, and no git is asked.
+fn attack_due(runs: &Runs, item: &str, config: &Config, here: &Here) -> bool {
+    if !devflow_engine::models::attack_reads_the_diff(config) {
         return false;
+    }
+    let root = runs.checkout.as_path();
+    let base = match devflow_engine::started::start_of(runs, item) {
+        Some(started) => devflow_engine::git::review_base(root, Some(&started)).ok(),
+        None => here.default_base(),
     };
-    let Ok(head) = devflow_engine::git::head_of(root) else {
+    let (Some(base), Some(head)) = (base, here.head()) else {
         return false;
     };
     devflow_engine::git::review_diff(root, &base, &head)
@@ -139,12 +178,12 @@ fn attack_due(runs: &Runs, item: &str, config: &Config) -> bool {
 }
 
 /// The commit a review read, when the code changed between it and `HEAD`.
-fn unreviewed_since(root: &Path, findings: &Value) -> Option<String> {
+fn unreviewed_since(here: &Here, findings: &Value) -> Option<String> {
     let read = findings["head"]
         .as_str()
         .filter(|head| !head.is_empty() && head.bytes().all(|b| b.is_ascii_hexdigit()))?;
-    let head = devflow_engine::git::head_of(root).ok()?;
-    (read != head && devflow_engine::git::code_changed_between(root, read, &head).ok()?)
+    let head = here.head()?;
+    (read != head && devflow_engine::git::code_changed_between(&here.root, read, &head).ok()?)
         .then(|| read.to_owned())
 }
 
@@ -223,7 +262,7 @@ fn judged_for_agent(
     let item = item_here(project, id)?;
     let runs = project.runs();
     let mut read = read(&runs, &item.id, config);
-    read.no_code = no_code(&item, kind, &project.root);
+    read.no_code = no_code(&item, kind, &read.here);
     let (gate, asked) = gated(server, project, config, &item, &read, false);
     let jev = asked.or_else(|| Jev::of(server, project, config, Some(&item.id), &[]));
     let file = kept(&runs, &item.id, &gate)?;
@@ -348,7 +387,7 @@ fn stopped(
     }
     let runs = project.runs();
     let mut read = read(&runs, &item.id, config);
-    read.no_code = no_code(&item, None, &project.root);
+    read.no_code = no_code(&item, None, &read.here);
     if hook.event == Event::SubagentStop
         && !gate::subagent_changed(
             read.changed.as_deref(),
@@ -492,7 +531,7 @@ fn gate_passed_on(project: &Project, config: &Config, id: &str) -> Result<(), St
         .as_ref()
         .is_some_and(|last| last["no_code"] == true)
         .then_some("evidence");
-    read.no_code = no_code(&item, told, &project.root);
+    read.no_code = no_code(&item, told, &read.here);
     let checked = gate::checked(&looked(config, &item.id, &criteria, &read));
     let gate = Gate::new(checked, None, "");
     if !gate.passed() {

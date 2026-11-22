@@ -154,3 +154,24 @@ fn the_fallback_preset_is_the_one_the_measurements_recommend() {
         .expect("the doc recommends a preset");
     assert_eq!(said, preset(&Config::default()).word());
 }
+
+#[test]
+fn only_per_item_and_sensitive_read_a_diff_for_the_attack() {
+    for (run, reads) in [
+        ("off", false),
+        ("release", false),
+        ("sensitive", true),
+        ("per-item", true),
+    ] {
+        let config = parse(&format!(
+            "version: 1\nstages:\n  attack: {{ run: {run} }}\n"
+        ))
+        .expect("config");
+        assert_eq!(attack_reads_the_diff(&config), reads, "{run}");
+        if !reads {
+            assert!(!attack_on(&config, &["src/auth.rs".to_owned()], "+x"));
+        }
+    }
+    let unnamed = parse("version: 1\n").expect("config");
+    assert!(!attack_reads_the_diff(&unnamed), "no attack stage is off");
+}

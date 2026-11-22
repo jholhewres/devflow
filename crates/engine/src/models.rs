@@ -92,6 +92,16 @@ pub fn attack_run(config: &Config) -> AttackRun {
     config.stages.attack.run
 }
 
+/// Whether a diff could make the attack stage due: `per-item` and
+/// `sensitive` read it; `off` and `release` never are, so their diff is
+/// not worth reading.
+pub fn attack_reads_the_diff(config: &Config) -> bool {
+    matches!(
+        attack_run(config),
+        AttackRun::PerItem | AttackRun::Sensitive
+    )
+}
+
 /// Whether the attack stage is due on this diff: `per-item` always,
 /// `sensitive` when `review.scale` (its defaults when off) does not call it
 /// small; `off` and `release` never, a release's being asked by name
