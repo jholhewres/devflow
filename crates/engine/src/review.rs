@@ -1053,40 +1053,44 @@ pub fn turn(
 ) -> Result<reviewing::Reviewed, String> {
     turn_in(
         &Dialect::DEVFLOW,
-        agent,
-        model,
-        reach,
-        prompt,
-        cwd,
-        env,
-        deadline,
+        &Turn {
+            agent,
+            model,
+            reach,
+            prompt,
+            cwd,
+            env,
+            deadline,
+        },
     )
 }
 
+/// One headless turn asked of an agent's CLI ([`turn`]).
+pub struct Turn<'a> {
+    pub agent: Agent,
+    /// As devflow.yaml says it, a tier or an id ([`model_for`]).
+    pub model: Option<&'a str>,
+    pub reach: Reach<'a>,
+    pub prompt: &'a str,
+    pub cwd: &'a Path,
+    pub env: &'a [(String, String)],
+    pub deadline: Duration,
+}
+
 /// [`turn`], refused in `dialect`'s words.
-#[allow(clippy::too_many_arguments)]
-pub fn turn_in(
-    dialect: &Dialect,
-    agent: Agent,
-    model: Option<&str>,
-    reach: Reach,
-    prompt: &str,
-    cwd: &Path,
-    env: &[(String, String)],
-    deadline: Duration,
-) -> Result<reviewing::Reviewed, String> {
-    let program = reach(agent)?;
-    let model = model_for(agent, model);
-    let cli = Cli::of(agent.word())
+pub fn turn_in(dialect: &Dialect, asked: &Turn) -> Result<reviewing::Reviewed, String> {
+    let program = (asked.reach)(asked.agent)?;
+    let model = model_for(asked.agent, asked.model);
+    let cli = Cli::of(asked.agent.word())
         .ok_or_else(|| format!("{} does not run this CLI headless", dialect.product))?;
     reviewing::review(&reviewing::Review {
         agent: &cli,
         program: &program,
-        prompt,
-        cwd,
+        prompt: asked.prompt,
+        cwd: asked.cwd,
         model: model.as_deref(),
-        env,
-        deadline,
+        env: asked.env,
+        deadline: asked.deadline,
     })
     .map_err(|unreviewed| unreviewed.reason())
 }
@@ -1368,13 +1372,15 @@ fn reviewed_anew(given: &Given) -> Result<(String, PathBuf, Record), String> {
             let env = env_of_in(dialect, given.env, git, &packet_at, &reviewer.persona);
             let said = turn_in(
                 dialect,
-                reviewer.agent,
-                reviewer.model.as_deref(),
-                given.reach,
-                &asked,
-                given.root,
-                &env,
-                deadline,
+                &Turn {
+                    agent: reviewer.agent,
+                    model: reviewer.model.as_deref(),
+                    reach: given.reach,
+                    prompt: &asked,
+                    cwd: given.root,
+                    env: &env,
+                    deadline,
+                },
             )
             .map_err(|why| (why, None))?;
             match findings::read_signed(&said.text, agent, &reviewer.persona)
@@ -1886,13 +1892,15 @@ fn without_jev(
         .and_then(|by| {
             turn_in(
                 given.personas.dialect,
-                by.agent,
-                by.model.as_deref(),
-                given.reach,
-                &findings::agent_prompt(all),
-                given.root,
-                given.env,
-                deadline,
+                &Turn {
+                    agent: by.agent,
+                    model: by.model.as_deref(),
+                    reach: given.reach,
+                    prompt: &findings::agent_prompt(all),
+                    cwd: given.root,
+                    env: given.env,
+                    deadline,
+                },
             )
             .map(|said| (by.agent, said))
         });
