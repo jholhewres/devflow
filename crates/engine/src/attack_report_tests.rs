@@ -914,7 +914,7 @@ fn one_draft_per_family_and_per_hypothesis_no_family_holds() {
     );
     let body = drafts[0]["body"].as_str().expect("body");
     for said in [
-        "**Where:** `src/html/extract.ts`, lines 133, 10, 122, 90",
+        "**Where:** `src/html/extract.ts`, lines 10, 90, 122, 133",
         "**Cause:** `pattern-parsed-markup`",
         "- h1 at line 133, low: confirmed by devflow's sandbox; ",
         "- h12 at line 90, low:",
@@ -924,6 +924,14 @@ fn one_draft_per_family_and_per_hypothesis_no_family_holds() {
         assert!(body.contains(said), "{said} missing: {body}");
     }
     assert!(!body.contains("## Confidence"), "{body}");
+    // Its variants in the order of their lines, as its lines are said.
+    let at = |said: &str| body.find(said).unwrap_or_else(|| panic!("{said}: {body}"));
+    assert!(
+        at("- h2 at line 10,") < at("- h12 at line 90,")
+            && at("- h12 at line 90,") < at("- h10 at line 122,")
+            && at("- h10 at line 122,") < at("- h1 at line 133,"),
+        "{body}"
+    );
     let redos = drafts[2]["body"].as_str().expect("body");
     assert!(
         redos.contains("## Confidence\nProven by timing only, less sure: h5, red in 3 of 3 runs."),
@@ -963,5 +971,35 @@ fn a_proof_by_timing_is_marked_and_trusted_less() {
     assert!(
         md.contains("| confirmed by devflow's sandbox, by timing: red in 3 of 3 runs, less sure |"),
         "{md}"
+    );
+}
+
+/// A draft of one confirmed hypothesis no family holds says the fix of the
+/// cause its attacker named, as a family's does, not its class's.
+#[test]
+fn a_draft_of_one_hypothesis_says_the_fix_of_its_cause() {
+    let mut report = report();
+    report["hypotheses"][0]["class"] = json!("crypto");
+    report["hypotheses"][0]["cause"] = json!("unverified-peer");
+    let known = none();
+    let shown = json_of(&report, &known);
+    let fix = shown["hypotheses"][0]["fix"].as_str().expect("fix");
+    assert!(
+        fix.starts_with("Verify the peer's certificate and name"),
+        "{fix}"
+    );
+    let drafts = drafts(&report, &known);
+    let body = drafts[0]["body"].as_str().expect("body");
+    assert!(
+        body.contains("## Fix\nVerify the peer's certificate and name"),
+        "{body}"
+    );
+    assert!(!body.contains("salted"), "{body}");
+    // A refuted one has still nothing to fix.
+    report["hypotheses"][0]["status"] = json!("refuted");
+    let fix = json_of(&report, &known)["hypotheses"][0]["fix"].clone();
+    assert_eq!(
+        fix,
+        "Nothing to fix: what stops it is in the run's attack.json."
     );
 }

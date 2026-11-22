@@ -474,11 +474,14 @@ fn impact_of(class: &str, status: &str, one: &Value) -> String {
 }
 
 /// What shuts a hypothesis of `class`, as its `status` allows: a refuted
-/// one has nothing to fix.
+/// one has nothing to fix; any other, the fix of the cause its attacker
+/// named ([`CAUSES`]), as a family's, else its class's.
 fn fix_of(class: &str, status: &str, one: &Value) -> &'static str {
     match status {
         "refuted" => "Nothing to fix: what stops it is in the run's attack.json.",
-        _ => said_of(worded_as(class, one)).1,
+        _ => cause_of(one["cause"].as_str().unwrap_or_default())
+            .and_then(cause_fix)
+            .unwrap_or_else(|| said_of(worded_as(class, one)).1),
     }
 }
 
@@ -1389,6 +1392,10 @@ fn confirmed_by(one: &Value) -> &'static str {
 /// A family's draft: one hole, its confirmed variants each with who
 /// confirmed it and its proof, and the one fix at its root.
 fn family_draft(report: &Value, family: &Value, variants: &[&Value]) -> Value {
+    // In the order of their lines, as a reader goes through the file.
+    let mut variants = variants.to_vec();
+    variants.sort_by_key(|one| one["line"].as_u64().unwrap_or_default());
+    let variants = variants.as_slice();
     let lines: Vec<String> = variants.iter().map(|one| one["line"].to_string()).collect();
     let each: String = variants
         .iter()
