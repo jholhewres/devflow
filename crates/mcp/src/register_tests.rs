@@ -469,3 +469,54 @@ fn antigravity_and_windsurf_get_the_server_where_each_reads_it() {
     }
     assert!(!registered(Tool::Antigravity, "/bin/devflow", &nothing));
 }
+
+#[test]
+fn a_toml_line_keeps_crlf_a_quoted_key_and_a_commented_header() {
+    let crlf = "[mcp_servers.devflow] # mine\r\ncommand = \"devflow\"\r\n";
+    let new = toml_set(crlf, "mcp_servers.devflow", "tool_timeout_sec", "3600")
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        new,
+        "[mcp_servers.devflow] # mine\r\ntool_timeout_sec = 3600\r\ncommand = \"devflow\"\r\n"
+    );
+    let quoted = "[mcp_servers.devflow]\n\"tool_timeout_sec\" = 60\n";
+    assert_eq!(
+        toml_set(quoted, "mcp_servers.devflow", "tool_timeout_sec", "3600").unwrap(),
+        None
+    );
+}
+
+#[test]
+fn an_end_marker_before_devflows_section_is_the_persons_text() {
+    let said = "see <!-- /devflow --> above\n\n<!-- devflow -->\nold\n<!-- /devflow -->\n";
+    let new = block_put(Some(said), "new").unwrap();
+    assert_eq!(
+        new,
+        "see <!-- /devflow --> above\n\n<!-- devflow -->\nnew\n<!-- /devflow -->\n"
+    );
+    assert_eq!(block_put(Some(&new), "new"), None);
+    assert_eq!(block_drop(&new).unwrap(), "see <!-- /devflow --> above\n");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_config_behind_a_link_is_written_where_the_link_points() {
+    let dir = tempfile::tempdir().unwrap();
+    let real = dir.path().join("dotfiles/mcp.json");
+    fs::create_dir_all(real.parent().unwrap()).unwrap();
+    fs::write(&real, "{}").unwrap();
+    let link = dir.path().join("mcp.json");
+    std::os::unix::fs::symlink(&real, &link).unwrap();
+    let step = Step::Put {
+        file: link.clone(),
+        under: "mcpServers",
+        value: json!({ "command": "/bin/devflow" }),
+    };
+    carry(&step, false).unwrap();
+    assert!(fs::symlink_metadata(&link)
+        .unwrap()
+        .file_type()
+        .is_symlink());
+    assert!(fs::read_to_string(&real).unwrap().contains("devflow"));
+}

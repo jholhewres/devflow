@@ -330,8 +330,13 @@ impl Person {
         }
         let until = Instant::now() + WAIT;
         loop {
+            // A cancelled call stops waiting for the person.
+            if devflow_engine::call::cancelled() {
+                return Answer::Cancelled;
+            }
             let left = until.saturating_duration_since(Instant::now());
-            let line = match self.received(Some(left)) {
+            let line = match self.received(Some(left.min(Duration::from_secs(1)))) {
+                None if !left.is_zero() => continue,
                 None | Some(Incoming::Closed) => return Answer::Cancelled,
                 Some(Incoming::TooLong) => {
                     self.send(&crate::server::error(

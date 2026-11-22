@@ -653,24 +653,34 @@ pub fn hook_drop(text: Option<&str>, path: [&str; 2]) -> Result<Option<String>, 
 pub fn toml_set(text: &str, table: &str, key: &str, value: &str) -> Result<Option<String>, String> {
     let header = format!("[{table}]");
     let lines: Vec<&str> = text.lines().collect();
+    // The header, maybe with a comment after it.
     let at = lines
         .iter()
-        .position(|line| line.trim() == header)
+        .position(|line| {
+            line.trim()
+                .strip_prefix(&header)
+                .is_some_and(|rest| rest.trim().is_empty() || rest.trim_start().starts_with('#'))
+        })
         .ok_or_else(|| format!("it has no {header}"))?;
+    let quoted = format!("\"{key}\"");
     let set = lines[at + 1..]
         .iter()
         .take_while(|line| !line.trim_start().starts_with('['))
         .any(|line| {
-            line.trim_start()
-                .strip_prefix(key)
-                .is_some_and(|rest| rest.trim_start().starts_with('='))
+            let line = line.trim_start();
+            [key, quoted.as_str()].iter().any(|name| {
+                line.strip_prefix(name)
+                    .is_some_and(|rest| rest.trim_start().starts_with('='))
+            })
         });
     if set {
         return Ok(None);
     }
     let mut out: Vec<String> = lines.iter().map(|line| (*line).to_owned()).collect();
     out.insert(at + 1, format!("{key} = {value}"));
-    Ok(Some(out.join("\n") + "\n"))
+    // Its own line endings kept.
+    let end = if text.contains("\r\n") { "\r\n" } else { "\n" };
+    Ok(Some(out.join(end) + end))
 }
 
 /// devflow's section, between its markers.
@@ -683,8 +693,10 @@ fn block_of(text: &str) -> String {
 pub fn block_put(said: Option<&str>, text: &str) -> Option<String> {
     let block = block_of(text);
     let said = said.unwrap_or_default();
-    match (said.find(BLOCK_START), said.find(BLOCK_END)) {
-        (Some(start), Some(end)) if start < end => {
+    let start = said.find(BLOCK_START);
+    let end = start.and_then(|start| said[start..].find(BLOCK_END).map(|end| start + end));
+    match (start, end) {
+        (Some(start), Some(end)) => {
             let end = end + BLOCK_END.len();
             (said[start..end] != block)
                 .then(|| format!("{}{block}{}", &said[..start], &said[end..]))
@@ -697,7 +709,7 @@ pub fn block_put(said: Option<&str>, text: &str) -> Option<String> {
 /// A text file without devflow's section: `None` when it has none.
 pub fn block_drop(said: &str) -> Option<String> {
     let start = said.find(BLOCK_START)?;
-    let end = said.find(BLOCK_END).filter(|end| *end > start)? + BLOCK_END.len();
+    let end = start + said[start..].find(BLOCK_END)? + BLOCK_END.len();
     let before = said[..start].trim_end();
     let after = said[end..].trim_start_matches('\n');
     Some(match (before.is_empty(), after.is_empty()) {
@@ -903,6 +915,13 @@ fn read(file: &Path) -> Result<Option<String>, String> {
 /// Writes `new` over `file`, its old text first copied beside it, through a
 /// temporary file so a crash never leaves half a config.
 fn write(file: &Path, old: Option<&str>, new: &str) -> Result<(), String> {
+    // Through a link to the file it names, which stays a link (a dotfiles
+    // repository's config, say).
+    let linked = std::fs::symlink_metadata(file)
+        .is_ok_and(|meta| meta.file_type().is_symlink())
+        .then(|| std::fs::canonicalize(file).ok())
+        .flatten();
+    let file = linked.as_deref().unwrap_or(file);
     let fail = |e: std::io::Error| format!("{}: {e}", file.display());
     if let Some(parent) = file.parent() {
         std::fs::create_dir_all(parent).map_err(fail)?;

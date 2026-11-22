@@ -1252,14 +1252,14 @@ fn kept_apart(folder: &Path, hypotheses: &mut [Value]) -> Result<(), String> {
     Ok(())
 }
 
-/// How one run is held to its budget: the CLI's own spending cap where it
-/// has one (Claude Code's `--max-budget-usd`), else the turn's time.
 /// Whether a turn that gave no answer was ended by its cap: its time ran
 /// out, or it spent its dollars.
 fn cap_hit(why: &str) -> bool {
     why == crate::agents::TIMED_OUT || why == crate::agents::BUDGET_SPENT
 }
 
+/// How one run is held to its budget: the CLI's own spending cap where it
+/// has one (Claude Code's `--max-budget-usd`), else the turn's time.
 fn capped_by(agent: Agent, budget: Budget) -> &'static str {
     match (agent, budget.run_cents) {
         (Agent::Claude, Some(_)) => "max-budget-usd",

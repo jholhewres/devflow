@@ -120,8 +120,10 @@ pub fn handle(line: &str, server: &Server) -> Option<String> {
             let progress = params
                 .pointer("/_meta/progressToken")
                 .and_then(|token| server.person.progress_to(token));
-            server.person.running(Some(&id));
+            // Begun before it can be named: a cancellation heard from here on
+            // is never wiped by the start.
             devflow_engine::call::begin(progress);
+            server.person.running(Some(&id));
             let mut result = call(&params, server);
             if devflow_engine::call::cancelled() {
                 result = said("cancelled by the client: its processes were ended", true);
