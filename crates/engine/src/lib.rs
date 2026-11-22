@@ -10,11 +10,17 @@
 //! headless, and gates the item on that evidence.
 
 pub mod adhoc;
+#[doc(hidden)]
 pub mod agents;
+#[doc(hidden)]
 pub mod attack;
+#[doc(hidden)]
 pub mod attack_metrics;
+#[doc(hidden)]
 pub mod attack_report;
+#[doc(hidden)]
 pub mod autopilot;
+#[doc(hidden)]
 pub mod available;
 pub mod brief;
 pub mod calibrate;
@@ -26,41 +32,53 @@ mod edit;
 pub mod env;
 pub mod evidence;
 pub mod findings;
-pub mod flow;
+pub(crate) mod flow;
 pub mod folder;
 pub mod fresh;
+#[doc(hidden)]
 pub mod fsguard;
 pub mod gate;
 pub mod git;
+#[doc(hidden)]
 pub mod home;
 pub mod jev;
 pub mod layers;
 pub mod locate;
+#[doc(hidden)]
 pub mod models;
 mod node;
+#[doc(hidden)]
 pub mod payloads;
 pub mod pinning;
 pub mod plan;
+#[doc(hidden)]
 pub mod playwright;
 pub mod plugin;
 pub mod preset;
 pub mod proposal;
 pub mod publish;
+#[doc(hidden)]
 pub mod render;
 pub mod review;
 pub mod runner;
 pub mod runs;
+#[doc(hidden)]
 pub mod sandbox;
+#[doc(hidden)]
 pub mod scale;
 pub mod security;
 pub mod setup;
 pub mod skills;
+#[doc(hidden)]
 pub mod stack;
 pub mod stage;
 pub mod started;
+#[doc(hidden)]
 pub mod vault;
+#[doc(hidden)]
 pub mod verdict;
 pub mod work;
+#[doc(hidden)]
 pub mod workspace;
 
 pub use config::{Config, Invalid};

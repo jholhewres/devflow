@@ -4,8 +4,9 @@ devflow is devpit's Devflow made to run on its own. The product is an **MCP
 server and a plugin**: any agent CLI or IDE that speaks MCP gets the flow's
 tools, and the ones that take plugins, skills or hooks get those too. The
 `devflow` binary also carries the few commands a person runs to install,
-configure and check it. Nothing depends on devpit; devpit talks to devflow
-across a process boundary (`devflow host`, 0.4.0), not by linking the engine.
+configure and check it. Nothing depends on devpit. devpit links the
+engine's stable modules (0.7.0, below) and asks `devflow host` (protocol 1)
+for the project's configuration and skills.
 [extraction-map.md](extraction-map.md) lists what moves and why.
 
 ## Name
@@ -308,7 +309,8 @@ linking the engine, and the binary keeps itself current.
   personal → built-in and say its layer, file and sha256.
 - Next, each adding to `methods`: the gate and its hooks over the host's work
   items, evidence, review, brief and plan, publish and stage, and the host's
-  screens.
+  screens. 0.7.0 took the other way: devpit links the engine, and protocol 1
+  stays as it is (below).
 
 **devflow.yaml keeps what it does not read**
 
@@ -518,6 +520,29 @@ HEAD. The details, and how to read the report: [security.md](security.md).
   the family a class is told apart in, and `attack_report::on_one_line`
   the families one only on one line; `models::attack_reads_the_diff` says
   whether a diff could make the attack due.
+
+## The engine as a library: 0.7.0
+
+devpit links `devflow-engine` and uses it in process: its configuration,
+criteria and runs show in its own screens. Carrying every one of those types
+across `devflow host` would have made each a second, JSON copy to keep in
+step, for a single host written in Rust. So the engine's public surface is
+declared instead, and the host stops growing.
+
+- **Stable modules**: `adhoc`, `brief`, `calibrate`, `config`, `criteria`, `detect`, `dialect`, `env`, `evidence`, `findings`, `folder`, `fresh`, `gate`, `git`, `jev`, `layers`, `locate`, `pinning`, `plan`, `plugin`, `preset`, `proposal`, `publish`, `review`, `runner`, `runs`, `security`, `setup`, `skills`, `stage`, `started`, `work`.
+- With them, the crate's own names: `Config`, `Invalid`, `Assets`,
+  `Dialect`, `State`, `config_in`, `Found`, `Origin`, `Ask` and `Proposal`.
+- Those are the modules devpit imported at 366906f3, where it was pinned to
+  v0.5.0. A change to them is said under "What a host sees change" in the
+  release that makes it. `tests/the_paths_devpit_links_stay_public.rs`
+  names each path devpit names, so one that goes away fails the build.
+- Every other public module is internal: `#[doc(hidden)]`, there for the
+  `devflow` binary and the tests, and changed without notice (the attack,
+  its reports and sandbox, the agent CLIs, the models, the vault, and the
+  like). `flow` is private to the crate.
+- `devflow host` stays at protocol 1, which devpit uses for `config/write`,
+  `skills/get` and the `status` tool. It is kept as it is, and grows only if
+  a host that cannot link Rust comes along.
 
 ## Release
 
