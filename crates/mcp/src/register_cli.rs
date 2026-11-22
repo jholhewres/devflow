@@ -1,12 +1,16 @@
 //! `devflow register` and `devflow unregister`: devflow added to, or taken
 //! out of, each agent CLI and IDE found here or named.
 
+use std::path::Path;
 use std::process::ExitCode;
 
 use crate::{register, Registering};
 
-pub fn registering(how: &Registering, on: bool) -> ExitCode {
-    let machine = register::Machine::here();
+/// Run in a project devflow is set up in, a tool's project files (Cursor's
+/// rule, devflow's section of AGENTS.md) are written or taken out there too.
+pub fn registering(how: &Registering, on: bool, root: &Path) -> ExitCode {
+    let mut machine = register::Machine::here();
+    machine.project = devflow_engine::config_in(root).and_then(|_| root.canonicalize().ok());
     let tools = match register::chosen(how.tools.as_deref(), &machine) {
         Ok(tools) => tools,
         Err(why) => {

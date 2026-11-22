@@ -7,6 +7,8 @@ fn machine(home: &Path, said: Option<&'static str>) -> Machine {
         home: home.to_path_buf(),
         config: home.join(".config"),
         claude: home.to_path_buf(),
+        codex: home.join(".codex"),
+        project: None,
         mac: false,
         has: Box::new(|_| true),
         ask: Box::new(move |_| said.map(str::to_owned)),
@@ -89,8 +91,8 @@ fn a_cli_that_already_has_devflow_is_not_asked_again() {
 
     let steps = register(Tool::Codex, "/bin/devflow", &machine(dir.path(), None));
     assert_eq!(
-        steps,
-        vec![Step::Run(
+        steps[0],
+        Step::Run(
             [
                 "codex",
                 "mcp",
@@ -102,8 +104,17 @@ fn a_cli_that_already_has_devflow_is_not_asked_again() {
             ]
             .map(str::to_owned)
             .to_vec()
-        )]
+        )
     );
+    assert!(matches!(
+        steps[1],
+        Step::Toml {
+            key: "tool_timeout_sec",
+            ..
+        }
+    ));
+    assert!(matches!(steps[2], Step::Hook { .. }));
+    assert_eq!(steps.len(), 3, "no project, no AGENTS.md");
 }
 
 #[test]
@@ -138,6 +149,18 @@ fn a_tool_is_registered_once_every_step_is_done() {
     fs::write(
         home.path().join(".cursor/mcp.json"),
         json!({ "mcpServers": { "devflow": value } }).to_string(),
+    )
+    .unwrap();
+    assert!(
+        !registered(Tool::Cursor, "/bin/devflow", &machine),
+        "the server alone: its gate hook is missing"
+    );
+    fs::write(
+        home.path().join(".cursor/hooks.json"),
+        json!({ "version": 1, "hooks": { "stop": [
+            { "command": "/bin/devflow hook stop --agent cursor", "loop_limit": 5 }
+        ] } })
+        .to_string(),
     )
     .unwrap();
     assert!(registered(Tool::Cursor, "/bin/devflow", &machine));
@@ -253,4 +276,196 @@ fn taking_devflow_out_of_claude_removes_its_user_server_only_when_there() {
 
 fn machine_saying(home: &Path, said: &'static str) -> Machine {
     machine(home, Some(said))
+}
+
+#[test]
+fn a_hook_is_added_beside_the_persons_and_an_older_one_of_devflows_replaced() {
+    let mine = json!({ "command": "./audit.sh" });
+    let old = json!({ "command": "/old/devflow hook stop --agent cursor", "loop_limit": 5 });
+    let text = json!({ "hooks": { "stop": [mine, old] } }).to_string();
+    let entry = json!({ "command": "/bin/devflow hook stop --agent cursor", "loop_limit": 5 });
+    let top = ("version", json!(1));
+    let new = hook_put(Some(&text), ["hooks", "stop"], &entry, Some(&top))
+        .unwrap()
+        .unwrap();
+    let doc: Value = serde_json::from_str(&new).unwrap();
+    assert_eq!(doc["version"], 1);
+    assert_eq!(doc["hooks"]["stop"], json!([mine, entry]));
+    assert_eq!(
+        hook_put(Some(&new), ["hooks", "stop"], &entry, Some(&top)).unwrap(),
+        None,
+        "there already"
+    );
+    let dropped = hook_drop(Some(&new), ["hooks", "stop"]).unwrap().unwrap();
+    let doc: Value = serde_json::from_str(&dropped).unwrap();
+    assert_eq!(doc["hooks"]["stop"], json!([mine]));
+    assert_eq!(hook_drop(Some(&dropped), ["hooks", "stop"]).unwrap(), None);
+    // Codex's shape: the command one level down.
+    let codex = json!({ "hooks": [{ "type": "command", "command": "/bin/devflow hook stop --agent codex" }] });
+    let made = hook_put(None, ["hooks", "Stop"], &codex, None)
+        .unwrap()
+        .unwrap();
+    let gone = hook_drop(Some(&made), ["hooks", "Stop"]).unwrap().unwrap();
+    assert_eq!(
+        serde_json::from_str::<Value>(&gone).unwrap(),
+        json!({ "hooks": {} })
+    );
+    assert!(hook_put(Some("{ // mine\n }"), ["hooks", "stop"], &entry, None).is_err());
+}
+
+#[test]
+fn a_toml_table_gets_one_line_and_keeps_the_rest_as_written() {
+    let text = "# my settings\nmodel = \"o3\"\n\n[mcp_servers.devflow]\ncommand = \"/bin/devflow\"\nargs = [\"mcp\"]\n\n[mcp_servers.other] # mine\ncommand = \"x\"\n";
+    let new = toml_set(text, "mcp_servers.devflow", "tool_timeout_sec", "3600")
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        new,
+        "# my settings\nmodel = \"o3\"\n\n[mcp_servers.devflow]\ntool_timeout_sec = 3600\ncommand = \"/bin/devflow\"\nargs = [\"mcp\"]\n\n[mcp_servers.other] # mine\ncommand = \"x\"\n"
+    );
+    assert_eq!(
+        toml_set(&new, "mcp_servers.devflow", "tool_timeout_sec", "3600").unwrap(),
+        None
+    );
+    let theirs = new.replace("tool_timeout_sec = 3600", "tool_timeout_sec = 120");
+    assert_eq!(
+        toml_set(&theirs, "mcp_servers.devflow", "tool_timeout_sec", "3600").unwrap(),
+        None,
+        "the person's own value stands"
+    );
+    assert!(toml_set(
+        "model = 1\n",
+        "mcp_servers.devflow",
+        "tool_timeout_sec",
+        "3600"
+    )
+    .is_err());
+}
+
+#[test]
+fn devflows_section_of_agents_md_is_added_replaced_and_taken_out_alone() {
+    let mine = "# Agents\n\nUse pnpm.\n";
+    let with = block_put(Some(mine), "devflow v1").unwrap();
+    assert!(with
+        .starts_with("# Agents\n\nUse pnpm.\n\n<!-- devflow -->\ndevflow v1\n<!-- /devflow -->"));
+    assert_eq!(block_put(Some(&with), "devflow v1"), None);
+    let newer = block_put(Some(&with), "devflow v2").unwrap();
+    assert!(newer.contains("devflow v2") && !newer.contains("devflow v1"));
+    assert_eq!(block_drop(&newer).unwrap(), mine);
+    assert_eq!(block_drop(mine), None);
+    assert_eq!(
+        block_put(None, "devflow v1").unwrap(),
+        "<!-- devflow -->\ndevflow v1\n<!-- /devflow -->\n"
+    );
+}
+
+#[test]
+fn a_project_gets_cursors_rule_and_agents_md_and_unregister_takes_only_devflows() {
+    let home = tempfile::tempdir().unwrap();
+    let project = tempfile::tempdir().unwrap();
+    let mut machine = machine(home.path(), None);
+    machine.project = Some(project.path().to_path_buf());
+    for step in register(Tool::Cursor, "/bin/devflow", &machine)
+        .iter()
+        .chain(&register(Tool::Codex, "/bin/devflow", &machine))
+    {
+        if matches!(step, Step::Run(_) | Step::Toml { .. }) {
+            continue;
+        }
+        let said = carry(step, true).unwrap();
+        assert!(said.starts_with("would "), "{said}");
+        carry(step, false).unwrap();
+    }
+    let rule = project.path().join(".cursor/rules/devflow.mdc");
+    assert_eq!(fs::read_to_string(&rule).unwrap(), CURSOR_RULE);
+    let agents = fs::read_to_string(project.path().join("AGENTS.md")).unwrap();
+    assert!(agents.contains("<!-- devflow -->"), "{agents}");
+    assert!(hook_installed(Tool::Cursor, "/bin/devflow", &machine) == Some(true));
+    assert!(hook_installed(Tool::Codex, "/bin/devflow", &machine) == Some(true));
+    assert_eq!(
+        hook_installed(Tool::Antigravity, "/bin/devflow", &machine),
+        None
+    );
+    // A rule the person changed is theirs: unregister leaves it.
+    fs::write(&rule, "mine now").unwrap();
+    for step in unregister(Tool::Cursor, &machine)
+        .iter()
+        .chain(&unregister(Tool::Codex, &machine))
+    {
+        if !matches!(step, Step::Run(_)) {
+            carry(step, false).unwrap();
+        }
+    }
+    assert_eq!(fs::read_to_string(&rule).unwrap(), "mine now");
+    assert!(
+        !project.path().join("AGENTS.md").exists(),
+        "it held only devflow's"
+    );
+    assert!(hook_installed(Tool::Cursor, "/bin/devflow", &machine) == Some(false));
+}
+
+#[test]
+fn cursor_is_not_found_by_a_folder_an_uninstall_left() {
+    let home = tempfile::tempdir().unwrap();
+    let nothing = Machine {
+        has: Box::new(|_| false),
+        ..machine(home.path(), None)
+    };
+    fs::create_dir_all(home.path().join(".cursor")).unwrap();
+    assert!(!nothing.found(Tool::Cursor), "a folder alone");
+    fs::write(home.path().join(".cursor/mcp.json"), "{}").unwrap();
+    assert!(nothing.found(Tool::Cursor), "a config Cursor reads");
+    let cli = Machine {
+        has: Box::new(|program| program == "cursor-agent"),
+        ..machine(home.path(), None)
+    };
+    assert!(cli.found(Tool::Cursor));
+}
+
+#[test]
+fn antigravity_and_windsurf_get_the_server_where_each_reads_it() {
+    let home = tempfile::tempdir().unwrap();
+    let nothing = Machine {
+        has: Box::new(|_| false),
+        ..machine(home.path(), None)
+    };
+    assert!(!nothing.found(Tool::Antigravity) && !nothing.found(Tool::Windsurf));
+    fs::create_dir_all(home.path().join(".gemini/antigravity")).unwrap();
+    fs::write(home.path().join(".gemini/antigravity/installation_id"), "x").unwrap();
+    assert!(nothing.found(Tool::Antigravity));
+    let value = json!({ "command": "/bin/devflow", "args": ["mcp"] });
+    assert_eq!(
+        register(Tool::Antigravity, "/bin/devflow", &nothing),
+        vec![Step::Put {
+            file: home.path().join(".gemini/config/mcp_config.json"),
+            under: "mcpServers",
+            value: value.clone(),
+        }]
+    );
+    // Windsurf's own file, or Devin Desktop's, the app Windsurf became.
+    let file = |machine: &Machine| match &register(Tool::Windsurf, "/bin/devflow", machine)[0] {
+        Step::Put { file, .. } => file.clone(),
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(
+        file(&nothing),
+        home.path().join(".codeium/windsurf/mcp_config.json")
+    );
+    let devin = Machine {
+        has: Box::new(|program| program == "devin-desktop"),
+        ..machine(home.path(), None)
+    };
+    assert!(devin.found(Tool::Windsurf));
+    assert_eq!(
+        file(&devin),
+        home.path().join(".config/devin/mcp_config.json")
+    );
+    for step in register(Tool::Antigravity, "/bin/devflow", &nothing) {
+        carry(&step, false).unwrap();
+    }
+    assert!(registered(Tool::Antigravity, "/bin/devflow", &nothing));
+    for step in unregister(Tool::Antigravity, &nothing) {
+        carry(&step, false).unwrap();
+    }
+    assert!(!registered(Tool::Antigravity, "/bin/devflow", &nothing));
 }

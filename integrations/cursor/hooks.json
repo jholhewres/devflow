@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "hooks": {
+    "stop": [
+      { "command": "devflow hook stop --agent cursor", "loop_limit": 5 }
+    ]
+  }
+}

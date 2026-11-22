@@ -39,9 +39,10 @@ Opções e atualização: [docs/install.md](docs/install.md) (em inglês).
 | Ferramenta | O que recebe |
 |---|---|
 | Claude Code | plugin: tools MCP, skills `/devflow:<etapa>`, `/devflow:status`, `/devflow:pr`, subagentes revisores, o Stop hook do gate; o servidor MCP também na config de usuário, para uma sessão que carrega outro plugin chamado devflow continuar com ele ([por quê](docs/integrations.md#claude-code-and-another-plugin-named-devflow)) |
-| Codex | tools MCP (`codex mcp add devflow -- devflow mcp`) |
+| Codex | tools MCP, o Stop hook do gate (aprovado no `/hooks` do Codex), `AGENTS.md` no projeto ([como](docs/integrations.md#codex)) |
 | Gemini CLI | extensão: tools MCP e `GEMINI.md` |
-| Cursor, OpenCode, VS Code | tools MCP |
+| Cursor | tools MCP, o stop hook do gate, a regra do projeto ([como](docs/integrations.md#cursor)) |
+| OpenCode, VS Code, Antigravity, Windsurf (Devin Desktop) | tools MCP |
 
 Depois, peça o trabalho ao seu agente. Ele faz o brief, planeja em work items
 depois do seu sim, constrói cada um com teste primeiro, roda as checagens

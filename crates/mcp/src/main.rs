@@ -244,7 +244,7 @@ enum Staging {
 #[derive(clap::Args)]
 struct Registering {
     /// Only these, comma-separated: claude, codex, gemini, cursor, opencode,
-    /// vscode. Every one found here when left out.
+    /// vscode, antigravity, windsurf. Every one found here when left out.
     #[arg(long, value_name = "LIST")]
     tools: Option<String>,
     /// Say what would change and change nothing.
@@ -309,8 +309,8 @@ fn main() -> ExitCode {
         ),
         Command::Setup(how) => setup_cli::run(&root, &how),
         Command::Doctor => doctor::run(&root),
-        Command::Register(how) => register_cli::registering(&how, true),
-        Command::Unregister(how) => register_cli::registering(&how, false),
+        Command::Register(how) => register_cli::registering(&how, true, &root),
+        Command::Unregister(how) => register_cli::registering(&how, false, &root),
         Command::Hook { event, agent } => hook::run(event, &agent, &root),
         Command::Config { action } => match action {
             Configuring::Get { path } => cli::get(&root, path.as_deref()),

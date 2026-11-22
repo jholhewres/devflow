@@ -104,6 +104,19 @@ pub fn findings(
                 tool.id()
             ),
         };
+        // The gate holds the end of a turn only through the tool's own hook.
+        match register::hook_installed(tool, bin, machine) {
+            Some(true) if tool == register::Tool::Codex => said.push(ok(
+                "codex: devflow's gate hook is in its hooks.json; Codex runs it once you trust it in its /hooks",
+            )),
+            Some(true) => said.push(ok(format!("{}: devflow's gate hook is installed", tool.id()))),
+            Some(false) => said.push(maybe(format!(
+                "{}: devflow's gate hook is not installed, so a turn can end while the gate fails: `devflow register --tools={}`",
+                tool.id(),
+                tool.id()
+            ))),
+            None => {}
+        }
         said.push(match (yes, any) {
             (true, _) if tool == register::Tool::Claude => ok(
                 "claude: devflow is registered, its server in your user config, so every \

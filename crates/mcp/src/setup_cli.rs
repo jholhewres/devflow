@@ -203,6 +203,39 @@ fn tools() -> Result<(), String> {
     Ok(())
 }
 
+/// The files the agent tools found here read in a project (Cursor's rule,
+/// devflow's section of AGENTS.md for Codex), each written on a yes.
+fn project_files(root: &Path) -> Result<(), String> {
+    let mut machine = Machine::here();
+    machine.project = Some(root.to_path_buf());
+    let bin = std::env::current_exe()
+        .and_then(|path| path.canonicalize().or(Ok(path)))
+        .map(|path| path.display().to_string())
+        .unwrap_or_else(|_| register::NAME.to_owned());
+    for tool in [register::Tool::Cursor, register::Tool::Codex] {
+        if !machine.found(tool) {
+            continue;
+        }
+        for step in register::register(tool, &bin, &machine) {
+            let (register::Step::Own { file, .. } | register::Step::Block { file, .. }) = &step
+            else {
+                continue;
+            };
+            let asked = format!("Add what {} reads to {}?", tool.id(), file.display());
+            if register::carry(&step, true).is_ok_and(|said| said.starts_with("ok:"))
+                || !confirmed(&asked)?
+            {
+                continue;
+            }
+            match register::carry(&step, false) {
+                Ok(said) => println!("{}: {said}", tool.id()),
+                Err(why) => eprintln!("{}: {why}", tool.id()),
+            }
+        }
+    }
+    Ok(())
+}
+
 fn project(root: &Path, preset: Preset, consent: &Consent) -> Result<(), String> {
     let project = Project::at(root);
     let layout = project.layout();
@@ -240,6 +273,7 @@ fn project(root: &Path, preset: Preset, consent: &Consent) -> Result<(), String>
     } else {
         println!("{} is there already.", layout.file);
     }
+    project_files(&project.root)?;
     if consent.made(&project.root, Ask::Enable)
         && matches!(project.read(), State::Valid(_, ref config) if config.enabled)
     {

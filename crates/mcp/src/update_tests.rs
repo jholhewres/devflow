@@ -418,6 +418,8 @@ fn claude(listings: Vec<&'static str>) -> (Machine, Rc<RefCell<Vec<String>>>) {
         home: PathBuf::new(),
         config: PathBuf::new(),
         claude: PathBuf::new(),
+        codex: PathBuf::new(),
+        project: None,
         mac: false,
         has: Box::new(|program| program == "claude"),
         ask: Box::new(move |argv| {
@@ -602,6 +604,8 @@ fn a_plugin_that_did_not_update_is_asked_about_again() {
         home: PathBuf::new(),
         config: PathBuf::new(),
         claude: PathBuf::new(),
+        codex: PathBuf::new(),
+        project: None,
         mac: false,
         has: Box::new(|program| program == "claude"),
         ask: Box::new(move |argv| {

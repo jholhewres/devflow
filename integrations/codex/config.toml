@@ -1,4 +1,7 @@
 # Append to ~/.codex/config.toml, or run: codex mcp add devflow -- devflow mcp
+# A review or the checks may take most of an hour: Codex otherwise gives up
+# on a tool call in minutes.
 [mcp_servers.devflow]
+tool_timeout_sec = 3600
 command = "devflow"
 args = ["mcp"]

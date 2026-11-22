@@ -569,10 +569,20 @@ fn judged_on(project: &Project, id: &str) -> Option<String> {
 /// gate's call.
 pub fn hook_params(payload: &Value, agent: &str, cap: Option<String>) -> Value {
     let event = payload["hook_event_name"].as_str().unwrap_or("Stop");
+    // Cursor names its session a conversation, and counts the turns its
+    // stop hook already sent back.
+    let session = match &payload["session_id"] {
+        Value::Null => payload["conversation_id"].clone(),
+        said => said.clone(),
+    };
+    let sent_back = payload["stop_hook_active"] == true
+        || payload["loop_count"]
+            .as_u64()
+            .is_some_and(|count| count > 0);
     json!({
         "event": event,
-        "session": payload["session_id"],
-        "stop_hook_active": payload["stop_hook_active"],
+        "session": session,
+        "stop_hook_active": sent_back,
         "transcript": payload["agent_transcript_path"].as_str().or(payload["transcript_path"].as_str()),
         "agent": agent,
         "cap": cap,

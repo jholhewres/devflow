@@ -8,6 +8,8 @@ fn machine(home: &Path) -> Machine {
         home: home.to_path_buf(),
         config: home.join(".config"),
         claude: home.to_path_buf(),
+        codex: home.join(".codex"),
+        project: None,
         mac: false,
         has: Box::new(|_| false),
         ask: Box::new(|_| None),
