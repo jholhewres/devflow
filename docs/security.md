@@ -250,6 +250,15 @@ and the evidence. attack.json's `exploits` lists every confirmed exploit
 test, each with what holds it: `evidence` when the session confirmed it
 (it must be green in the newest run from then on), `proof` when the
 sandbox did (its proof closes it: red at its base, green at HEAD).
+attack-report.json lists them too, by id, file, line, who ran each and
+what holds it; the test's name is the attack's own words and stays in
+attack.json.
+
+An exploit asserts what the code does, never how long it takes: for a
+denial of service, the attacker is asked to assert the bound the code
+crosses (the steps it runs, the size or depth it accepts, the memory it
+takes), since wall-clock time changes with the machine and makes a flaky
+regression test.
 
 A review's finding takes a recorded PoC run the same way: the review tool's
 `verified`, on any finding, `confirmed`, `refuted` or `not_run`. An attack
@@ -266,7 +275,8 @@ usual choice. Nothing caps it unless the person sets `stages.attack.budget`
 (a CLI paid by API; a subscription needs none):
 
 - `run_usd` caps one run: the attacker's turn stops there, the report says
-  what capped it (`run_capped_by`), and several attackers share it.
+  what capped it (`run_capped_by`) and whether a cap ended a turn
+  (`run_cap_hit`, each attacker's `cap_hit`), and several attackers share it.
 - `month_usd` refuses a run before it starts once the month's attacks spent
   it. A ledger devflow cannot read refuses too: it never counts as nothing
   spent.
@@ -293,7 +303,8 @@ them: they are the host's to show and to send where the person says.
 
 They are what a person shares, so they carry none of the attack's own
 words. Each holds only what devflow sets, each field in its own shape: the
-status, severity and class from their own words (a class devflow does not
+status, severity and class from their own words (`stored-xss` is `xss`,
+`denial-of-service` is `dos`, `tls` is `transport`; a class devflow does not
 name is `other`), the id, the file when the commit attacked has it (any
 other the attack names, an exploit's own path included, shows as `<…>`),
 the line, the run,
@@ -580,7 +591,9 @@ attackers of one run are merged: `tls`, `ssl`, `certificate` and
 few lines on, it may be a weak hash. Any other two classes stay apart, even
 on one line: `authn` and `authz` in one handler are two holes.
 The attacker's own account of a hole the run again confirmed is not counted
-twice.
+twice. The hypothesis kept says what it took in, under `merged`: each one's
+id, class, place and title, and who found it or which run kept it, never its
+exploit; the JSON report gives how many.
 A red run confirms only when what it printed names the exploit's test, its
 parts joined as the runner joins them (jest's `describe › test`, vitest's
 and Pest's `describe > test`, pytest's, cargo's and PHPUnit's `::`, Go's

@@ -459,6 +459,20 @@ HEAD. The details, and how to read the report: [security.md](security.md).
   HEAD per attack; Pest is proven by a project of its own; the Stop hook
   reads no diff while the attack is off or kept for a release, and asks
   git for `HEAD` and the default branch once per gate read.
+- 0.7.0: the engine's stable surface is declared (below); `devflow attack
+  <item|range> --promote <hypothesis>` takes the place of `devflow attack
+  promote <item|range> <hypothesis>`; `devflow mcp` answers `ping` while a
+  tool runs, says its progress to a client that gave a `progressToken`, and
+  ends a cancelled call's processes; `devflow register` gives Codex and
+  Cursor the gate's Stop hook, Codex an hour per tool call and the
+  project's `AGENTS.md` section, Cursor the project's rule, and knows
+  Antigravity and Windsurf (Devin Desktop); the attack report names `dos`,
+  `crypto` and `transport` and the classes said their own way (`stored-xss`),
+  lists its confirmed exploits in JSON, says whether a cap ended a turn
+  (`run_cap_hit`) and keeps on a hypothesis what a dedupe took in
+  (`merged`); the attacker asserts bounds, never wall-clock time; the
+  binary's main.rs only defines and dispatches the CLI, and the longest
+  functions of attack.rs and review.rs are named steps.
 
 **What a host sees change**
 
@@ -520,6 +534,12 @@ HEAD. The details, and how to read the report: [security.md](security.md).
   the family a class is told apart in, and `attack_report::on_one_line`
   the families one only on one line; `models::attack_reads_the_diff` says
   whether a diff could make the attack due.
+- 0.7.0: the modules outside the stable list are `#[doc(hidden)]`, and
+  `flow` is private; `review::turn_in` takes a `review::Turn` instead of
+  seven arguments (`review::turn` is as it was); `call` (internal) is how a
+  host cancels the call running now and hears its progress; a
+  hypothesis may carry `merged`, and an attack report's budget
+  `run_cap_hit`.
 
 ## The engine as a library: 0.7.0
 

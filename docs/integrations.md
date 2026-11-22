@@ -119,6 +119,19 @@ Not verified on a real install: whether Devin Desktop's agent also reads
 the older Windsurf file (its CLI does), and the macOS app names; Windows
 was not looked at for any tool.
 
+## Long calls
+
+A review, the checks or an attack may run for many minutes. While one does,
+`devflow mcp` still answers `ping`, says each reviewer, check, attacker and
+exploit done as `notifications/progress` to a client that sent a
+`progressToken`, and on `notifications/cancelled` ends every process the
+call started (each runs in a group of its own), starts no other, and
+answers the call as cancelled. Measured on 2026-11-22 with a tool that took
+eight minutes: Claude Code 2.1.330 waited it out, sent a `progressToken`,
+and neither pinged nor cancelled; Codex 0.160.0 gave up at 300 s without a
+cancellation (hence its `tool_timeout_sec` above); Cursor's `cursor-agent`
+reached no stdio server on that machine, so it was not measured.
+
 ## The hooks
 
 The plugin's hooks run `devflow hook stop|subagent-stop|session-start --agent
