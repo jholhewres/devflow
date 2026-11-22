@@ -675,3 +675,83 @@ fn a_refuted_hypothesis_shows_the_attackers_estimate_apart() {
         Value::Null
     );
 }
+
+/// A report of two roots, each with variants, and holes that stand alone.
+fn rooted() -> Value {
+    let one = |id: &str, status: &str, class: &str, file: &str, line: u64| {
+        json!({ "id": id, "status": status, "severity": "low", "class": class,
+                "file": file, "line": line, "title": SAID[9], "reason": SAID[0] })
+    };
+    json!({
+        "item": "item_1", "run": "20261119T120000Z", "base": "aaaa", "head": "bbbb",
+        "in_repo": ["src/net/blocklist.ts", "src/html/extract.ts", "src/app/service.ts"],
+        "hypotheses": [
+            one("h1", "confirmed", "prompt-injection", "src/html/extract.ts", 133),
+            one("h2", "confirmed", "prompt-injection", "src/html/extract.ts", 10),
+            one("h3", "confirmed", "ssrf", "src/net/blocklist.ts", 54),
+            one("h4", "refuted", "ssrf", "./src/net/blocklist.ts", 173),
+            one("h5", "confirmed", "redos", "src/app/service.ts", 529),
+            one("h6", "confirmed", "dos", "src/app/service.ts", 566),
+            one("h7", "refuted", "dos", "src/net/fetcher.ts", 241),
+            one("h8", "refuted", "dos", "src/net/fetcher.ts", 93),
+            one("h9", "confirmed", "SSRF", "src/net/blocklist.ts", 31),
+            one("h10", "confirmed", "prompt_injection", "src/html/extract.ts", 122),
+            one("h11", "tried", "ssrf", "src/net/blocklist.ts", 45),
+            one("h12", "confirmed", "prompt-injection", "src/html/extract.ts", 90),
+        ],
+    })
+}
+
+/// Variants of one root are one family: one file and one family of class,
+/// two or more, one still open. The JSON lists each family once with its
+/// variants, how many were confirmed and one fix; the markdown gives each
+/// one line; each hypothesis names its family.
+#[test]
+fn variants_of_one_root_are_one_family_with_one_fix() {
+    let report = rooted();
+    assert_eq!(
+        roots(&report),
+        [vec![0, 1, 9, 11], vec![2, 3, 8, 10]],
+        "two roots; the redos and dos of one file stand apart, and two refuted alone make none"
+    );
+    let known = Known::of(&report);
+    let shown = json_of(&report, &known);
+    let families = shown["families"].as_array().expect("families");
+    assert_eq!(families.len(), 2, "{families:#?}");
+    assert_eq!(families[0]["class"], "prompt-injection");
+    assert_eq!(families[0]["file"], "src/html/extract.ts");
+    assert_eq!(families[0]["confirmed"], 4);
+    assert_eq!(families[1]["class"], "ssrf");
+    assert_eq!(families[1]["confirmed"], 2);
+    assert_eq!(families[1]["variants"].as_array().map(Vec::len), Some(4));
+    assert_eq!(families[1]["fix"], said_of("ssrf").1);
+    let named: Vec<&str> = shown["hypotheses"]
+        .as_array()
+        .expect("hypotheses")
+        .iter()
+        .map(|one| one["family"].as_str().unwrap_or("-"))
+        .collect();
+    assert_eq!(
+        named,
+        ["f1", "f1", "f2", "f2", "-", "-", "-", "-", "f2", "f1", "f2", "f1"]
+    );
+    let md = markdown(&report, &known);
+    assert!(md.contains("## Holes by root"), "{md}");
+    assert!(
+        md.contains("- f2 ssrf in `src/net/blocklist.ts`: 2 of 4 confirmed (h3 confirmed, h4 refuted, h9 confirmed, h11 tried). One fix: "),
+        "{md}"
+    );
+    let section = md.split("## Holes by root").nth(1).expect("section");
+    let lines = section
+        .split("\n\n")
+        .nth(2)
+        .expect("lines")
+        .lines()
+        .filter(|line| line.starts_with("- f"))
+        .count();
+    assert_eq!(lines, 2, "one line per root: {md}");
+    let text = shown.to_string();
+    for leak in LEAKS {
+        assert!(!text.contains(leak), "{leak} in {text}");
+    }
+}

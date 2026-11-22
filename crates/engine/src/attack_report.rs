@@ -615,6 +615,7 @@ fn shown(one: &Value, known: &Known) -> Value {
             fixes.iter().map(|fix| name_of(&fix["repo"])).collect::<Vec<_>>()
         }),
         "merged": merged_shown(one),
+        "family": Value::Null,
     })
 }
 
@@ -638,13 +639,107 @@ fn exploits_shown(report: &Value, known: &Known) -> Vec<Value> {
         .collect()
 }
 
-/// The hypotheses as [`shown`].
+/// The hypotheses as [`shown`], each with the family it is one of.
 fn hypotheses(report: &Value, known: &Known) -> Vec<Value> {
-    report["hypotheses"]
+    let mut shown: Vec<Value> = report["hypotheses"]
         .as_array()
         .into_iter()
         .flatten()
         .map(|one| shown(one, known))
+        .collect();
+    for (at, members) in roots(report).iter().enumerate() {
+        for member in members {
+            if let Some(one) = shown.get_mut(*member) {
+                one["family"] = json!(format!("f{}", at + 1));
+            }
+        }
+    }
+    shown
+}
+
+/// A severity's rank: `critical` first.
+fn rank(severity: &Value) -> usize {
+    SEVERITIES
+        .iter()
+        .position(|one| severity == *one)
+        .unwrap_or(SEVERITIES.len())
+}
+
+/// The hypotheses of one root, each a list of their places in the report:
+/// two or more of one file and one family of class ([`family`]), one of
+/// them still open (confirmed, or tried). Inputs that slip past one check,
+/// one list or one parser are variants of one hole, and one fix at its
+/// root shuts them all. In the order the report first names each.
+pub fn roots(report: &Value) -> Vec<Vec<usize>> {
+    let list = report["hypotheses"].as_array().cloned().unwrap_or_default();
+    let key = |one: &Value| {
+        let file = one["file"]
+            .as_str()
+            .unwrap_or_default()
+            .trim()
+            .trim_start_matches("./")
+            .to_owned();
+        let class = one["class"].as_str().unwrap_or_default().trim().to_owned();
+        (!file.is_empty() && !class.is_empty()).then(|| (file, family(&class)))
+    };
+    let mut keys: Vec<(String, String)> = Vec::new();
+    let mut groups: Vec<Vec<usize>> = Vec::new();
+    for (at, one) in list.iter().enumerate() {
+        let Some(said) = key(one) else {
+            continue;
+        };
+        match keys.iter().position(|had| *had == said) {
+            Some(group) => groups[group].push(at),
+            None => {
+                keys.push(said);
+                groups.push(vec![at]);
+            }
+        }
+    }
+    let open = |at: &usize| matches!(list[*at]["status"].as_str(), Some("confirmed" | "tried"));
+    groups
+        .into_iter()
+        .filter(|group| group.len() >= 2 && group.iter().any(open))
+        .collect()
+}
+
+/// Each family of [`roots`] as a report shows it: its id, class and file,
+/// its variants, how many were confirmed, the worst severity among the open
+/// ones, and the one fix devflow says for its class.
+fn families(report: &Value, known: &Known) -> Vec<Value> {
+    let list = report["hypotheses"].as_array().cloned().unwrap_or_default();
+    roots(report)
+        .iter()
+        .enumerate()
+        .map(|(at, members)| {
+            let first = &list[members[0]];
+            let class = class_of(&first["class"]);
+            let open: Vec<&Value> = members
+                .iter()
+                .map(|member| &list[*member])
+                .filter(|one| matches!(one["status"].as_str(), Some("confirmed" | "tried")))
+                .collect();
+            let confirmed = open.iter().filter(|one| one["status"] == "confirmed").count();
+            let severity = open
+                .iter()
+                .map(|one| one_of(&one["severity"], &SEVERITIES))
+                .min_by_key(rank)
+                .unwrap_or(Value::Null);
+            json!({
+                "id": format!("f{}", at + 1), "class": class,
+                "file": repo_path(&first["file"], known),
+                "variants": members.iter().map(|member| json!({
+                    "id": id_of(&list[*member]["id"]),
+                    "status": one_of(&list[*member]["status"], &STATUSES),
+                    "line": list[*member]["line"].as_u64(),
+                })).collect::<Vec<_>>(),
+                "confirmed": confirmed, "severity": severity,
+                "fix": match class {
+                    "other" => "The attack's proposed fixes are in the run's attack.json: one change at the root should shut every variant.",
+                    _ => said_of(class).1,
+                },
+            })
+        })
         .collect()
 }
 
@@ -659,7 +754,7 @@ fn run_cap_hit(report: &Value) -> bool {
 }
 
 /// The report as JSON: the run, its verdict and numbers, whether a cap
-/// ended a turn, and every hypothesis as [`shown`].
+/// ended a turn, every hypothesis as [`shown`] and the families they make.
 pub fn json_of(report: &Value, known: &Known) -> Value {
     json!({
         "item": report["item"], "run": report["run"], "base": report["base"], "head": report["head"],
@@ -667,6 +762,7 @@ pub fn json_of(report: &Value, known: &Known) -> Value {
         "metrics": report["metrics"],
         "run_cap_hit": run_cap_hit(report),
         "hypotheses": hypotheses(report, known),
+        "families": families(report, known),
         "exploits": exploits_shown(report, known),
         "scanner": {
             "reachable": scanned(report, known, true),
@@ -767,6 +863,33 @@ fn merged_lines(shown: &[Value]) -> String {
         })
         .collect()
 }
+
+/// Each family as one line: its class and file, how many of its variants
+/// were confirmed, each variant, and the one fix.
+fn family_lines(families: &[Value]) -> String {
+    families
+        .iter()
+        .map(|family| {
+            let variants: Vec<String> = family["variants"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|one| format!("{} {}", cell(&one["id"]), cell(&one["status"])))
+                .collect();
+            format!(
+                "- {} {} in `{}`: {} of {} confirmed ({}). One fix: {}\n",
+                cell(&family["id"]),
+                cell(&family["class"]),
+                cell(&family["file"]),
+                family["confirmed"],
+                variants.len(),
+                variants.join(", "),
+                cell(&family["fix"])
+            )
+        })
+        .collect()
+}
+
 /// A proof as a line says it: red at the base, green at HEAD. A confirmed
 /// hypothesis not yet proven says so: confirmed is not proven.
 fn proof_said(one: &Value) -> String {
@@ -885,6 +1008,11 @@ pub fn markdown(report: &Value, known: &Known) -> String {
     if !across.is_empty() {
         out.push_str("\n## Fixes on each side of the flow\n\nThe repositories each fix touches; the fixes are in attack.json.\n\n");
         out.push_str(&across.concat());
+    }
+    let families = families(report, known);
+    if !families.is_empty() {
+        out.push_str("\n## Holes by root\n\nVariants of one file and one class are one hole: one fix at its root shuts them all.\n\n");
+        out.push_str(&family_lines(&families));
     }
     let merged = merged_lines(&shown);
     if !merged.is_empty() {

@@ -698,6 +698,12 @@ fn the_attacker_keeps_a_refuted_holes_severity() {
     );
 }
 
+#[test]
+fn the_attacker_names_the_one_fix_of_a_holes_variants() {
+    assert!(ASK.contains("variants of one hole"), "{ASK}");
+    assert!(ASK.contains("the one change at the root"), "{ASK}");
+}
+
 /// A refuted hypothesis ends at `info`, its attacker's severity kept apart
 /// as the estimate; one confirmed after all takes it back.
 #[test]
@@ -720,6 +726,34 @@ fn a_refuted_hypothesis_keeps_its_attackers_estimate_apart() {
     assert_eq!(report["hypotheses"][0]["severity"], "high");
     assert!(report["hypotheses"][0].get("estimated_severity").is_none());
     assert_eq!(report["verdict"], "request_changes");
+}
+
+/// attack.json keeps the families of one root, and each hypothesis of one
+/// names it.
+#[test]
+fn the_report_keeps_the_families_of_one_root() {
+    let one = |id: &str, status: &str, line: u64| json!({ "id": id, "status": status, "severity": "low", "class": "ssrf", "file": "src/block.ts", "line": line });
+    let mut report = json!({ "hypotheses": [one("h1", "confirmed", 3), one("h2", "confirmed", 9), one("h3", "refuted", 20)] });
+    report["hypotheses"].as_array_mut().expect("list").push(
+        json!({ "id": "h4", "status": "confirmed", "severity": "low", "class": "dos", "file": "src/block.ts", "line": 4 }),
+    );
+    settled(&mut report, &[Severity::High]);
+    assert_eq!(
+        report["families"],
+        json!([{ "id": "f1", "class": "ssrf", "file": "src/block.ts", "variants": ["h1", "h2", "h3"], "confirmed": 2 }])
+    );
+    assert_eq!(report["hypotheses"][2]["family"], "f1");
+    assert!(report["hypotheses"][3].get("family").is_none());
+    report["hypotheses"][1]["class"] = json!("dos");
+    report["hypotheses"][2]["class"] = json!("authz");
+    settled(&mut report, &[Severity::High]);
+    assert_eq!(report["families"].as_array().map(Vec::len), Some(1));
+    assert_eq!(report["families"][0]["variants"], json!(["h2", "h4"]));
+    assert_eq!(report["hypotheses"][1]["family"], "f1");
+    assert!(
+        report["hypotheses"][0].get("family").is_none(),
+        "a family settled again leaves none stale"
+    );
 }
 
 /// A hypothesis merged into another is named on its trail by an id and a
