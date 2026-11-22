@@ -755,3 +755,31 @@ fn variants_of_one_root_are_one_family_with_one_fix() {
         assert!(!text.contains(leak), "{leak} in {text}");
     }
 }
+
+/// A proof by timing is marked so in the JSON and the markdown, with how
+/// many runs agreed: it is trusted less than an assertion.
+#[test]
+fn a_proof_by_timing_is_marked_and_trusted_less() {
+    let mut report = report();
+    assert_eq!(
+        json_of(&report, &none())["hypotheses"][0]["proof_kind"],
+        "assertion"
+    );
+    assert_eq!(
+        json_of(&report, &none())["hypotheses"][1]["proof_kind"],
+        Value::Null
+    );
+    report["hypotheses"][0]["exploit"]["timing"] = json!(true);
+    report["hypotheses"][0]["verified"]["timing"] = json!({ "runs": 3, "red": 3 });
+    let shown = json_of(&report, &none());
+    assert_eq!(shown["hypotheses"][0]["proof_kind"], "timing");
+    assert_eq!(
+        shown["hypotheses"][0]["timing"],
+        json!({ "runs": 3, "red": 3 })
+    );
+    let md = markdown(&report, &none());
+    assert!(
+        md.contains("| confirmed by devflow's sandbox, by timing: red in 3 of 3 runs, less sure |"),
+        "{md}"
+    );
+}

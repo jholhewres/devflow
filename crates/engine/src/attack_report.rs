@@ -591,6 +591,22 @@ fn merged_shown(one: &Value) -> Option<Vec<Value>> {
             .collect(),
     )
 }
+
+/// How the run that confirmed or refuted a hypothesis proved it: by an
+/// assertion on what the code does, or by `timing`, read over several runs
+/// with less confidence. `None` when devflow's sandbox or the session ran
+/// nothing.
+fn proof_kind(one: &Value) -> Value {
+    if one_of(&one["verified"]["by"], &["sandbox", "session"]).is_null() {
+        return Value::Null;
+    }
+    json!(if one["exploit"]["timing"] == true {
+        "timing"
+    } else {
+        "assertion"
+    })
+}
+
 /// A hypothesis as a report shows it: only fields devflow sets, the
 /// sentences devflow says of its class as its status allows, and the
 /// repositories a flow's fixes touch.
@@ -599,6 +615,7 @@ fn shown(one: &Value, known: &Known) -> Value {
     let status = one_of(&one["status"], &STATUSES);
     let said = status.as_str().unwrap_or("not_run");
     let proof = &one["proof"];
+    let timing = &one["verified"]["timing"];
     json!({
         "id": id_of(&one["id"]), "status": status,
         "severity": one_of(&one["severity"], &SEVERITIES),
@@ -607,6 +624,10 @@ fn shown(one: &Value, known: &Known) -> Value {
         "file": repo_path(&one["file"], known), "line": one["line"].as_u64(),
         "impact": impact_of(class, said), "fix": fix_of(class, said),
         "verified_by": one_of(&one["verified"]["by"], &["sandbox", "session"]),
+        "proof_kind": proof_kind(one),
+        "timing": timing["runs"].as_u64().map(|runs| json!({
+            "runs": runs, "red": timing["red"].as_u64().unwrap_or_default(),
+        })),
         "proof": (!proof.is_null()).then(|| json!({
             "base": side(&proof["base"]), "head": side(&proof["head"]),
             "stack": proof["stack"].as_bool(),
@@ -826,10 +847,24 @@ fn ran_by(one: &Value) -> String {
         "session" => "the session's run",
         _ => return "not run by devflow".to_owned(),
     };
-    match text(one, "status") {
+    let ran = match text(one, "status") {
         "confirmed" => format!("confirmed by {by}"),
         "refuted" => format!("refuted by {by}"),
-        _ => "not run by devflow".to_owned(),
+        _ => return "not run by devflow".to_owned(),
+    };
+    // A proof by time is read over several runs, and trusted less.
+    match (text(one, "proof_kind"), one["timing"]["runs"].as_u64()) {
+        ("timing", Some(runs)) => {
+            let red = one["timing"]["red"].as_u64().unwrap_or_default();
+            let (color, count) = if one["status"] == "confirmed" {
+                ("red", red)
+            } else {
+                ("green", runs.saturating_sub(red))
+            };
+            format!("{ran}, by timing: {color} in {count} of {runs} runs, less sure")
+        }
+        ("timing", None) => format!("{ran}, by timing: less sure"),
+        _ => ran,
     }
 }
 
@@ -1148,6 +1183,8 @@ pub fn not_run(report: &Value) -> Vec<(String, String)> {
                 "stages.attack.test is not set"
             } else if said.contains("bwrap") || said.contains("docker") {
                 "no sandbox the runner has: bwrap with user namespaces, or docker with stages.attack.image"
+            } else if said.contains("does not hold steady") {
+                "a proof by timing whose runs did not agree"
             } else if said.contains("stack") {
                 "a stack is reached only from the docker sandbox"
             } else {

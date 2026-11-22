@@ -685,9 +685,17 @@ fn a_cap_hit_is_a_turn_its_time_or_dollars_ended() {
 }
 
 #[test]
-fn the_attacker_is_told_to_assert_bounds_never_wall_clock_time() {
-    assert!(ASK.contains("never how long it takes"), "{ASK}");
-    assert!(ASK.contains("not wall-clock time"), "{ASK}");
+fn the_attacker_is_told_to_prove_a_denial_of_service_by_count_never_by_a_time_limit() {
+    for said in [
+        "never how long it takes",
+        "count what the code does",
+        "the calls it makes, the size of what it builds or returns",
+        "a small and a large input and assert how the count grows",
+        "never an absolute limit in milliseconds",
+        "set `\"timing\": true` on its exploit",
+    ] {
+        assert!(ASK.contains(said), "{said}: {ASK}");
+    }
 }
 
 #[test]
@@ -702,6 +710,72 @@ fn the_attacker_keeps_a_refuted_holes_severity() {
 fn the_attacker_names_the_one_fix_of_a_holes_variants() {
     assert!(ASK.contains("variants of one hole"), "{ASK}");
     assert!(ASK.contains("the one change at the root"), "{ASK}");
+}
+
+/// An exploit proves by time when its attacker says so, or when its code
+/// reads the clock, whatever its attacker said; one that counts does not.
+#[test]
+fn an_exploit_that_reads_the_clock_proves_by_timing() {
+    let tried = |code: &str, timing: bool| {
+        json!({ "id": "h1", "title": "a", "severity": "medium", "status": "tried", "reason": "r",
+                "exploit": { "path": "tests/a.test.ts", "test": "t", "code": code, "timing": timing } })
+    };
+    let said = json!({ "hypotheses": [
+        tried("const started = Date.now(); run(); expect(Date.now() - started).toBeLessThan(1000);", false),
+        tried("import time\nstart = time.perf_counter()", false),
+        tried("let mut steps = 0; parse(&input, &mut steps); assert!(steps < 4 * n);", false),
+        tried("expect(calls(small) * 4).toBeGreaterThan(calls(large));", true),
+    ] });
+    let read = read_answer(&said.to_string()).expect("read");
+    let timing: Vec<bool> = read["hypotheses"]
+        .as_array()
+        .expect("hypotheses")
+        .iter()
+        .map(|one| one["exploit"]["timing"] == true)
+        .collect();
+    assert_eq!(timing, [true, true, false, true]);
+    for clock in CLOCKS {
+        assert!(reads_clock(&format!("x = {clock}y)")), "{clock}");
+    }
+}
+
+/// A proof by time is run [`TIMING_RUNS`] times and stands only when every
+/// run agrees; any other proof is run once.
+#[test]
+fn a_proof_by_timing_stands_only_when_each_of_its_runs_agrees() {
+    let red = || ("confirmed", "confirmed", "red".to_owned());
+    let green = || ("refuted", "refuted", "green".to_owned());
+    let ran = |timing: bool, ends: Vec<(&'static str, &'static str, String)>| {
+        let mut ends = ends.into_iter();
+        let mut runs = 0;
+        let (_, ended, counted) = steady(timing, || {
+            runs += 1;
+            ((), ends.next().expect("one more run than asked"))
+        });
+        (ended, counted, runs)
+    };
+    let (ended, counted, runs) = ran(true, vec![red(), red(), red()]);
+    assert_eq!((ended.0, counted, runs), ("confirmed", (3, 3), 3));
+    let (ended, counted, _) = ran(true, vec![green(), green(), green()]);
+    assert_eq!((ended.0, counted), ("refuted", (3, 0)));
+    let (ended, counted, runs) = ran(true, vec![red(), green(), red()]);
+    assert_eq!(
+        (ended.0, ended.1, counted, runs),
+        ("tried", "not_run", (2, 1), 2)
+    );
+    assert_eq!(
+        ended.2,
+        "red in 1 of 2 runs: a proof by timing that does not hold steady"
+    );
+    let (ended, counted, runs) = ran(false, vec![red()]);
+    assert_eq!((ended.0, counted, runs), ("confirmed", (1, 1), 1));
+    let not_run = || ("tried", "not_run", "it ran past its time".to_owned());
+    let (_, counted, runs) = ran(true, vec![not_run()]);
+    assert_eq!(
+        (counted, runs),
+        ((1, 0), 1),
+        "one that did not run is not run again"
+    );
 }
 
 /// A refuted hypothesis ends at `info`, its attacker's severity kept apart
@@ -827,4 +901,31 @@ fn the_hypothesis_kept_says_what_it_took_in() {
         !kept[0]["merged"].to_string().contains("secret code"),
         "never an exploit"
     );
+}
+
+/// An exploit an earlier run kept that reads the clock proves by timing
+/// when it is run again, though its attacker never said so.
+#[test]
+fn an_earlier_exploit_that_reads_the_clock_is_run_again_as_timing() {
+    let run = tempfile::tempdir().expect("run");
+    let keep = |name: &str, code: &str| {
+        std::fs::create_dir_all(run.path().join("exploits").join(name)).expect("folder");
+        std::fs::write(run.path().join(format!("exploits/{name}/a.test.ts")), code).expect("code");
+    };
+    keep(
+        "h1",
+        "const t = performance.now(); run(); expect(performance.now() - t).toBeLessThan(1000);",
+    );
+    keep(
+        "h2",
+        "const steps = run(); expect(steps).toBeLessThan(4 * n);",
+    );
+    let kept = |id: &str| {
+        json!({ "id": id, "status": "confirmed", "title": "slow", "class": "redos", "file": "a.ts", "line": 1,
+                "exploit": { "path": "tests/a.test.ts", "test": "t", "saved": format!("exploits/{id}/a.test.ts") } })
+    };
+    let again = left_open(&kept("h1"), run.path(), "card_1", "20261121T031245Z").expect("open");
+    assert_eq!(again["exploit"]["timing"], true, "{again:#}");
+    let again = left_open(&kept("h2"), run.path(), "card_1", "20261121T031245Z").expect("open");
+    assert!(again["exploit"].get("timing").is_none(), "{again:#}");
 }
