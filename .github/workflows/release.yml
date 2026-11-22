@@ -26,6 +26,13 @@ jobs:
       - name: Tag, VERSION and manifests agree
         run: cargo xtask version-sync --check --tag "$GITHUB_REF_NAME"
 
+      # As in ci.yml: the payload tables are run by each runtime they
+      # target; under CI a missing one fails, so the runner has Go.
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: "1.23"
+          cache: false
+
       - run: make lint
       - run: make test
 
