@@ -2018,6 +2018,116 @@ fn verdict_of(
     findings::verdict_of(list, &review.block_on, review.verify, false)
 }
 
+/// The personas the session's subagents still read, each as this project
+/// resolves it, written beside the packet: the project keeps no copy of
+/// devpit's.
+fn session_personas(given: &Given, path: &Path, pending: &[String]) -> Result<(), String> {
+    let mut session_read = Vec::new();
+    let mut overlaid = false;
+    for persona in pending {
+        let effective = effective_persona(given.root, given.personas, persona)?;
+        overlaid |= effective.overlay.is_some();
+        session_read.push(persona_line(persona, &effective));
+        write(path, &persona_file(persona), &effective.text)?;
+    }
+    named_in_packet(path, &session_read, overlaid)
+}
+
+/// The review a re-review started from: the one given, or, for the
+/// session's hand-back, the one its first call read.
+fn previous_for(given: &Given, run: Option<&str>) -> Result<Option<Previous>, String> {
+    match (given.previous, run) {
+        (Some(previous), _) => Ok(Some(previous.clone())),
+        (None, Some(run)) => Ok(Some(previous_of_in(
+            given.personas.dialect,
+            given.runs,
+            given.card.id,
+            run,
+        )?)),
+        (None, None) => Ok(None),
+    }
+}
+
+/// Every exploit a review of the item confirmed, which stays its regression
+/// test: the run's earlier findings', the previous review's, and the merged
+/// findings'.
+fn exploits_kept(
+    given: &Given,
+    earlier: Option<&Value>,
+    previous: Option<&Previous>,
+    merged: &[Value],
+) -> Vec<Value> {
+    let mut exploits = earlier.map_or_else(Vec::new, findings::exploits_in);
+    if let Some(previous) = previous {
+        let kept = given
+            .runs
+            .found(given.card.id, Some(&previous.run), FINDINGS)
+            .and_then(|at| at.parent().and_then(|folder| read_json(folder, FINDINGS)));
+        exploits = findings::with_exploits(
+            &exploits,
+            &findings::with_exploits(
+                &kept.as_ref().map_or_else(Vec::new, findings::exploits_in),
+                &findings::exploits(&previous.findings),
+            ),
+        );
+    }
+    findings::with_exploits(&exploits, &findings::exploits(merged))
+}
+
+/// findings.json: who reviewed, the verdict, the merged findings and what
+/// is still pending.
+fn findings_json_of(
+    given: &Given,
+    record: &Record,
+    merged: &[Value],
+    pending: &[String],
+    consolidated: &Consolidated,
+) -> Value {
+    let (done_well, verification) = findings::said_together(&record.answers);
+    json!({
+        "version": 1,
+        given.personas.dialect.product: crate::skills::made_by_in(given.personas.dialect, &["devflow-review"]),
+        "card": given.card.id,
+        "base": record.base,
+        "head": record.head,
+        "reviewers": record.ran.iter().filter(|ran| ran.file.is_some()).map(Ran::to_json).collect::<Vec<_>>(),
+        "verdict": verdict_of(merged, &given.config.review, record.retro, pending),
+        "findings": merged,
+        "done_well": done_well,
+        "verification": verification,
+        "pending": pending,
+        "skipped": record.ran.iter().filter(|ran| ran.file.is_none()).map(Ran::to_json).collect::<Vec<_>>(),
+        "consolidation": consolidation_json(consolidated),
+    })
+}
+
+/// What findings.json carries besides, each only when there is one: the
+/// review it re-reviewed, the findings dropped, a retro's mode, the
+/// exploits kept and the findings repeated.
+fn with_carried(
+    findings_json: &mut Value,
+    record: &Record,
+    dropped: &[Value],
+    exploits: &[Value],
+    repeats: &[Value],
+) {
+    if let Some(run) = &record.previous {
+        findings_json["previous"] = json!(run);
+    }
+    if !dropped.is_empty() {
+        findings_json["dropped"] = json!(dropped);
+    }
+    if record.retro {
+        findings_json["mode"] = json!("retro");
+    }
+    if !exploits.is_empty() {
+        findings_json["exploits"] = json!(exploits);
+    }
+    if !repeats.is_empty() {
+        findings_json["repeats"] = json!(repeats);
+    }
+}
+
 /// Reviews the card, or adds the session's answers to its review, and
 /// keeps what came of it in the run's folder.
 pub fn reviewed(given: &Given) -> Result<Done, String> {
@@ -2048,17 +2158,7 @@ pub fn reviewed(given: &Given) -> Result<Done, String> {
         record.scale.as_ref().is_some_and(|scale| scale.one),
         &record.axes,
     );
-    // The session's subagents read each persona as this project resolves it,
-    // beside the packet: the project keeps no copy of devpit's.
-    let mut session_read = Vec::new();
-    let mut overlaid = false;
-    for persona in &pending {
-        let effective = effective_persona(given.root, given.personas, persona)?;
-        overlaid |= effective.overlay.is_some();
-        session_read.push(persona_line(persona, &effective));
-        write(&path, &persona_file(persona), &effective.text)?;
-    }
-    named_in_packet(&path, &session_read, overlaid)?;
+    session_personas(given, &path, &pending)?;
     let mut all: Vec<Value> = record
         .answers
         .iter()
@@ -2073,17 +2173,7 @@ pub fn reviewed(given: &Given) -> Result<Done, String> {
     let (groups, mut consolidated) = grouped(given, &mut record, &mut all, left);
     let mut merged = findings::merged(&all, &groups, &sources);
     consolidated.into = merged.len();
-    // The session's hand-back to a re-review carries what its first call did.
-    let previous = match (given.previous, &record.previous) {
-        (Some(previous), _) => Some(previous.clone()),
-        (None, Some(run)) => Some(previous_of_in(
-            given.personas.dialect,
-            given.runs,
-            given.card.id,
-            run,
-        )?),
-        (None, None) => None,
-    };
+    let previous = previous_for(given, record.previous.as_deref())?;
     if let Some(previous) = &previous {
         dropped.extend(findings::carried_over_since(
             &mut merged,
@@ -2102,56 +2192,9 @@ pub fn reviewed(given: &Given) -> Result<Done, String> {
             .and_then(|earlier| earlier["findings"].as_array())
             .map_or(&[][..], Vec::as_slice),
     );
-    // Every exploit a review of the item confirmed stays its regression test.
-    let mut exploits = earlier
-        .as_ref()
-        .map_or_else(Vec::new, findings::exploits_in);
-    if let Some(previous) = &previous {
-        let kept = given
-            .runs
-            .found(given.card.id, Some(&previous.run), FINDINGS)
-            .and_then(|at| at.parent().and_then(|folder| read_json(folder, FINDINGS)));
-        exploits = findings::with_exploits(
-            &exploits,
-            &findings::with_exploits(
-                &kept.as_ref().map_or_else(Vec::new, findings::exploits_in),
-                &findings::exploits(&previous.findings),
-            ),
-        );
-    }
-    let exploits = findings::with_exploits(&exploits, &findings::exploits(&merged));
-    let findings_json = (!record.answers.is_empty())
-        .then(|| {
-            let (done_well, verification) = findings::said_together(&record.answers);
-            json!({
-                "version": 1,
-                given.personas.dialect.product: crate::skills::made_by_in(given.personas.dialect, &["devflow-review"]),
-                "card": given.card.id,
-                "base": record.base,
-                "head": record.head,
-                "reviewers": record.ran.iter().filter(|ran| ran.file.is_some()).map(Ran::to_json).collect::<Vec<_>>(),
-                "verdict": verdict_of(&merged, &given.config.review, record.retro, &pending),
-                "findings": merged,
-                "done_well": done_well,
-                "verification": verification,
-                "pending": pending,
-                "skipped": record.ran.iter().filter(|ran| ran.file.is_none()).map(Ran::to_json).collect::<Vec<_>>(),
-                "consolidation": consolidation_json(&consolidated),
-            })
-        });
-    let findings_json = findings_json.map(|mut findings_json| {
-        if let Some(run) = &record.previous {
-            findings_json["previous"] = json!(run);
-        }
-        if !dropped.is_empty() {
-            findings_json["dropped"] = json!(dropped);
-        }
-        if record.retro {
-            findings_json["mode"] = json!("retro");
-        }
-        if !exploits.is_empty() {
-            findings_json["exploits"] = json!(exploits);
-        }
+    let exploits = exploits_kept(given, earlier.as_ref(), previous.as_ref(), &merged);
+    let findings_json = (!record.answers.is_empty()).then(|| {
+        let mut findings_json = findings_json_of(given, &record, &merged, &pending, &consolidated);
         let repeats = previous.as_ref().map_or_else(Vec::new, |previous| {
             findings::repeats(
                 &merged,
@@ -2161,9 +2204,7 @@ pub fn reviewed(given: &Given) -> Result<Done, String> {
                 &previous.run,
             )
         });
-        if !repeats.is_empty() {
-            findings_json["repeats"] = json!(repeats);
-        }
+        with_carried(&mut findings_json, &record, &dropped, &exploits, &repeats);
         findings_json
     });
     if let Some(findings_json) = &findings_json {
