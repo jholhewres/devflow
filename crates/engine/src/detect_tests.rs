@@ -258,7 +258,7 @@ fn the_exploit_test_command_comes_from_the_projects_own_runner() {
         ),
         (
             &[("go.mod", "module example.com/x\n")],
-            "go test -run \"$DEVFLOW_EXPLOIT_TEST\" \"./$(dirname \"$DEVFLOW_EXPLOIT\")\"",
+            "go test -v -run \"$DEVFLOW_EXPLOIT_TEST\" \"./$(dirname \"$DEVFLOW_EXPLOIT\")\"",
             "golang:1",
         ),
         (
@@ -359,4 +359,59 @@ fn the_project_says_more_of_its_exploit_test_than_its_test_command() {
 
 fn detected_at(root: &std::path::Path) -> Detected {
     detected(root, Machine::default())
+}
+
+/// A Go project's exploit test runs with the build tags its own tests run
+/// with, read from its Makefile (a make variable where it is set) or its
+/// CI, a `go test` line first; a value that is no plain tag is never taken.
+#[test]
+fn a_go_exploit_runs_with_the_build_tags_the_project_tests_with() {
+    let made = project(&[
+        ("go.mod", "module x\n"),
+        ("Makefile", "export TAGS ?= sqlite_fts5 json1 # the store's search\n\nbuild:\n\tgo build -tags netgo ./...\ntest:\n\t# go test -tags old ./...\n\tgo test -tags $(TAGS) ./...\n"),
+    ]);
+    let found = exploit_test_at(made.path(), &detected_at(made.path())).expect("go");
+    assert_eq!(
+        found.command,
+        "go test -tags sqlite_fts5,json1 -v -run \"$DEVFLOW_EXPLOIT_TEST\" \"./$(dirname \"$DEVFLOW_EXPLOIT\")\""
+    );
+    assert_eq!(found.source, "Makefile:7");
+    let ci = project(&[
+        ("go.mod", "module x\n"),
+        (
+            ".github/workflows/ci.yml",
+            "jobs:\n  t:\n    steps:\n      - run: go test -tags='sqlite_fts5' -race ./...\n",
+        ),
+    ]);
+    let found = exploit_test_at(ci.path(), &detected_at(ci.path())).expect("go");
+    assert!(
+        found
+            .command
+            .starts_with("go test -tags sqlite_fts5 -v -run "),
+        "{}",
+        found.command
+    );
+    assert_eq!(found.source, ".github/workflows/ci.yml:4");
+    for (said, why) in [
+        ("go test -tags \"a;rm -rf /\" ./...", "a shell's word"),
+        ("go test -tags $(shell id) ./...", "a variable no line sets"),
+        ("go test ./...", "no tags"),
+        (
+            "go test ./...\nlint:\n\tgo vet -tags integration ./...",
+            "tests that run with no tags",
+        ),
+        ("cargo test -tags x", "not go"),
+    ] {
+        let plain = project(&[
+            ("go.mod", "module x\n"),
+            ("Makefile", &format!("test:\n\t{said}\n")),
+        ]);
+        let found = exploit_test_at(plain.path(), &detected_at(plain.path())).expect("go");
+        assert!(
+            found.command.starts_with("go test -v -run "),
+            "{why}: {}",
+            found.command
+        );
+        assert_eq!(found.source, "go.mod:1", "{why}");
+    }
 }

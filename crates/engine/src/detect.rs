@@ -788,7 +788,9 @@ pub fn exploit_test(detected: &Detected) -> Option<ExploitTest> {
                 "rust:1",
             ),
             Report::Go => (
-                "go test -run \"$DEVFLOW_EXPLOIT_TEST\" \"./$(dirname \"$DEVFLOW_EXPLOIT\")\"".to_owned(),
+                // `-v` names the test as it starts: a run that times out
+                // still says it reached its test.
+                "go test -v -run \"$DEVFLOW_EXPLOIT_TEST\" \"./$(dirname \"$DEVFLOW_EXPLOIT\")\"".to_owned(),
                 "golang:1",
             ),
             Report::Junit if said.contains("python -m pytest") => (
@@ -842,7 +844,140 @@ pub fn exploit_test_at(root: &Path, detected: &Detected) -> Option<ExploitTest> 
             found.image = format!("rust:{version}");
         }
     }
+    if found.command.starts_with("go test ") {
+        if let Some((tags, source)) = go_tags(&files) {
+            found.command =
+                found
+                    .command
+                    .replacen("go test ", &format!("go test -tags {tags} "), 1);
+            found.source = source;
+        }
+    }
     Some(found)
+}
+
+/// Where a project says how it runs its Go tests: its Makefile, its task
+/// runners and its CI.
+const GO_RUNS: [&str; 6] = [
+    "Makefile",
+    "GNUmakefile",
+    "makefile",
+    "Taskfile.yml",
+    "justfile",
+    ".gitlab-ci.yml",
+];
+
+/// The build tags the project's own Go tests run with, and where they are
+/// said (`file:line`): the `-tags` of a `go test` line of its Makefile, task
+/// runner or CI (`.github/workflows`). Only when no line runs `go test` are a
+/// `go build`, `go vet` or `go run` line's tags taken: tests that run with
+/// none run with none. An exploit run without them fails on what they build
+/// in (`no such module: fts5` without `sqlite_fts5`). A make variable is
+/// read where the same file sets it; a commented line is not read. Tags are
+/// said as Go reads them, joined by commas, each of letters, digits, `_`
+/// and `.` only.
+fn go_tags(files: &Files) -> Option<(String, String)> {
+    let mut places: Vec<String> = GO_RUNS.iter().map(|name| (*name).to_owned()).collect();
+    if let Ok(folder) = crate::fsguard::resolve(files.root, ".github/workflows") {
+        let mut flows: Vec<String> = std::fs::read_dir(folder)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter_map(|entry| entry.file_name().into_string().ok())
+            .filter(|name| name.ends_with(".yml") || name.ends_with(".yaml"))
+            .filter(|name| {
+                name.chars()
+                    .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | '-'))
+            })
+            .map(|name| format!(".github/workflows/{name}"))
+            .collect();
+        flows.sort();
+        places.extend(flows);
+    }
+    let read: Vec<(&String, String)> = places
+        .iter()
+        .filter_map(|place| files.read(place).map(|text| (place, text)))
+        .collect();
+    let lines = || {
+        read.iter().flat_map(|(place, text)| {
+            text.lines()
+                .enumerate()
+                .filter(|(_, line)| !line.trim_start().starts_with('#'))
+                .map(move |(at, line)| (*place, at + 1, line, text.as_str()))
+        })
+    };
+    let tagged = |runs: &[&str]| {
+        lines()
+            .filter(|(_, _, line, _)| runs.iter().any(|run| go_runs(line, run)))
+            .find_map(|(place, at, line, text)| {
+                tags_of(line)
+                    .and_then(|said| go_tags_said(&said, text))
+                    .map(|tags| (tags, format!("{place}:{at}")))
+            })
+    };
+    if lines().any(|(_, _, line, _)| go_runs(line, "test")) {
+        return tagged(&["test"]);
+    }
+    tagged(&["build", "vet", "run"])
+}
+
+/// Whether `line` runs `go <run>`, as words of a command: not `cargo test`.
+fn go_runs(line: &str, run: &str) -> bool {
+    let words: Vec<&str> = line
+        .split(|ch: char| ch.is_whitespace() || "\"'`;&|()".contains(ch))
+        .filter(|word| !word.is_empty())
+        .collect();
+    words
+        .windows(2)
+        .any(|pair| pair[0] == "go" && pair[1] == run)
+}
+
+/// What follows `-tags` on a command line: `-tags x`, `-tags=x`, quoted or
+/// not.
+fn tags_of(line: &str) -> Option<String> {
+    let at = line.find("-tags")?;
+    let rest = line[at + "-tags".len()..].trim_start_matches('=');
+    let rest = rest.trim_start();
+    let said = match rest.chars().next()? {
+        quote @ ('"' | '\'') => rest[1..].split(quote).next()?,
+        _ => rest.split_whitespace().next()?,
+    };
+    Some(said.to_owned())
+}
+
+/// Tags as Go reads them, joined by commas, a make variable (`$(TAGS)`,
+/// `${TAGS}`) read where `text` sets it; `None` for anything else.
+fn go_tags_said(said: &str, text: &str) -> Option<String> {
+    let said = match said
+        .strip_prefix("$(")
+        .and_then(|name| name.strip_suffix(')'))
+        .or_else(|| {
+            said.strip_prefix("${")
+                .and_then(|name| name.strip_suffix('}'))
+        }) {
+        Some(name) => text.lines().find_map(|line| {
+            let (left, value) = line.split_once('=')?;
+            let left = left.trim().trim_end_matches([':', '?', '+']).trim();
+            let left = ["export ", "override "]
+                .iter()
+                .fold(left, |left, word| left.strip_prefix(word).unwrap_or(left))
+                .trim();
+            let value = value.split('#').next().unwrap_or_default();
+            (left == name).then(|| value.trim().trim_matches(['"', '\'']).to_owned())
+        })?,
+        None => said.to_owned(),
+    };
+    let tags: Vec<&str> = said
+        .split([',', ' '])
+        .filter(|tag| !tag.is_empty())
+        .collect();
+    let plain = |tag: &&str| {
+        tag.len() <= 64
+            && tag
+                .chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '.'))
+    };
+    (!tags.is_empty() && tags.len() <= 16 && tags.iter().all(plain)).then(|| tags.join(","))
 }
 
 /// The exploit test a composer project's PHPUnit or Pest runs.
