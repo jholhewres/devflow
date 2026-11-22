@@ -371,6 +371,9 @@ fn in_the_sandbox_an_exploit_kept_red_comes_back_confirmed_with_nothing_written(
     let again = &report["hypotheses"][0];
     assert_eq!(again["status"], "confirmed", "{again:#}");
     assert_eq!(again["verified"]["by"], "sandbox");
+    assert_eq!(again["verified"]["test"], again["exploit"]["test"]);
+    assert_eq!(again["verified"]["path"], again["exploit"]["path"]);
+    assert_eq!(report["exploits"][0]["held_by"], "proof", "{report:#}");
     assert_eq!(report["verdict"], "request_changes");
     assert!(prompt.contains("\"status\":\"confirmed\""), "{prompt}");
 }

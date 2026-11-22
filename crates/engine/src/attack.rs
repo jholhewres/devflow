@@ -780,8 +780,9 @@ fn proven(given: &Given, stamp: &str, hypotheses: &mut [Value]) {
             "exit": ran.exit, "duration_ms": ran.duration_ms, "tail": (given.redact)(&tail),
         });
         if result != "not_run" {
+            // The test it ran, as the session's `verified` names its own.
             one["verified"] = json!({
-                "result": result, "by": "sandbox",
+                "result": result, "by": "sandbox", "test": test, "path": exploit_at,
                 "evidence": format!("{} at {head}: {why}", found.kind.word()),
             });
             if on_stack {
@@ -949,21 +950,34 @@ fn spoken(text: &str) -> String {
         .join(" ")
 }
 
-/// The exploit tests the attack confirmed, each wanted green from then on,
-/// as findings.json's `exploits` keeps them.
-pub fn exploits(report: &Value) -> Vec<Value> {
+/// Every exploit test the attack confirmed, as attack.json's `exploits`
+/// lists them, each saying what holds it: `evidence` when the session
+/// confirmed it (wanted green in the newest run from then on), `proof` when
+/// the sandbox did (closed by its proof: red at its base, green at HEAD).
+pub fn confirmed_exploits(report: &Value) -> Vec<Value> {
     report["hypotheses"]
         .as_array()
         .into_iter()
         .flatten()
-        // One the sandbox confirmed is held by its proof instead.
-        .filter(|one| one["status"] == "confirmed" && !by_sandbox(one))
+        .filter(|one| one["status"] == "confirmed")
         .filter_map(|one| {
             let test = one["exploit"]["test"].as_str()?.trim();
+            let held_by = if by_sandbox(one) { "proof" } else { "evidence" };
             (!test.is_empty()).then(|| {
-                json!({ "test": test, "file": one["file"], "line": one["line"], "title": one["title"] })
+                json!({ "test": test, "file": one["file"], "line": one["line"],
+                        "title": one["title"], "held_by": held_by })
             })
         })
+        .collect()
+}
+
+/// The exploit tests the attack confirmed that are wanted green from then
+/// on, as findings.json's `exploits` keeps them: those the session
+/// confirmed. One the sandbox confirmed is held by its proof instead.
+pub fn exploits(report: &Value) -> Vec<Value> {
+    confirmed_exploits(report)
+        .into_iter()
+        .filter(|one| one["held_by"] == "evidence")
         .collect()
 }
 
@@ -1044,7 +1058,7 @@ pub fn verdict(report: &Value, block_on: &[Severity], retro: bool) -> &'static s
 pub fn settled(report: &mut Value, block_on: &[Severity]) {
     let retro = report["mode"] == "retro";
     report["counts"] = counts(report);
-    report["exploits"] = json!(exploits(report));
+    report["exploits"] = json!(confirmed_exploits(report));
     report["verdict"] = json!(verdict(report, block_on, retro));
     report["metrics"] = crate::attack_metrics::of_report(report);
 }
@@ -1090,6 +1104,15 @@ pub fn verified_on(report: &mut Value, verified: &[Value]) -> Result<(), String>
         }
         hypothesis["status"] = json!(result);
         let mut ran = json!({ "result": result, "evidence": evidence, "by": "session" });
+        // The test it ran: the one said, else the exploit's own.
+        for key in ["test", "path"] {
+            if let Some(named) = hypothesis["exploit"][key]
+                .as_str()
+                .filter(|named| !named.trim().is_empty())
+            {
+                ran[key] = json!(named);
+            }
+        }
         let target = text(one, "target");
         if !target.is_empty() {
             ran["target"] = json!(target);

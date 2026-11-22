@@ -171,6 +171,44 @@ fn a_proof_says_which_side_failed() {
         .map(|one| one["test"].clone())
         .collect();
     assert_eq!(wanted, [json!("b")], "the sandbox's is held by its proof");
+    let mut settled_report = report.clone();
+    settled(&mut settled_report, &[]);
+    let listed: Vec<(Value, Value)> = settled_report["exploits"]
+        .as_array()
+        .expect("exploits")
+        .iter()
+        .map(|one| (one["test"].clone(), one["held_by"].clone()))
+        .collect();
+    assert_eq!(
+        listed,
+        [
+            (json!("a"), json!("proof")),
+            (json!("b"), json!("evidence"))
+        ],
+        "attack.json lists both, each with what holds it"
+    );
+}
+
+#[test]
+fn verified_names_the_test_the_session_ran() {
+    let mut report = json!({ "hypotheses": [
+        { "id": "h1", "status": "tried", "exploit": { "path": "tests/a.test.ts", "test": "a" } },
+        { "id": "h2", "status": "tried", "exploit": { "path": "tests/b.test.ts", "test": "b" } },
+    ] });
+    verified_on(
+        &mut report,
+        &[
+            json!({ "hypothesis": "h1", "result": "confirmed", "evidence": "red", "test": "a renamed" }),
+            json!({ "hypothesis": "h2", "result": "refuted", "evidence": "green" }),
+        ],
+    )
+    .expect("verified");
+    let one = &report["hypotheses"][0]["verified"];
+    assert_eq!(
+        (&one["test"], &one["path"]),
+        (&json!("a renamed"), &json!("tests/a.test.ts"))
+    );
+    assert_eq!(report["hypotheses"][1]["verified"]["test"], "b");
 }
 
 #[test]
