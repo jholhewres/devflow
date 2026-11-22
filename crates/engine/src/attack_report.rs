@@ -186,6 +186,51 @@ const ALSO: [(&str, &str); 14] = [
     ("cross-site-scripting", "xss"),
 ];
 
+/// Classes attackers name one kind of hole by, each with the family it is
+/// told apart in: a certificate left unchecked is `tls` to one, `ssl` or
+/// `transport` to another; a session taken is `authn` or `session`. Who may
+/// act (`authz`) stays apart from who one is: a handler may lack either.
+const FAMILIES: [(&str, &str); 11] = [
+    ("tls", "transport"),
+    ("ssl", "transport"),
+    ("cryptography", "crypto"),
+    ("cipher", "crypto"),
+    ("certificate", "transport"),
+    ("cert", "transport"),
+    ("mitm", "transport"),
+    ("insecure-transport", "transport"),
+    ("transport", "transport"),
+    ("session", "authn"),
+    ("jwt", "authn"),
+];
+
+/// Families that may name one hole only on the very same line: `crypto` is
+/// an unchecked certificate to one attacker, and a weak hash or a fixed key
+/// to another a few lines on.
+const ON_ONE_LINE: [(&str, &str); 1] = [("crypto", "transport")];
+
+/// Whether two families name one hole when on one line ([`ON_ONE_LINE`]).
+pub fn on_one_line(one: &str, other: &str) -> bool {
+    ON_ONE_LINE
+        .iter()
+        .any(|(a, b)| (*a == one && *b == other) || (*a == other && *b == one))
+}
+
+/// The family a hypothesis' class is told apart in: its name as devflow
+/// says it ([`ALSO`]), or the one its neighbours share ([`FAMILIES`]). Any
+/// other class is a family of its own, whatever its case or separators.
+pub fn family(class: &str) -> String {
+    let said = class.trim().to_ascii_lowercase().replace(['_', ' '], "-");
+    let said = ALSO
+        .iter()
+        .find(|(also, _)| *also == said)
+        .map_or(said.clone(), |(_, class)| (*class).to_owned());
+    FAMILIES
+        .iter()
+        .find(|(name, _)| *name == said)
+        .map_or(said, |(_, family)| (*family).to_owned())
+}
+
 /// A hypothesis' class as devflow names it.
 fn class_of(value: &Value) -> &'static str {
     let said = value

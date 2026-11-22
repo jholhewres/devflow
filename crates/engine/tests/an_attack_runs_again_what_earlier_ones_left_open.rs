@@ -472,3 +472,76 @@ fn one_hole_several_runs_kept_is_run_again_once() {
         "{again:?}"
     );
 }
+
+#[test]
+fn a_hole_one_run_names_crypto_and_another_tls_is_run_again_once() {
+    let project = project();
+    let card = "card_1";
+    let hole = |title: &str, class: &str, line: u64, status: &str, test: &str| {
+        json!({ "title": title, "class": class, "file": SESSION, "line": line,
+            "severity": "high", "status": status, "reason": "the server certificate is not checked",
+            "exploit": { "path": format!("tests/security/{test}.test.ts"), "test": test } })
+    };
+    let confirmed = project.earlier_at(
+        card,
+        &project.first,
+        &[(
+            hole(
+                "Postgres skips certificate checks",
+                "crypto",
+                2,
+                "confirmed",
+                "pg cert",
+            ),
+            JEST_RED,
+        )],
+        1_789_000_000,
+    );
+    project.earlier_at(
+        card,
+        &project.first,
+        &[
+            (
+                hole(
+                    "database TLS accepts any certificate",
+                    "TLS",
+                    2,
+                    "tried",
+                    "db tls",
+                ),
+                "exit 2",
+            ),
+            // Who may act is another family: on the same line, another hole.
+            (
+                hole(
+                    "any user reads another's session",
+                    "authz",
+                    2,
+                    "tried",
+                    "owner",
+                ),
+                "exit 3",
+            ),
+        ],
+        1_790_000_000,
+    );
+    let yaml = "version: 1\nstages:\n  attack: { run: sensitive, test: 'sh \"$DEVFLOW_EXPLOIT\"', sandbox: off }\n";
+    let (report, _) = project.attack(card, &project.first, &project.second, yaml, json!([]));
+    let again: Vec<(&str, &str)> = report["hypotheses"]
+        .as_array()
+        .expect("hypotheses")
+        .iter()
+        .map(|one| {
+            (
+                one["class"].as_str().unwrap_or_default(),
+                one["again"]["run"].as_str().unwrap_or_default(),
+            )
+        })
+        .collect();
+    assert_eq!(report["run_again"], 2, "{again:?}");
+    assert!(again.contains(&("crypto", confirmed.as_str())), "{again:?}");
+    assert!(
+        again.iter().any(|(class, _)| *class == "authz"),
+        "{again:?}"
+    );
+}

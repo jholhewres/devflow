@@ -374,6 +374,50 @@ fn hypotheses_at_one_place_and_class_are_one_naming_who_found_it() {
 }
 
 #[test]
+fn attackers_naming_one_hole_tls_and_crypto_found_one_but_authz_beside_it_stays_apart() {
+    let h = |line: i64, class: &str, title: &str| json!({ "id": "h1", "file": "./src/db.ts", "line": line, "class": class, "title": title, "status": "tried" });
+    let kept = consolidated(vec![
+        (
+            "claude/large".to_owned(),
+            vec![
+                h(7, "tls", "rejectUnauthorized is false"),
+                h(20, "ssl", "the CA is not pinned"),
+            ],
+        ),
+        (
+            "codex/default".to_owned(),
+            vec![
+                h(7, "Crypto", "the certificate is not checked"),
+                h(7, "authz", "any tenant reads the pool"),
+                h(23, "transport", "any CA is trusted"),
+                // A few lines on, crypto is another hole: a weak hash.
+                h(10, "crypto", "passwords hashed with md5"),
+            ],
+        ),
+    ]);
+    let said: Vec<(i64, Value)> = kept
+        .iter()
+        .map(|one| {
+            (
+                one["line"].as_i64().unwrap_or_default(),
+                one["found_by"].clone(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        said,
+        [
+            (7, json!(["claude/large", "codex/default"])),
+            (20, json!(["claude/large", "codex/default"])),
+            (7, json!(["codex/default"])),
+            (10, json!(["codex/default"])),
+        ],
+        "{kept:#?}"
+    );
+    assert_eq!(kept[2]["class"], "authz");
+}
+
+#[test]
 fn an_attackers_own_hypotheses_stay_apart_and_the_one_that_went_furthest_stands() {
     let h = |line: i64, title: &str, status: &str, exploit: bool| {
         let mut one = json!({ "id": "h1", "file": "src/a.rs", "line": line, "class": "ssrf", "title": title, "status": status });

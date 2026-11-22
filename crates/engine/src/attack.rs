@@ -379,8 +379,9 @@ pub fn open_before(runs: &crate::runs::Runs, card: &str, root: &Path, head: &str
 }
 
 /// Whether two hypotheses are one hole: the same title of the same file,
-/// one class at one place (five lines apart at most, as attackers' are
-/// merged), or one exploit, by its path and test or by its code. Attackers
+/// one family of class at one place (five lines apart at most, as
+/// attackers' are merged: `tls` and `ssl` are one, `crypto` and `tls` on
+/// one line), or one exploit, by its path and test or by its code. Attackers
 /// of different runs name one hole their own way.
 fn same_hole(one: &Value, other: &Value) -> bool {
     fn code(one: &Value) -> &str {
@@ -1230,14 +1231,23 @@ fn turn(
     .map_err(|unreviewed| unreviewed.reason())
 }
 
-/// Two hypotheses at one place: the same file and class, within a few
-/// lines of each other.
+/// Two hypotheses at one place: the same file and family of class (`tls`
+/// and `ssl` are one, [`crate::attack_report::family`]), within a few lines
+/// of each other, or `crypto` and `transport` on the very same line.
+/// Classes of other families stay apart, even on one line: one handler may
+/// hold two holes.
 fn same_place(one: &Value, other: &Value) -> bool {
     let line = |one: &Value| one["line"].as_i64().unwrap_or(1);
-    !text(one, "class").is_empty()
-        && text(one, "class") == text(other, "class")
-        && text(one, "file") == text(other, "file")
-        && (line(one) - line(other)).abs() <= 5
+    let class = text(one, "class");
+    let (family, theirs) = (
+        crate::attack_report::family(&class),
+        crate::attack_report::family(&text(other, "class")),
+    );
+    let apart = (line(one) - line(other)).abs();
+    !class.is_empty()
+        && hypothesis_file(one) == hypothesis_file(other)
+        && ((family == theirs && apart <= 5)
+            || (apart == 0 && crate::attack_report::on_one_line(&family, &theirs)))
 }
 
 /// How far a hypothesis went: one with an exploit to run says the most.

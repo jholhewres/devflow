@@ -442,3 +442,24 @@ fn confirmed_by_the_sandbox_is_said_apart_from_proven() {
         "{md}"
     );
 }
+
+#[test]
+fn neighbouring_classes_share_a_family_and_the_rest_stand_alone() {
+    for (class, told) in [
+        ("tls", "transport"),
+        ("SSL", "transport"),
+        ("Cryptography", "crypto"),
+        ("insecure_transport", "transport"),
+        ("session", "authn"),
+        ("Authentication", "authn"),
+        ("idor", "authz"),
+        ("path traversal", "traversal"),
+        ("ssrf", "ssrf"),
+        ("Made-Up", "made-up"),
+    ] {
+        assert_eq!(family(class), told, "{class}");
+    }
+    assert_ne!(family("authn"), family("authz"));
+    assert!(on_one_line("crypto", "transport") && on_one_line("transport", "crypto"));
+    assert!(!on_one_line("crypto", "authz"));
+}
