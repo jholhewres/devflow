@@ -324,7 +324,8 @@ missed, and the run mode those numbers suggest.
 Each attack run writes its report beside `attack.json`: markdown
 (`attack-report.md`), JSON (`attack-report.json`) and SARIF 2.1.0
 (`attack-report.sarif`), and issue drafts under `drafts/`: one per family,
-then one per confirmed hypothesis no family holds. No exploit's code is in any of them. `devflow attack <item>
+then one per confirmed hypothesis no family holds, then one per confirmed
+hole carried that no family holds (`carried-<n>`). No exploit's code is in any of them. `devflow attack <item>
 --report <run> --format md|json|sarif` prints one. devflow publishes none of
 them: they are the host's to show and to send where the person says.
 
@@ -344,9 +345,10 @@ and results: confirmed is not proven, and a confirmed hypothesis with no
 proof yet says so. What it took in (`merged`) is listed by each one's id and
 run, or the number an attacker gave it (`said_as`) and its agent, and the
 markdown gives each hypothesis that took others in one line, under "From
-earlier runs" or "Merged in this run". attack.json keeps the class by the
-same name (`class`), the attacker's own word beside it (`class_said`) when
-it differs. A
+earlier runs" or "Merged in this run". attack.json and attack-report.json
+keep the class by the same name (`class`), the attacker's own word beside it
+(`class_said`) when it differs, in the report only as lowercase words joined
+by hyphens. A
 field the attack wrote in any other shape shows as `<…>`.
 Its `mode` is `item`, `range` or `retro`, the markdown's first line says
 it, and a range's attack runs on `asked`, not an item's
@@ -356,7 +358,12 @@ devflow's words for that class (`info-disclosure` is one, said
 `information-disclosure`, `info-leak` or `user-enumeration` too), and only a
 confirmed hypothesis is said to be there: a refuted one says it was refuted,
 with nothing to fix, and one not confirmed says so. The fix of one whose
-attacker named a cause devflow knows is that cause's, alone as in a family. A class devflow does not
+attacker named a cause devflow knows is that cause's, alone as in a family,
+as the class says it: a list kept by hand (`hand-kept-blocklist`) is built
+from the IANA registries in an `ssrf` guard, taken from the list the parser
+or the spec keeps (the WHATWG rendering rules) in an `xss`,
+`prompt-injection` or `markup` hole, and fixed as its class says in any
+other. A class devflow does not
 name is said in the words of the class its attacker said it is nearest
 (`near`), else the report sends the reader to attack.json.
 
@@ -369,7 +376,9 @@ its `cause` from devflow's list (`hand-kept-blocklist`,
 like) and its `root`, the function, rule or list at fault by its name in
 the code; variants share both. One that names neither joins the only root
 of its file and class. A refuted, tried or not_run hypothesis is never a
-variant. attack.json and attack-report.json list each family once
+variant. A confirmed hole carried to the next run is one, still open: its
+family counts it (`carried`, apart from those `confirmed` in this run), and
+lists it by the run that showed it, said carried. attack.json and attack-report.json list each family once
 (`families`: its id, class, file, cause and confirmed variants) with its
 cause's fix in devflow's words ("build the blocked ranges from the IANA
 special-purpose address registries", "parse the markup with a real HTML
@@ -663,11 +672,12 @@ confirmed hole whose exploit is not in its run is carried too
 does not name again (`not_named`, listed to the next attacker). Each keeps
 the run and the id that showed it under `again`, the attacker is told those
 carried so it does not look for them again, the reports list them ("Carried
-to the next run" in the markdown, `carried` in attack-report.json, and a
-confirmed one in the SARIF, marked carried), and a confirmed one carried
-past the cap holds at `block_on` as a run would. Only an attacker's exploit
-confirmed at its place takes a carried hole in; anything else said there
-leaves it carried. A hole a newer run showed shut (its exploit green) is not
+to the next run" in the markdown, `carried` in attack-report.json, each at
+its file and line, and a confirmed one in the SARIF, `carried: true` at the
+level of its severity, with its family's draft or one of its own), and a
+confirmed one carried past the cap holds at `block_on` as a run would. Only
+an attacker's exploit confirmed at its place takes a carried hole in, and
+only as the same hole (below); anything else said there leaves it carried. A hole a newer run showed shut (its exploit green) is not
 brought back by an older run that confirmed it, unless a run newer still
 showed it again. A hole once confirmed is run again, carried with why, or
 shown shut by a green run: it never leaves the lineage.
@@ -683,8 +693,13 @@ names again (by `same_as`, by its title in that file, or refuted again at
 its place or behind its control) stays there marked `named_again` instead of
 being counted anew, and the report counts them as `named_again`. What that
 attack did not run, and what it carried not run, is listed too, by the run
-and the id that did not run it, and one named again carries `again`, its
-`was` `not_run`.
+and the id that did not run it, with its cause and root, and one named
+again carries `again`, its `was` `not_run`: by `same_as`, by its title in
+that file or its place, by its title in any file of one family of class, or
+by its fault in any file (one family of class and one cause, at one `root`
+or exploit target both name). An attacker proposing it again elsewhere
+names it by what is at fault, not by where it looked; one that names no
+root is never matched by its cause alone, so a distinct hole stays carried.
 When no code changed since the newest earlier attack's head, work not
 committed yet included, the attacker is told so: what that attack showed is
 settled, and it looks only for what the threat model does not hold yet. It
@@ -693,6 +708,11 @@ keeps the project's, with nothing proposed.
 One hole several runs kept, each attacker naming it its own way (the same
 title of the same file, one class within five lines of one place, or one
 exploit), runs again once: from the run that confirmed it, else the newest.
+Two that runs confirmed, each with an exploit of its own, are taken for one
+by their place only when they are on the very same line with one cause (or
+none named): two patterns of one function a few lines apart are two
+variants, each run again with its own exploit and held together by their
+family, and a run that showed one shut does not shut the other.
 Classes that name one kind of hole are one there, as they are when two
 attackers of one run are merged: `tls`, `ssl`, `certificate` and
 `transport`; `authn`, `session` and `jwt`; a class and its other names
@@ -700,7 +720,7 @@ attackers of one run are merged: `tls`, `ssl`, `certificate` and
 few lines on, it may be a weak hash. Any other two classes stay apart, even
 on one line: `authn` and `authz` in one handler are two holes.
 The attacker's own account of a hole the run again confirmed is not counted
-twice. The hypothesis kept says what it took in, under `merged`, each once:
+twice; another variant beside it, with an exploit of its own, is run. The hypothesis kept says what it took in, under `merged`, each once:
 one an earlier run kept by the run and its id there (`id`, read from its
 `again` when an older report gave it none), one an attacker of this run
 wrote by the number its attacker gave it (`said_as`, never one of the

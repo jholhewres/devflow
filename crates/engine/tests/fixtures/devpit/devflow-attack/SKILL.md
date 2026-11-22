@@ -184,8 +184,8 @@ goes (a tracker, a report, nowhere) is the person's to say.
 Reply with the verdict, each confirmed hypothesis with its test, and what is
 followed up. Confirmed variants of one cause (one file and class, one function, rule
 or list) are one family in the report, with the cause's fix and one draft:
-hand them back as one hole, not one per input. A refuted or unconfirmed
-hypothesis is never one of them. A proof marked `timing` was read from the clock
+hand them back as one hole, not one per input; one carried is still one of
+them, open. A refuted or unconfirmed hypothesis is never one of them. A proof marked `timing` was read from the clock
 over several runs: say it is less sure. The next stage is the completion (`devflow-completion`). End the
 turn.
 

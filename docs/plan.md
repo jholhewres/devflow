@@ -527,6 +527,18 @@ HEAD. The details, and how to read the report: [security.md](security.md).
   by its run and id; a count proof that takes in a timing one carries its
   `again`; a lone draft says its cause's fix; a family draft lists its
   variants by line; attack.json keeps the class by devflow's name.
+- 0.7.4, what the 0.7.3 validation found: a hole a run confirmed with an
+  exploit of its own is never taken in by another at its place without that
+  exploit running, unless it is on the very same line with one cause, or
+  the same title or exploit; two patterns of one function each run again,
+  one family holding them, and a green run of one does not shut the other.
+  A cause's fix holds in its class: a list kept by hand is built from the
+  IANA registries in an SSRF guard and taken from the parser's or the
+  spec's own list in an HTML one. A not-run hypothesis proposed again in
+  another file is that one again by its title or its fault (class, cause,
+  and one root or target both name). A carried hole keeps its file and line in every report,
+  is in the SARIF `carried: true`, keeps a draft and stays a variant of its
+  family; attack-report.json shows `class_said`.
 
 **What a host sees change**
 
@@ -623,6 +635,19 @@ HEAD. The details, and how to read the report: [security.md](security.md).
   `wall_ms`; the SARIF keeps a carried confirmed hole, marked `carried`.
   `attack::CARRIED` names why a hole is carried; `attack::not_run_before`
   lists what was carried not run.
+- 0.7.4 only adds, but for two internal shapes: `attack_report::CAUSES`
+  holds each cause's fixes by family of class (`attack_report::CauseFix`),
+  and a carried hole's SARIF `carried` is `true`, its reason under
+  `carriedWhy` beside its `run` and `id`. attack.json's families gain
+  `carried` and may list a carried hole as `carried-<n>`, which gains
+  `family`; a not-run entry listed to the attacker gains `cause` and `root`.
+  attack-report.json's hypotheses gain `class_said`; its families'
+  variants may be `status: carried` with their `run`, and the families
+  gain `carried`; its carried holes gain `cause`, `family` and `draft`.
+  `in_repo` names the carried holes' files. A carried confirmed hole no
+  family holds has a draft, `carried-<n>`. `attack_report::roots` reads the
+  holes carried after the hypotheses: a place past the hypotheses is one
+  carried.
 
 ## The engine as a library: 0.7.0
 
