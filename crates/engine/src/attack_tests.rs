@@ -698,6 +698,54 @@ fn the_attacker_is_told_to_prove_a_denial_of_service_by_count_never_by_a_time_li
     }
 }
 
+/// The attacker is shown, not only told, how a denial of service is proven
+/// by count: a concrete test that compares the counts of a small and a
+/// large input.
+#[test]
+fn the_attacker_is_shown_a_count_proof_of_a_denial_of_service() {
+    for said in [
+        "For example, for a scan that may grow faster than its input",
+        "a counter the test reads, or a spy on the call each step makes",
+        "1,000 and then 2,000 copies of the hostile input",
+        "`expect(steps(2000)).toBeLessThanOrEqual(2.5 * steps(1000))`",
+        "on any machine",
+    ] {
+        assert!(ASK.contains(said), "{said}: {ASK}");
+    }
+}
+
+/// A hole proven only by time, written again by count, is run on the
+/// count's own exploit; once that confirms it, it takes the timing proof
+/// in, so the count stands for it. One the count refuted keeps both.
+#[test]
+fn a_count_proof_takes_in_the_timing_proof_it_confirms() {
+    let timed = json!({ "title": "quadratic scan", "class": "redos", "file": "src/scan.ts", "line": 9,
+        "status": "confirmed", "cause": "super-linear-work",
+        "exploit": { "path": "tests/scan.test.ts", "test": "slow", "timing": true },
+        "again": { "item": "card_1", "run": "20261122T142204Z", "id": "h13", "was": "confirmed" } });
+    let count = json!({ "id": "h1", "title": "Quadratic scan", "class": "dos", "file": "src/scan.ts", "line": 9,
+        "status": "tried", "exploit": { "path": "tests/scan.count.test.ts", "test": "counts",
+        "code": "expect(steps(2000)).toBeLessThanOrEqual(2.5 * steps(1000))" } });
+    assert!(rewrites_timing(&timed, &count));
+    let mut untimed = timed.clone();
+    untimed["exploit"]["timing"] = json!(false);
+    assert!(!rewrites_timing(&untimed, &count), "only a timing proof");
+    let mut clocked = count.clone();
+    clocked["exploit"]["timing"] = json!(true);
+    assert!(!rewrites_timing(&timed, &clocked), "only a proof by count");
+
+    let mut ran = vec![count.clone()];
+    ran[0]["status"] = json!("refuted");
+    let kept = timing_taken_in(&mut ran, vec![timed.clone()]);
+    assert_eq!(kept.len(), 1, "a count that refuted it takes nothing in");
+    ran[0]["status"] = json!("confirmed");
+    let kept = timing_taken_in(&mut ran, vec![timed]);
+    assert!(kept.is_empty(), "{kept:?}");
+    assert_eq!(ran[0]["merged"][0]["id"], "h13", "{:#}", ran[0]);
+    assert_eq!(ran[0]["merged"][0]["run"], "20261122T142204Z");
+    assert_eq!(ran[0]["cause"], "super-linear-work");
+}
+
 #[test]
 fn the_attacker_keeps_a_refuted_holes_severity() {
     assert!(

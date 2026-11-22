@@ -633,3 +633,46 @@ fn the_attacker_names_the_cause_of_what_ran_again_and_it_is_kept() {
         "{report:#}"
     );
 }
+
+/// A denial of service an earlier run proved only by time comes back with
+/// its attacker asked, with an example, to prove it by count; the count
+/// proof the attacker writes is run as its own, not folded into the timing
+/// one, and no clock is read in it.
+#[test]
+fn a_hole_proven_by_time_is_asked_again_by_count_and_the_count_is_run() {
+    let project = project();
+    let card = "card_1";
+    let timed = json!({ "title": "a page of unclosed tags is scanned in quadratic time", "class": "redos",
+        "file": SESSION, "line": 1, "severity": "medium", "status": "confirmed", "reason": "slow",
+        "exploit": { "path": "tests/security/scan.exploit.test.ts", "test": "scan is slow", "timing": true } });
+    project.earlier(
+        card,
+        &project.first,
+        &[(
+            timed,
+            "const t = Date.now(); scan(page); expect(Date.now() - t).toBeLessThan(1000)\n",
+        )],
+    );
+    let yaml = "version: 1\nstages:\n  attack: { run: sensitive, test: 'sh \"$DEVFLOW_EXPLOIT\"', sandbox: off }\n";
+    let count = json!([{ "id": "h1", "title": "A page of unclosed tags is scanned in quadratic time",
+        "class": "dos", "file": SESSION, "line": 1, "severity": "medium", "status": "tried",
+        "reason": "the steps grow with the square of the tags", "cause": "super-linear-work",
+        "exploit": { "path": "tests/security/scan.count.test.ts", "test": "scan steps grow linearly",
+                     "code": "expect(steps(2000)).toBeLessThanOrEqual(2.5 * steps(1000))\n" } }]);
+    let (report, prompt) = project.attack(card, &project.first, &project.second, yaml, count);
+    assert!(prompt.contains("1,000 and then 2,000 copies"), "{prompt}");
+    let asked = prompt
+        .split("## Proven by time only")
+        .nth(1)
+        .expect("the timing proof asked again by count");
+    assert!(
+        asked.contains("a page of unclosed tags is scanned in quadratic time"),
+        "{asked}"
+    );
+    let hypotheses = report["hypotheses"].as_array().expect("hypotheses");
+    assert_eq!(hypotheses.len(), 2, "{report:#}");
+    let own = &hypotheses[0];
+    assert_eq!(own["exploit"]["test"], "scan steps grow linearly");
+    assert!(own["exploit"].get("timing").is_none(), "{own:#}");
+    assert_eq!(hypotheses[1]["exploit"]["timing"], true);
+}
