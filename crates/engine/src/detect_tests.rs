@@ -258,7 +258,7 @@ fn the_exploit_test_command_comes_from_the_projects_own_runner() {
         ),
         (
             &[("go.mod", "module example.com/x\n")],
-            "go test -v -run \"$DEVFLOW_EXPLOIT_TEST\" \"./$(dirname \"$DEVFLOW_EXPLOIT\")\"",
+            GO_EXPLOIT,
             "golang:1",
         ),
         (
@@ -373,7 +373,7 @@ fn a_go_exploit_runs_with_the_build_tags_the_project_tests_with() {
     let found = exploit_test_at(made.path(), &detected_at(made.path())).expect("go");
     assert_eq!(
         found.command,
-        "go test -tags sqlite_fts5,json1 -v -run \"$DEVFLOW_EXPLOIT_TEST\" \"./$(dirname \"$DEVFLOW_EXPLOIT\")\""
+        GO_EXPLOIT.replace("go test ", "go test -tags sqlite_fts5,json1 ")
     );
     assert_eq!(found.source, "Makefile:7");
     let ci = project(&[
@@ -387,7 +387,7 @@ fn a_go_exploit_runs_with_the_build_tags_the_project_tests_with() {
     assert!(
         found
             .command
-            .starts_with("go test -tags sqlite_fts5 -v -run "),
+            .contains("&& go test -tags sqlite_fts5 -v -run "),
         "{}",
         found.command
     );
@@ -407,11 +407,7 @@ fn a_go_exploit_runs_with_the_build_tags_the_project_tests_with() {
             ("Makefile", &format!("test:\n\t{said}\n")),
         ]);
         let found = exploit_test_at(plain.path(), &detected_at(plain.path())).expect("go");
-        assert!(
-            found.command.starts_with("go test -v -run "),
-            "{why}: {}",
-            found.command
-        );
+        assert!(found.command == GO_EXPLOIT, "{why}: {}", found.command);
         assert_eq!(found.source, "go.mod:1", "{why}");
     }
 }

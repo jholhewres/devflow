@@ -1582,3 +1582,66 @@ fn several_env_errors_warn_and_the_session_settles_each() {
     assert_eq!(report["hypotheses"][0]["verified"]["by"], "session");
     assert!(report.get("env_warning").is_none(), "{report:#}");
 }
+
+/// A Go exploit in a nested module (its own `go.mod`, which the root module
+/// replaces) runs from that module, with the build tags the project tests
+/// with: red, naming its test, with no step by hand. Run from the root, as
+/// before, it reached no package of the module.
+#[test]
+fn a_go_exploit_in_a_nested_module_runs_from_its_own_module() {
+    let Ok(go) = std::process::Command::new("go").arg("version").output() else {
+        eprintln!("not run here: no go");
+        return;
+    };
+    if !go.status.success() {
+        eprintln!("not run here: go does not run");
+        return;
+    }
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/go-nested-module");
+    let dir = tempfile::tempdir().expect("dir");
+    let root = dir.path().join("project");
+    copied(&fixture, &root);
+    let detected = crate::detect::detected(&root, crate::detect::Machine::default());
+    let found = crate::detect::exploit_test_at(&root, &detected).expect("go");
+    assert!(
+        found.command.contains("go test -tags protocol_fast "),
+        "{}",
+        found.command
+    );
+    let test = "TestExploitLengthPastTheFrame";
+    let run = |command: &str| {
+        let out = std::process::Command::new("sh")
+            .args(["-c", command])
+            .current_dir(&root)
+            .env("DEVFLOW_EXPLOIT", "protocol/frame_exploit_test.go")
+            .env("DEVFLOW_EXPLOIT_TEST", test)
+            .env("GOCACHE", dir.path().join("cache"))
+            .env("GOPATH", dir.path().join("gopath"))
+            .env("GOTOOLCHAIN", "local")
+            .env("GOFLAGS", "")
+            .output()
+            .expect("go test");
+        let said = format!(
+            "{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let outcome = if out.status.success() {
+            Outcome::Green
+        } else {
+            Outcome::Red
+        };
+        ran_of(outcome, &said, test)
+    };
+    let from_root =
+        run("go test -tags protocol_fast -v -run \"$DEVFLOW_EXPLOIT_TEST\" \"./$(dirname \"$DEVFLOW_EXPLOIT\")\"");
+    assert_eq!(ended(&from_root).1, "not_run", "{}", from_root.tail);
+    let untagged = run(crate::detect::GO_EXPLOIT);
+    assert!(
+        ended(&untagged).2.starts_with(ENV_ERROR),
+        "{}",
+        untagged.tail
+    );
+    let nested = run(&found.command);
+    assert_eq!(ended(&nested).0, "confirmed", "{}", nested.tail);
+}

@@ -766,6 +766,10 @@ pub struct ExploitTest {
     pub image: String,
 }
 
+/// The Go exploit test: from the folder of the `go.mod` nearest the
+/// exploit, its package said from there.
+pub const GO_EXPLOIT: &str = "d=$(dirname -- \"$DEVFLOW_EXPLOIT\"); m=$d; while [ \"$m\" != . ] && [ \"$m\" != / ] && [ ! -f \"$m/go.mod\" ]; do m=$(dirname -- \"$m\"); done; p=.; [ \"$d\" != \"$m\" ] && p=./${d#\"$m\"/}; cd -- \"$m\" && go test -v -run \"$DEVFLOW_EXPLOIT_TEST\" \"$p\"";
+
 /// The command that runs one exploit test, from the runner the project tests
 /// with: none when no runner devflow knows was found.
 pub fn exploit_test(detected: &Detected) -> Option<ExploitTest> {
@@ -788,9 +792,12 @@ pub fn exploit_test(detected: &Detected) -> Option<ExploitTest> {
                 "rust:1",
             ),
             Report::Go => (
+                // Run from the module nearest the exploit, a nested one's
+                // own `go.mod` (a `go.work` above it is Go's to find): from
+                // the root, `go test ./nested` reaches no package of it.
                 // `-v` names the test as it starts: a run that times out
                 // still says it reached its test.
-                "go test -v -run \"$DEVFLOW_EXPLOIT_TEST\" \"./$(dirname \"$DEVFLOW_EXPLOIT\")\"".to_owned(),
+                GO_EXPLOIT.to_owned(),
                 "golang:1",
             ),
             Report::Junit if said.contains("python -m pytest") => (
@@ -844,7 +851,7 @@ pub fn exploit_test_at(root: &Path, detected: &Detected) -> Option<ExploitTest> 
             found.image = format!("rust:{version}");
         }
     }
-    if found.command.starts_with("go test ") {
+    if found.command.contains("go test ") {
         if let Some((tags, source)) = go_tags(&files) {
             found.command =
                 found

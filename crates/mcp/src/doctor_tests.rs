@@ -546,7 +546,12 @@ fn an_attack_whose_exploits_failed_on_their_environment_is_pointed_out() {
     assert!(
         warned
             .what
-            .contains("devflow config set stages.attack.test 'go test -tags sqlite_fts5 -v -run"),
+            .contains("devflow config set stages.attack.test 'd=$(dirname"),
+        "{}",
+        warned.what
+    );
+    assert!(
+        warned.what.contains("&& go test -tags sqlite_fts5 -v -run"),
         "{}",
         warned.what
     );
