@@ -73,6 +73,21 @@ struct Kept {
     /// The offers the person said no to on this machine, not made again.
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     declined: BTreeSet<String>,
+    /// The projects where the person switched devflow off, and where they
+    /// set Decisions back from enforce: a worktree's own no stands over its
+    /// main checkout's yes.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    disabled: BTreeSet<String>,
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    unenforced: BTreeSet<String>,
+}
+
+/// Where a project's switch comes from: its own decision, or, for a linked
+/// worktree with none, its repository's main checkout's.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Made {
+    Here,
+    Main(PathBuf),
 }
 
 /// The person's decisions, in one file.
@@ -139,7 +154,9 @@ impl Consent {
         }
     }
 
-    /// Whether the person made `ask` in the project at `root`.
+    /// Whether the person made `ask` in the project at `root`: there, or,
+    /// in a linked worktree that has no decision of its own, in its
+    /// repository's main checkout ([`Consent::made_where`]).
     pub fn made(&self, root: &Path, ask: Ask) -> bool {
         if let Some([enabled, enforce]) = self.switches {
             return match ask {
@@ -147,12 +164,53 @@ impl Consent {
                 Ask::Enforce => enforce,
             };
         }
+        self.made_where(root, ask).is_some()
+    }
+
+    /// Where the person made `ask` for the project at `root`: in it, or in
+    /// its repository's main checkout when `root` is a linked worktree with
+    /// no decision of its own, a yes or a no; `None` when nowhere.
+    pub fn made_where(&self, root: &Path, ask: Ask) -> Option<Made> {
         let kept = self.kept();
+        let (on, off) = match ask {
+            Ask::Enable => (&kept.enabled, &kept.disabled),
+            Ask::Enforce => (&kept.enforced, &kept.unenforced),
+        };
         let key = key_of(root);
-        match ask {
-            Ask::Enable => kept.enabled.contains(&key),
-            Ask::Enforce => kept.enforced.contains(&key),
+        if on.contains(&key) {
+            return Some(Made::Here);
         }
+        if off.contains(&key) {
+            return None;
+        }
+        let main = devflow_engine::fsguard::main_checkout(root)?;
+        on.contains(&key_of(&main)).then_some(Made::Main(main))
+    }
+
+    /// The keys a project's decisions are read under, its own first: a
+    /// linked worktree reads its main checkout's where it has none.
+    fn keys_of(root: &Path) -> Vec<String> {
+        let mut keys = vec![key_of(root)];
+        if let Some(main) = devflow_engine::fsguard::main_checkout(root) {
+            keys.push(key_of(&main));
+        }
+        keys
+    }
+
+    /// The one key `root`'s confirmed targets and their addresses are both
+    /// read under: its own when it confirmed any, else its main checkout's.
+    /// Never targets from one and addresses from the other.
+    fn targets_key(kept: &Kept, root: &Path) -> Option<String> {
+        Consent::keys_of(root)
+            .into_iter()
+            .find(|key| kept.targets.contains_key(key) || kept.pinned.contains_key(key))
+    }
+
+    /// The first of `root`'s keys ([`Consent::keys_of`]) `map` holds.
+    fn own_or_main<T>(map: &mut BTreeMap<String, T>, root: &Path) -> Option<T> {
+        Consent::keys_of(root)
+            .iter()
+            .find_map(|key| map.remove(key))
     }
 
     /// Keeps, or forgets, that the person made `ask` in the project.
@@ -167,9 +225,9 @@ impl Consent {
 
     /// The targets the person confirmed in the project at `root`.
     pub fn confirmed_targets(&self, root: &Path) -> Vec<String> {
-        self.kept()
-            .targets
-            .remove(&key_of(root))
+        let mut kept = self.kept();
+        Consent::targets_key(&kept, root)
+            .and_then(|key| kept.targets.remove(&key))
             .unwrap_or_default()
     }
 
@@ -193,12 +251,15 @@ impl Consent {
 
     /// The stack the person confirmed in the project, and its digest then.
     pub fn confirmed_stack(&self, root: &Path) -> Option<(String, String)> {
-        self.kept().stacks.remove(&key_of(root))
+        Consent::own_or_main(&mut self.kept().stacks, root)
     }
 
     /// The addresses each confirmed name resolved to then, by origin.
     pub fn pinned(&self, root: &Path) -> Pins {
-        let mut pins = self.kept().pinned.remove(&key_of(root)).unwrap_or_default();
+        let mut kept = self.kept();
+        let mut pins = Consent::targets_key(&kept, root)
+            .and_then(|key| kept.pinned.remove(&key))
+            .unwrap_or_default();
         for addresses in pins.values_mut() {
             addresses.truncate(MOST_PINNED);
         }
@@ -236,19 +297,24 @@ impl Consent {
 
     /// The yeses kept for the project, oldest first.
     pub fn given(&self, root: &Path) -> Vec<Given> {
-        let key = key_of(root);
-        self.kept()
-            .given
-            .into_iter()
-            .filter(|one| one.project == key)
-            .collect()
+        let given = self.kept().given;
+        let keys = Consent::keys_of(root);
+        // Its own, else its main checkout's.
+        keys.iter()
+            .map(|key| {
+                given
+                    .iter()
+                    .filter(|one| one.project == *key)
+                    .cloned()
+                    .collect::<Vec<_>>()
+            })
+            .find(|found| !found.is_empty())
+            .unwrap_or_default()
     }
 
     /// The parts of the attack's question the person answered in the project.
     pub fn answered(&self, root: &Path) -> BTreeSet<String> {
-        self.kept()
-            .answered
-            .remove(&key_of(root))
+        Consent::own_or_main(&mut self.kept().answered, root)
             .unwrap_or_default()
             .into_iter()
             .collect()
@@ -304,14 +370,16 @@ pub struct Answered<'a> {
 
 impl Kept {
     fn switched(&mut self, key: &str, ask: Ask, yes: bool) {
-        let set = match ask {
-            Ask::Enable => &mut self.enabled,
-            Ask::Enforce => &mut self.enforced,
+        let (on, off) = match ask {
+            Ask::Enable => (&mut self.enabled, &mut self.disabled),
+            Ask::Enforce => (&mut self.enforced, &mut self.unenforced),
         };
         if yes {
-            set.insert(key.to_owned());
+            on.insert(key.to_owned());
+            off.remove(key);
         } else {
-            set.remove(key);
+            on.remove(key);
+            off.insert(key.to_owned());
         }
     }
 

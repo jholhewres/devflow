@@ -209,3 +209,83 @@ fn how_when_and_what_for_the_person_said_yes_is_kept_by_project() {
     );
     assert!(kept.contains("targets:0"));
 }
+
+/// A repository with one commit, and a linked worktree of it: both roots.
+fn worktree_of_a_repository(dir: &Path) -> (PathBuf, PathBuf) {
+    let git = |at: &Path, args: &[&str]| {
+        let done = std::process::Command::new("git")
+            .args(args)
+            .current_dir(at)
+            .output()
+            .unwrap();
+        assert!(done.status.success(), "git {args:?}");
+    };
+    let main = dir.join("main");
+    std::fs::create_dir_all(&main).unwrap();
+    git(&main, &["init", "-q"]);
+    git(&main, &["config", "user.email", "test@example.invalid"]);
+    git(&main, &["config", "user.name", "Test"]);
+    git(&main, &["config", "commit.gpgsign", "false"]);
+    std::fs::write(main.join("a.txt"), "a\n").unwrap();
+    git(&main, &["add", "-A"]);
+    git(&main, &["commit", "-q", "-m", "first"]);
+    let worktree = dir.join("wt");
+    git(
+        &main,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            worktree.to_str().unwrap(),
+            "-b",
+            "wt",
+        ],
+    );
+    (
+        main.canonicalize().unwrap(),
+        worktree.canonicalize().unwrap(),
+    )
+}
+
+/// A linked worktree with no decision of its own takes its main
+/// checkout's: the switch, said to come from there, and the parts already
+/// answered. Its own no stands over the main checkout's yes, and its own
+/// yes over the main checkout's no.
+#[test]
+fn a_worktree_takes_its_main_checkouts_decisions_unless_it_has_its_own() {
+    let dir = tempfile::tempdir().unwrap();
+    let (main, worktree) = worktree_of_a_repository(dir.path());
+    let consent = Consent::at(&dir.path().join("config"));
+    assert!(!consent.made(&worktree, Ask::Enable));
+    consent.remember(&main, Ask::Enable, true).unwrap();
+    assert!(consent.made(&worktree, Ask::Enable));
+    assert_eq!(
+        consent.made_where(&worktree, Ask::Enable),
+        Some(Made::Main(main.clone()))
+    );
+    assert_eq!(consent.made_where(&main, Ask::Enable), Some(Made::Here));
+    assert!(!consent.made(&worktree, Ask::Enforce), "only what was made");
+    consent
+        .keep_answer(
+            &main,
+            &Answered {
+                switched_on: true,
+                targets: None,
+                yeses: &["enabled"],
+                parts: &["test".to_owned()],
+                how: How::Terminal,
+                asked_for: "attack",
+                at: std::time::SystemTime::now(),
+            },
+        )
+        .unwrap();
+    assert!(consent.answered(&worktree).contains("test"));
+    assert_eq!(consent.given(&worktree).len(), 1);
+
+    consent.remember(&worktree, Ask::Enable, false).unwrap();
+    assert!(!consent.made(&worktree, Ask::Enable), "its own no stands");
+    assert!(consent.made(&main, Ask::Enable));
+    consent.remember(&worktree, Ask::Enable, true).unwrap();
+    consent.remember(&main, Ask::Enable, false).unwrap();
+    assert_eq!(consent.made_where(&worktree, Ask::Enable), Some(Made::Here));
+}

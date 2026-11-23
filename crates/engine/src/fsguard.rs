@@ -64,11 +64,77 @@ pub fn resolve(root: &Path, relative: &str) -> Result<PathBuf, TreeError> {
             source,
         })?;
 
-    if !resolved.starts_with(&root) {
+    if !resolved.starts_with(&root) && !in_shared_folder(&root, relative, &resolved) {
         return Err(TreeError::Outside { path: resolved });
     }
 
     Ok(resolved)
+}
+
+/// The devflow folders a linked worktree may take from its repository's
+/// main checkout by a symlink: git keeps them out of every worktree, so a
+/// worktree has none of its own. The deepest first.
+const SHARED: [&str; 3] = [".devpit/devflow", ".devpit", ".devflow"];
+
+/// The main checkout of the repository `root` is a linked worktree of, read
+/// from what git writes there (`.git` a file naming the worktree's git
+/// folder, whose `commondir` is the repository's own `.git`); `None` for a
+/// main checkout, a bare repository's worktree, or anything else. No git
+/// command runs: this is read on every refusal.
+pub fn main_checkout(root: &Path) -> Option<PathBuf> {
+    let root = root.canonicalize().ok()?;
+    let dotgit = root.join(".git");
+    if !dotgit.symlink_metadata().ok()?.is_file() {
+        return None;
+    }
+    let said = std::fs::read_to_string(&dotgit).ok()?;
+    let gitdir = root.join(said.trim().strip_prefix("gitdir:")?.trim());
+    let gitdir = gitdir.canonicalize().ok()?;
+    let common = std::fs::read_to_string(gitdir.join("commondir")).ok()?;
+    let common = gitdir.join(common.trim()).canonicalize().ok()?;
+    if gitdir.parent()? != common.join("worktrees") || common.file_name()? != ".git" {
+        return None;
+    }
+    // The worktree's git folder names this very worktree back: a `.git`
+    // file written anywhere else names no worktree of it.
+    let back = std::fs::read_to_string(gitdir.join("gitdir")).ok()?;
+    if Path::new(back.trim()).canonicalize().ok()? != dotgit {
+        return None;
+    }
+    let main = common.parent()?.to_path_buf();
+    let own = main.join(".git");
+    (own.symlink_metadata().ok()?.is_dir() && own.canonicalize().ok()? == common && main != root)
+        .then_some(main)
+}
+
+/// The devflow folder of `root` (canonical), a linked worktree, that is a
+/// symlink to the same folder of its main checkout, and where it leads.
+fn shared_folder(root: &Path) -> Option<(&'static str, PathBuf)> {
+    let main = main_checkout(root)?;
+    // The folder that is itself the link: `.devpit`, or `.devpit/devflow`
+    // in a `.devpit` of the worktree's own. It leads to the main checkout's
+    // folder as it is, a real folder with no link on its way: one the
+    // repository links elsewhere is no folder of the main checkout's.
+    SHARED.iter().find_map(|folder| {
+        let linked = root.join(folder).symlink_metadata().ok()?.is_symlink();
+        let theirs = main.join(folder);
+        let real =
+            theirs.symlink_metadata().ok()?.is_dir() && theirs.canonicalize().ok()? == theirs;
+        let leads = root.join(folder).canonicalize().ok()?;
+        (linked && real && leads == theirs).then_some((*folder, leads))
+    })
+}
+
+/// Whether `resolved`, outside `root`, is in the devflow folder `root`
+/// shares with its repository's main checkout ([`shared_folder`]), asked
+/// for through that folder: the one way out of a project, into the same
+/// folder of the same repository. Any other link out is refused.
+fn in_shared_folder(root: &Path, relative: &str, resolved: &Path) -> bool {
+    let relative = relative.trim_start_matches("./");
+    shared_folder(root).is_some_and(|(folder, leads)| {
+        (relative == folder || relative.starts_with(&format!("{folder}/")))
+            && resolved.starts_with(&leads)
+    })
 }
 
 /// An absolute path as a project-relative one, or an error when it is not in
@@ -90,10 +156,18 @@ pub fn relative_to(root: &Path, absolute: &Path) -> Result<String, TreeError> {
             path: absolute.to_path_buf(),
             source,
         })?;
-    resolved
-        .strip_prefix(&root)
-        .map(|rest| rest.to_string_lossy().into_owned())
-        .map_err(|_| TreeError::Outside { path: resolved })
+    if let Ok(rest) = resolved.strip_prefix(&root) {
+        return Ok(rest.to_string_lossy().into_owned());
+    }
+    // In the devflow folder a worktree shares with its main checkout: said
+    // as the worktree's own.
+    match shared_folder(&root) {
+        Some((folder, leads)) if resolved.starts_with(&leads) => {
+            let rest = resolved.strip_prefix(&leads).unwrap_or(Path::new(""));
+            Ok(Path::new(folder).join(rest).to_string_lossy().into_owned())
+        }
+        _ => Err(TreeError::Outside { path: resolved }),
+    }
 }
 
 /// Whether any segment of `relative` is `.git`, in any case (`.GIT` is the

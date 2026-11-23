@@ -335,8 +335,18 @@ fn project(root: &Path, consent: &Consent) -> Vec<Said> {
                  enabled true`",
                 crate::ready::COMMAND
             );
-            match (config.enabled, consent.made(&project.root, Ask::Enable)) {
-                (true, true) => said.push(ok("devflow is on here")),
+            let made = consent.made(&project.root, Ask::Enable);
+            match (config.enabled, made) {
+                (true, true) => {
+                    said.push(ok(match consent.made_where(&project.root, Ask::Enable) {
+                        Some(crate::consent::Made::Main(main)) => format!(
+                            "devflow is on here: this worktree takes the switch of its \
+                             repository's main checkout, {}",
+                            main.display()
+                        ),
+                        _ => "devflow is on here".to_owned(),
+                    }))
+                }
                 (true, false) => said.push(bad(format!(
                     "devflow is not on here: {} says `enabled: true` (devpit's switch, or the \
                      file's), but devflow's own switch for this project is kept on this machine, \

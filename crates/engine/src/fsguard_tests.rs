@@ -179,3 +179,142 @@ fn touches_git_is_true_for_a_dot_git_segment_anywhere() {
     assert!(!touches_git("a/gitignore"));
     assert!(!touches_git("a/b"));
 }
+
+/// A repository with one commit and a linked worktree of it: both roots.
+#[cfg(unix)]
+fn repository_with_a_worktree(dir: &Path) -> (PathBuf, PathBuf) {
+    let git = |at: &Path, args: &[&str]| {
+        let done = std::process::Command::new("git")
+            .args(args)
+            .current_dir(at)
+            .output()
+            .expect("git");
+        assert!(done.status.success(), "git {args:?}");
+    };
+    let main = dir.join("main");
+    std::fs::create_dir_all(main.join(".devpit/devflow")).expect("main");
+    git(&main, &["init", "-q"]);
+    git(&main, &["config", "user.email", "test@example.invalid"]);
+    git(&main, &["config", "user.name", "Test"]);
+    git(&main, &["config", "commit.gpgsign", "false"]);
+    std::fs::write(main.join(".gitignore"), ".devpit/\n").expect("ignore");
+    std::fs::write(main.join("secret.env"), "KEY=1\n").expect("file");
+    git(&main, &["add", ".gitignore"]);
+    git(&main, &["commit", "-q", "-m", "first"]);
+    std::fs::write(main.join(".devpit/devflow/devflow.yaml"), "version: 2\n").expect("yaml");
+    let worktree = dir.join("wt");
+    git(
+        &main,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            worktree.to_str().expect("utf-8"),
+            "-b",
+            "wt",
+        ],
+    );
+    (
+        main.canonicalize().expect("main"),
+        worktree.canonicalize().expect("worktree"),
+    )
+}
+
+/// A linked worktree knows its repository's main checkout, from what git
+/// wrote there; the main checkout itself has none.
+#[cfg(unix)]
+#[test]
+fn a_linked_worktree_knows_its_main_checkout() {
+    let dir = tempfile::tempdir().expect("dir");
+    let (main, worktree) = repository_with_a_worktree(dir.path());
+    assert_eq!(main_checkout(&worktree), Some(main.clone()));
+    assert_eq!(main_checkout(&main), None);
+    assert_eq!(main_checkout(dir.path()), None);
+}
+
+/// A worktree's devflow folder linked to the same folder of its main
+/// checkout is read through, and said as the worktree's own; any other
+/// link out of the worktree is refused, the main checkout's other files
+/// included.
+#[cfg(unix)]
+#[test]
+fn a_worktrees_devflow_folder_may_be_its_main_checkouts() {
+    let dir = tempfile::tempdir().expect("dir");
+    let (main, worktree) = repository_with_a_worktree(dir.path());
+    std::os::unix::fs::symlink(main.join(".devpit"), worktree.join(".devpit")).expect("link");
+    let yaml = resolve(&worktree, ".devpit/devflow/devflow.yaml").expect("read through");
+    assert_eq!(yaml, main.join(".devpit/devflow/devflow.yaml"));
+    assert_eq!(
+        relative_to(&worktree, &yaml).expect("its own"),
+        ".devpit/devflow/devflow.yaml"
+    );
+    assert!(resolve_new(&worktree, ".devpit/devflow/runs").is_ok());
+    // Climbing out of the shared folder is refused.
+    assert!(resolve(&worktree, ".devpit/../.devpit/../secret.env").is_err());
+    std::os::unix::fs::symlink(main.join("secret.env"), worktree.join("secret.env")).expect("link");
+    assert!(
+        resolve(&worktree, "secret.env").is_err(),
+        "not a devflow folder"
+    );
+    std::os::unix::fs::symlink(main.join(".devpit"), worktree.join("devpit-too")).expect("link");
+    assert!(resolve(&worktree, "devpit-too/devflow/devflow.yaml").is_err());
+}
+
+/// The main checkout's devflow folder that is itself a link out (the
+/// repository's own `.devpit -> /`) is no folder of the main checkout's: a
+/// worktree linking to it is refused as the main checkout refuses it.
+#[cfg(unix)]
+#[test]
+fn a_main_checkouts_devflow_folder_linked_out_shares_nothing() {
+    let dir = tempfile::tempdir().expect("dir");
+    let (main, worktree) = repository_with_a_worktree(dir.path());
+    let outside = dir.path().join("outside");
+    std::fs::create_dir_all(&outside).expect("outside");
+    std::fs::write(outside.join("secret"), "KEY=1\n").expect("secret");
+    std::os::unix::fs::symlink(&outside, main.join(".devflow")).expect("link out");
+    std::os::unix::fs::symlink(main.join(".devflow"), worktree.join(".devflow")).expect("link");
+    assert!(
+        resolve(&main, ".devflow/secret").is_err(),
+        "the main refuses it"
+    );
+    assert!(
+        resolve(&worktree, ".devflow/secret").is_err(),
+        "so does the worktree"
+    );
+    assert!(resolve_new(&worktree, ".devflow/written").is_err());
+    std::os::unix::fs::symlink("/", worktree.join(".devpit-root")).expect("link");
+    assert!(resolve(&worktree, ".devpit-root/etc/hostname").is_err());
+}
+
+/// `.devflow` and `.devpit/devflow` may each be the link, said as the
+/// worktree's own; a `.git` file written in a folder that is no worktree of
+/// the repository names no main checkout.
+#[cfg(unix)]
+#[test]
+fn each_devflow_folder_may_be_shared_and_a_forged_git_file_names_nothing() {
+    let dir = tempfile::tempdir().expect("dir");
+    let (main, worktree) = repository_with_a_worktree(dir.path());
+    std::fs::create_dir_all(main.join(".devflow")).expect("folder");
+    std::fs::write(main.join(".devflow/devflow.yaml"), "version: 2\n").expect("yaml");
+    std::os::unix::fs::symlink(main.join(".devflow"), worktree.join(".devflow")).expect("link");
+    assert!(resolve(&worktree, ".devflow/devflow.yaml").is_ok());
+    std::fs::create_dir_all(worktree.join(".devpit")).expect("folder");
+    std::os::unix::fs::symlink(
+        main.join(".devpit/devflow"),
+        worktree.join(".devpit/devflow"),
+    )
+    .expect("link");
+    let yaml = resolve(&worktree, ".devpit/devflow/devflow.yaml").expect("read through");
+    assert_eq!(
+        relative_to(&worktree, &yaml).expect("its own"),
+        ".devpit/devflow/devflow.yaml"
+    );
+    let forged = dir.path().join("forged");
+    std::fs::create_dir_all(&forged).expect("folder");
+    std::fs::write(
+        forged.join(".git"),
+        format!("gitdir: {}\n", main.join(".git/worktrees/wt").display()),
+    )
+    .expect("forged");
+    assert_eq!(main_checkout(&forged), None);
+}
