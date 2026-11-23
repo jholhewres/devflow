@@ -1515,6 +1515,24 @@ pub fn markdown(report: &Value, known: &Known) -> String {
             text(&warning, "fix")
         ));
     }
+    if let Some(held) = report["counts"]["env_held"]
+        .as_u64()
+        .filter(|held| *held > 0)
+    {
+        let said = match held {
+            1 => "1 hypothesis that could not run".to_owned(),
+            many => format!("{many} hypotheses that could not run"),
+        };
+        let what = match (report["mode"] == "retro", held == 1) {
+            (true, true) => "is followed up",
+            (true, false) => "are followed up",
+            (false, true) => "holds the item",
+            (false, false) => "hold the item",
+        };
+        out.push_str(&format!(
+            "**{said} {what}** (`env_error` at `block_on`, or a hole an earlier run confirmed): an attack that could not run is no evidence the hole is not there. Run them again with the command fixed, or in the session with `verified`. Below `block_on`, one is a warning to follow up.\n"
+        ));
+    }
     if let Some(path) = threat_path(report) {
         out.push_str(&format!(
             "A proposed update to the threat model, `{path}`, is in the run's threat-model.proposed.md, its diff in attack.json: the person's to take or leave.\n"
@@ -1904,6 +1922,17 @@ pub fn held(report: &Value, block_on: &[crate::config::Severity]) -> Vec<Value> 
             crate::findings::severity_of(text(one, "severity"))
                 .is_some_and(|severity| block_on.contains(&severity))
         })
+        .collect()
+}
+
+/// The hypotheses that could not run for their environment and hold as a
+/// confirmed one would ([`crate::attack::env_held`]), as [`shown`]: what
+/// fails a CI run beside [`held`].
+pub fn env_held(report: &Value, block_on: &[crate::config::Severity]) -> Vec<Value> {
+    let known = Known::of(report);
+    crate::attack::env_held(report, block_on)
+        .into_iter()
+        .map(|one| shown(one, &known))
         .collect()
 }
 

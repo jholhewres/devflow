@@ -2019,6 +2019,7 @@ pub fn env_warning(report: &Value) -> Option<Value> {
 /// changes, as does a confirmed hole carried past the cap, not shown fixed;
 /// followed up instead on a range already in production.
 pub fn verdict(report: &Value, block_on: &[Severity], retro: bool) -> &'static str {
+    let could_not_run = !env_held(report, block_on).is_empty();
     let past_cap = report["carried"]
         .as_array()
         .into_iter()
@@ -2034,11 +2035,36 @@ pub fn verdict(report: &Value, block_on: &[Severity], retro: bool) -> &'static s
             findings::severity_of(one["severity"].as_str().unwrap_or_default())
                 .is_some_and(|severity| block_on.contains(&severity))
         });
-    match (holds, retro) {
+    match (holds || could_not_run, retro) {
         (false, _) => "approve",
         (true, false) => "request_changes",
         (true, true) => "follow_up",
     }
+}
+
+/// The hypotheses stopped by their environment or build that hold the item
+/// as a confirmed one would: one at `block_on`, or a hole an earlier run
+/// confirmed whose run again could not run. An attack that could not run is
+/// no evidence that the hole is not there. Below `block_on` and new, one is
+/// a warning to follow up.
+pub fn env_held<'a>(report: &'a Value, block_on: &[Severity]) -> Vec<&'a Value> {
+    report["hypotheses"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        // Until a run settles it, confirmed or refuted: a session that could
+        // not run it either settles nothing.
+        .filter(|one| {
+            one["ran"]["env_error"].is_string()
+                && one["status"] != "confirmed"
+                && one["status"] != "refuted"
+        })
+        .filter(|one| {
+            one["again"]["was"] == "confirmed"
+                || findings::severity_of(one["severity"].as_str().unwrap_or_default())
+                    .is_some_and(|severity| block_on.contains(&severity))
+        })
+        .collect()
 }
 
 /// The report's counts, exploits and verdict, made again from its
@@ -2048,6 +2074,8 @@ pub fn settled(report: &mut Value, block_on: &[Severity]) {
     estimates_apart(report);
     rooted(report);
     report["counts"] = counts(report);
+    let held = env_held(report, block_on).len();
+    report["counts"]["env_held"] = json!(held);
     match env_warning(report) {
         Some(warning) => report["env_warning"] = warning,
         None => {

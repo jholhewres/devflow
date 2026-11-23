@@ -460,7 +460,8 @@ fn env_errors(project: &Project, set: Option<&str>) -> Option<Said> {
     let count = newest["metrics"]["env_repeated"]
         .as_u64()
         .unwrap_or_default();
-    if count < devflow_engine::attack::ENV_ERRORS_SAID as u64 {
+    let held = newest["metrics"]["env_held"].as_u64().unwrap_or_default();
+    if count < devflow_engine::attack::ENV_ERRORS_SAID as u64 && held == 0 {
         return None;
     }
     let root = project.root.as_path();
@@ -475,11 +476,23 @@ fn env_errors(project: &Project, set: Option<&str>) -> Option<Said> {
               '<command>'`), or run each exploit in the session and send `verified`"
             .to_owned(),
     };
+    let stopped = if count >= devflow_engine::attack::ENV_ERRORS_SAID as u64 {
+        format!("{count} exploits failed on one same error of their environment or build")
+    } else {
+        "exploits failed on their environment or build".to_owned()
+    };
+    let holding = if held > 0 {
+        format!(
+            "; {held} that could not run hold the item at the gate (at block_on, or a hole an \
+             earlier run confirmed): an attack that could not run is no evidence"
+        )
+    } else {
+        "; below block_on they are a warning to follow up".to_owned()
+    };
     Some(maybe(format!(
-        "the newest attack (run {} of {}): {count} exploits failed on one same error of their \
-         environment or build, not on their assertion (env_error): stages.attack.test most \
-         likely lacks what the project's tests use (build tags, as Go's `-tags`, a module, a \
-         service); {fix}",
+        "the newest attack (run {} of {}): {stopped}, not on their assertion (env_error){holding}. \
+         stages.attack.test most likely lacks what the project's tests use (build tags, as Go's \
+         `-tags`, a module, a service); {fix}",
         newest["run"].as_str().unwrap_or("?"),
         newest["item"].as_str().unwrap_or("?"),
     )))

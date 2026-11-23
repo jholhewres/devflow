@@ -192,12 +192,29 @@ pub fn ranging(
             println!("::error title=devflow attack::{said}");
         }
     }
+    for one in attack_report::env_held(&report, &block_on) {
+        let said = format!(
+            "{} {} could not run (env_error) at {}:{}: fix stages.attack.test, or run it in the session",
+            one["severity"].as_str().unwrap_or("?"),
+            one["class"].as_str().unwrap_or("other"),
+            one["file"].as_str().unwrap_or("<…>"),
+            one["line"].as_u64().unwrap_or_default()
+        );
+        eprintln!("devflow attack: {said}");
+        if annotate {
+            println!("::error title=devflow attack::{said}");
+        }
+    }
     ExitCode::from(ci_exit(&report, &block_on))
 }
 
-/// A CI run's exit code: 1 when a confirmed exploit is in `block_on`, else 0.
+/// A CI run's exit code: 1 when a confirmed exploit is in `block_on`, or
+/// one that could not run holds as it would, else 0.
 fn ci_exit(report: &serde_json::Value, block_on: &[devflow_engine::config::Severity]) -> u8 {
-    u8::from(!devflow_engine::attack_report::held(report, block_on).is_empty())
+    u8::from(
+        !devflow_engine::attack_report::held(report, block_on).is_empty()
+            || !devflow_engine::attack::env_held(report, block_on).is_empty(),
+    )
 }
 
 /// `devflow attack`: the attack tool's answer, printed as JSON.

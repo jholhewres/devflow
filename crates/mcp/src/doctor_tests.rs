@@ -586,3 +586,48 @@ fn an_attack_whose_exploits_failed_on_their_environment_is_pointed_out() {
         warned.what
     );
 }
+
+/// One exploit that could not run and holds the item is pointed out too,
+/// saying it holds; below `block_on` they are a warning.
+#[test]
+fn an_attack_that_could_not_run_and_holds_the_item_is_pointed_out() {
+    let home = tempfile::tempdir().unwrap();
+    let root = tempfile::tempdir().unwrap();
+    let folder = root.path().join(".devflow");
+    fs::create_dir_all(folder.join("runs")).unwrap();
+    fs::write(
+        folder.join("devflow.yaml"),
+        "version: 2\nenabled: true\nstages:\n  attack:\n    run: release\n    test: go test ./...\n",
+    )
+    .unwrap();
+    fs::write(
+        folder
+            .join("runs")
+            .join(devflow_engine::attack_metrics::LEDGER),
+        format!(
+            "{}\n",
+            serde_json::json!({ "item": "card_1", "run": "20261123T000000Z",
+                "metrics": { "env_error": 1, "env_repeated": 1, "env_held": 1 } })
+        ),
+    )
+    .unwrap();
+    let consent = Consent::at(&home.path().join("devflow"));
+    let said = findings(
+        root.path(),
+        &machine(home.path()),
+        &consent,
+        "/bin/devflow",
+        &[],
+    );
+    let warned = said
+        .iter()
+        .find(|one| one.what.contains("env_error"))
+        .expect("pointed out");
+    assert!(
+        warned
+            .what
+            .contains("1 that could not run hold the item at the gate"),
+        "{}",
+        warned.what
+    );
+}

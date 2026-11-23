@@ -22,3 +22,13 @@ fn a_release_range_is_a_dot_dot_or_three_dots() {
         assert_eq!(range_ends(not), None, "{not}");
     }
 }
+
+/// A hypothesis that could not run for its environment fails a CI run as a
+/// confirmed one would, at `block_on`: no evidence either way.
+#[test]
+fn a_ci_run_fails_on_an_exploit_that_could_not_run_at_block_on() {
+    let report = json!({ "hypotheses": [{ "id": "h1", "status": "tried", "severity": "high",
+        "ran": { "result": "not_run", "env_error": "no such module: fts5" } }] });
+    assert_eq!(ci_exit(&report, &[Severity::Critical, Severity::High]), 1);
+    assert_eq!(ci_exit(&report, &[Severity::Critical]), 0, "below block_on");
+}

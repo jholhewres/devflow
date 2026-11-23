@@ -615,7 +615,30 @@ fn attacked(looked: &Looked, missing: &mut Vec<String>) {
                 ));
             }
             proofs(looked, report, missing);
+            could_not_run(looked, report, missing);
         }
+    }
+}
+
+/// Each hypothesis the attack could not run for its environment or build
+/// that holds the item ([`crate::attack::env_held`]): at `block_on`, or a
+/// hole an earlier run confirmed. An attack that could not run is no
+/// evidence; below `block_on`, a new one is only the report's warning.
+fn could_not_run(looked: &Looked, report: &Value, missing: &mut Vec<String>) {
+    let held = crate::attack::env_held(report, &looked.config.review.block_on);
+    missing.extend(held.iter().take(NAMED).map(|one| {
+        format!(
+            "the hypothesis `{}:{}` {} could not run (env_error: its environment or build failed, not its assertion): fix stages.attack.test and run the attack again, or run its exploit in the session and send `verified` (devflow-attack)",
+            word(one, "file"),
+            one.get("line").and_then(Value::as_u64).unwrap_or_default(),
+            word(one, "title")
+        )
+    }));
+    if held.len() > NAMED {
+        missing.push(format!(
+            "and {} more hypotheses that could not run (devflow-attack)",
+            held.len() - NAMED
+        ));
     }
 }
 

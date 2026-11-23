@@ -51,6 +51,7 @@ pub fn of_report(report: &Value) -> Value {
         // attack's test command lacks what the project needs.
         "env_error": report["counts"]["env_error"].as_u64().unwrap_or_default(),
         "env_repeated": crate::attack::env_repeated(report),
+        "env_held": report["counts"]["env_held"].as_u64().unwrap_or_default(),
         "wall_ms": report["profile"]["total_ms"].as_u64(),
         "cost_per_confirmed": (confirmed > 0).then(|| cost / confirmed as f64),
         "missed_by_review": missed,

@@ -1574,3 +1574,85 @@ fn an_attack_on_a_flow_reads_both_sides_and_names_each_sides_fix() {
     assert!(markdown.contains("- h1: api, worker\n"), "{markdown}");
     assert!(!markdown.contains("send the upload's id"), "{markdown}");
 }
+
+/// An attack that could not run is no evidence: a hypothesis stopped by its
+/// environment holds the item at the gate when it is at `block_on`, or when
+/// it is a hole an earlier run confirmed run again; a new one below
+/// `block_on` is a warning only.
+#[test]
+fn the_gate_holds_a_hypothesis_that_could_not_run_at_block_on_or_once_confirmed() {
+    let config = parsed("version: 2\nstages:\n  - uses: builtin/execution\n    checks:\n      - { name: unit, run: make test, report: junit }\n");
+    let evidence = json!({ "checks": [{ "name": "unit", "result": "passed" }] });
+    let stopped = |severity: &str, again: Value| {
+        json!({ "id": "h1", "status": "tried", "severity": severity, "file": SENSITIVE,
+            "line": 2, "title": "unsigned cookie", "again": again,
+            "exploit": { "test": "exploit" },
+            "ran": { "result": "not_run", "reason": "env_error: its environment failed",
+                     "env_error": "open store: no such module: fts5" } })
+    };
+    let held = |one: Value| {
+        let report = json!({ "hypotheses": [one] });
+        let stages = vec![(
+            config::ATTACK.to_owned(),
+            Some(("20261119T110000Z".to_owned(), report)),
+        )];
+        checked(&looked_with(&config, &evidence, &stages, None))
+            .missing
+            .into_iter()
+            .filter(|said| said.contains("could not run"))
+            .collect::<Vec<_>>()
+    };
+    let high = held(stopped("high", Value::Null));
+    assert_eq!(high.len(), 1, "{high:?}");
+    assert!(high[0].contains("env_error"), "{high:?}");
+    assert!(high[0].contains("stages.attack.test"), "{high:?}");
+    assert!(
+        held(stopped("low", Value::Null)).is_empty(),
+        "a warning only"
+    );
+    let once_confirmed =
+        json!({ "item": "card_1", "run": "20261118T000000Z", "id": "h4", "was": "confirmed" });
+    assert_eq!(held(stopped("low", once_confirmed.clone())).len(), 1);
+
+    // The verdict and the reports say the same.
+    let mut report = json!({ "mode": "item", "hypotheses": [stopped("low", once_confirmed)] });
+    attack::settled(&mut report, &[config::Severity::High]);
+    assert_eq!(report["verdict"], "request_changes", "{report:#}");
+    assert_eq!(report["counts"]["env_held"], 1);
+    let md = devflow_engine::attack_report::markdown(&report, &Default::default());
+    assert!(
+        md.contains("**1 hypothesis that could not run holds the item**"),
+        "{md}"
+    );
+    let mut low = json!({ "mode": "item", "hypotheses": [stopped("low", Value::Null)] });
+    attack::settled(&mut low, &[config::Severity::High]);
+    assert_eq!(low["verdict"], "approve", "{low:#}");
+    assert_eq!(low["counts"]["env_held"], 0);
+}
+
+/// A session that could not run it either settles nothing: one held stays
+/// held after `verified` says not_run; a range in production follows it up.
+#[test]
+fn a_hypothesis_that_could_not_run_stays_held_until_a_run_settles_it() {
+    let stopped = json!({ "id": "h1", "status": "tried", "severity": "high", "file": SENSITIVE,
+        "line": 2, "title": "unsigned cookie", "exploit": { "test": "exploit" },
+        "ran": { "result": "not_run", "reason": "env_error: its environment failed",
+                 "env_error": "open store: no such module: fts5" } });
+    let mut report = json!({ "mode": "item", "hypotheses": [stopped.clone()] });
+    attack::verified_on(
+        &mut report,
+        &[json!({ "hypothesis": "h1", "result": "not_run", "evidence": "the session could not run it either" })],
+    )
+    .expect("kept");
+    attack::settled(&mut report, &[config::Severity::High]);
+    assert_eq!(report["counts"]["env_held"], 1, "{report:#}");
+    assert_eq!(report["verdict"], "request_changes");
+    let mut retro = json!({ "mode": "retro", "hypotheses": [stopped] });
+    attack::settled(&mut retro, &[config::Severity::High]);
+    assert_eq!(retro["verdict"], "follow_up", "{retro:#}");
+    let md = devflow_engine::attack_report::markdown(&retro, &Default::default());
+    assert!(
+        md.contains("**1 hypothesis that could not run is followed up**"),
+        "{md}"
+    );
+}
