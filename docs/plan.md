@@ -547,6 +547,13 @@ HEAD. The details, and how to read the report: [security.md](security.md).
   doctor`, with the command to set; the session's `verified` settles one.
   A Go project's exploit test carries the build tags its Makefile or CI
   tests with.
+- 0.7.6, what devpit's card worktrees showed: a linked worktree takes the
+  switch and the decisions of its repository's main checkout where it has
+  none of its own, and its devflow folder may be a symlink to the main
+  checkout's; `doctor` says which switch stands. An attack that could not
+  run (env_error) holds the item at `block_on`, or when it is a hole an
+  earlier run confirmed. A Go exploit runs from the `go.mod` nearest it, a
+  nested module's.
 
 **What a host sees change**
 
@@ -665,6 +672,13 @@ HEAD. The details, and how to read the report: [security.md](security.md).
   each tried hypothesis in the answer `env_error`. `detect::exploit_test_at`
   gives a Go project's command `-v` and its `-tags`, its source where they
   are said: the detected Go command changes.
+- 0.7.6 only adds, but for the detected Go command, which now runs from the
+  nearest `go.mod` (`detect::GO_EXPLOIT`): `fsguard::main_checkout`;
+  `fsguard::resolve` and `relative_to` accept a worktree's devflow folder
+  linked to its main checkout's; `attack::env_held` and
+  `attack_report::env_held`; `counts.env_held` and the ledger's
+  `env_held`; an attack's verdict asks for changes on one that could not
+  run and holds. consent.json gains `disabled` and `unenforced`.
 
 ## The engine as a library: 0.7.0
 

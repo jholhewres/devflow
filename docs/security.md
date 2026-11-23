@@ -168,6 +168,21 @@ Only the person consents:
   sandboxed, or have the agent ask before it runs devflow by hand.
 - Each yes is kept in `consent.json` with how it came (`elicitation` or
   `terminal`), when, and what it was asked for; `status` shows them.
+- A linked worktree of a repository (git's common folder is not its own)
+  takes the decisions of the repository's main checkout where it has none
+  of its own: the switch, Decisions' enforce, the targets and stack
+  confirmed, the parts of the attack's question answered. Its own yes or no
+  stands over them, and `doctor` says which one stands. Its devflow folder
+  may be a symlink to the same folder of that main checkout (`.devpit`,
+  `.devpit/devflow` or `.devflow`), since git keeps it out of every
+  worktree: read and written through, said as the worktree's own. Any other
+  path that leads out of the project is refused, the main checkout's other
+  files, another repository's folder, and a main checkout's folder that is
+  itself a link out included. The main checkout is read from what git
+  writes in the worktree (its `.git` file, the `commondir` it names, and the
+  `gitdir` that names the worktree back), never from a command. Keep the
+  link out of git: `.devpit` in `.gitignore` without a trailing slash, which
+  ignores a link too.
 - Where the client cannot ask, the attack answers with one command for the
   person, which does the same on a terminal with one yes (and a second for
   targets):
@@ -755,8 +770,18 @@ ledger count them), and `devflow doctor` points at the newest attack with
 the command detected from the project's Makefile or CI when it differs from
 the one set; an attacker's typo stops only its own exploit and warns of
 nothing. The session's `verified` settles such a hypothesis once it ran with
-the command fixed: the sandbox showed nothing. A Go project's exploit test
-runs `go test -v`, naming its test as it starts, with the build tags its
+the command fixed: the sandbox showed nothing. An attack that could not
+run is no evidence that the hole is not there: one stopped so at
+`block_on`, or a hole an earlier run confirmed whose run again was stopped
+so, holds the item at the gate, asks for changes in the verdict and fails a
+release range's CI run, as a confirmed one would; the reports and `doctor`
+say how many hold it, until a run settles it (a session's `not_run`
+settles nothing). Below `block_on`, a new one is a warning to follow up.
+A Go project's exploit test
+runs from the folder of the `go.mod` nearest the exploit, so an exploit in
+a nested module (its own `go.mod`, a `go.work` above it found by Go) runs
+in that module, and runs `go test -v`, naming its test as it starts, with
+the build tags its
 own tests use: the `-tags` of a `go test` line of its Makefile, task runner
 or `.github/workflows`, a make variable read where the file sets it, a
 commented line not read; only when no line runs `go test` are a `go build`,

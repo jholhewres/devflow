@@ -74,7 +74,9 @@ A hypothesis whose run says `env_error` failed on its environment or build
 Say so, with the `env_warning` when there is one: the person fixes
 `stages.attack.test`, or you run its exploit with the command fixed and
 send `verified`. Until it ran with the command fixed, never hand it back
-as confirmed or as refuted.
+as confirmed or as refuted. One at `block_on`, or a hole confirmed before,
+holds the item as a confirmed one would: an attack that could not run is no
+evidence.
 
 The attacker also reads the project's threat model, `threat-model.md` in
 devflow's folder, and its overlay on the security persona,
